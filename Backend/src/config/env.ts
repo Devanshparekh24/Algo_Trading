@@ -9,11 +9,11 @@ export interface EnvConfig {
   MAC_ADDRESS: string;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
+function getEnv(name: string, fallbackName?: string): string {
+  const value = process.env[name] || (fallbackName ? process.env[fallbackName] : undefined);
   if (!value) {
     throw new Error(
-      `Missing required environment variable: ${name}. Check your .env file.`
+      `Missing required environment variable: ${name}${fallbackName ? ' or ' + fallbackName : ''}. Check your .env file.`
     );
   }
   return value;
@@ -24,12 +24,12 @@ let _config: EnvConfig | null = null;
 export function getConfig(): EnvConfig {
   if (!_config) {
     _config = {
-      API_KEY: requireEnv("API_KEY"),
-      CLIENT_CODE: requireEnv("CLIENT_CODE"),
-      PASSWORD: requireEnv("PASSWORD"),
-      TOTP_SECRET: requireEnv("TOTP_SECRET"),
-      STATIC_IP: requireEnv("STATIC_IP"),
-      MAC_ADDRESS: requireEnv("MAC_ADDRESS"),
+      API_KEY: getEnv("API_KEY", "ANGEL_API_KEY"),
+      CLIENT_CODE: getEnv("CLIENT_CODE", "ANGEL_CLIENT_ID"),
+      PASSWORD: getEnv("PASSWORD", "ANGEL_PASSWORD"),
+      TOTP_SECRET: getEnv("TOTP_SECRET", "ANGEL_TOTP"),
+      STATIC_IP: getEnv("STATIC_IP"),
+      MAC_ADDRESS: getEnv("MAC_ADDRESS"),
     };
   }
   return _config;

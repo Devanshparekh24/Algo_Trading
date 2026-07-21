@@ -46,7 +46,7 @@ const store: TokenStore = {
 // Constants
 // ---------------------------------------------------------------------------
 
-const BASE_URL = "https://apiconnect.angelbroking.com";
+const BASE_URL = "https://apiconnect.angelone.in";
 const TOKEN_LIFETIME_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // refresh if < 5 min remaining
 
@@ -263,22 +263,21 @@ export async function getUserProfile(): Promise<UserProfile> {
   const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/getProfile`;
   const headers = buildHeaders(config.API_KEY, jwtToken);
 
-  console.log("[SmartAPI] Fetching user profile...");
-
   try {
-    const response = await axios.post<{
+    const response = await axios.get<{
       status: boolean;
       message: string;
       errorcode?: string;
       data?: UserProfile;
-    }>(url, {}, { headers });
+    }>(url, { headers });
 
     const { status, message, data, errorcode } = response.data;
 
     if (!status || !data) {
       const errMsg = errorcode
         ? `[${errorcode}] ${message}`
-        : message || "Profile fetch failed";
+        : message || `Profile fetch failed (status: ${status}, response: ${JSON.stringify(response.data)})`;
+      console.error(`[SmartAPI] Profile fetch failed details:`, response.data);
       throw new Error(errMsg);
     }
 

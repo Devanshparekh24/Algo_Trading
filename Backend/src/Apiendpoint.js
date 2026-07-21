@@ -1,0 +1,1 @@
+export const Apiendpoint=`https://apiconnect.angelone.in`

@@ -1,5 +1,6 @@
 import express from "express";
 import prisma from "./src/config/prisma";
+import { getUserProfile } from "./src/services/smartapi.js";
 
 const app = express();
 
@@ -11,6 +12,19 @@ app.get("/", async (_, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Database connection failed" });
+    }
+});
+
+app.get("/profile", async (_, res) => {
+    try {
+        const profile = await getUserProfile();
+        res.json({ success: true, profile });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: error instanceof Error ? error.message : String(error)
+        });
     }
 });
 
