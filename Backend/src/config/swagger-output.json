@@ -35,6 +35,26 @@
       "post": {
         "description": "",
         "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/positions": {
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/holdings": {
+      "get": {
+        "description": "",
+        "responses": {
           "default": {
             "description": ""
           }
@@ -53,6 +73,26 @@
     },
     "/api/v1/user/logout": {
       "post": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/user/positions": {
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/user/holdings": {
+      "get": {
         "description": "",
         "responses": {
           "default": {

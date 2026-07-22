@@ -21,6 +21,34 @@ export interface UserProfile {
   mobileno: string;
   exg: string[];
   lastaccesstime: string;
+}
+
+export interface Position {
+  exchange?: string;
+  tradingsymbol?: string;
+  symboltoken?: string;
+  producttype?: string;
+  transactiontype?: string;
+  quantity?: string;
+  averageprice?: string;
+  netqty?: string;
+  lp?: string;
+  pnl?: string;
+  m2m?: string;
+  [key: string]: unknown;
+}
+
+export interface Holding {
+  tradingsymbol?: string;
+  exchange?: string;
+  symboltoken?: string;
+  quantity?: number;
+  product?: string;
+  averageprice?: number;
+  ltp?: number;
+  close?: number;
+  profitandloss?: number;
+  realisedquantity?: number;
   [key: string]: unknown;
 }
 
@@ -372,6 +400,118 @@ export async function logoutSmartAPI(): Promise<boolean> {
   }
 
   return true;
+}
+
+/**
+ * Retrieve the user's current open trading positions.
+ * Requires a valid JWT token.
+ */
+export async function getPositions(): Promise<Position[]> {
+  const jwtToken = await getValidSession();
+  const config = getConfig();
+
+  const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`;
+  const headers = buildHeaders(config.API_KEY, jwtToken);
+
+  try {
+    const response = await axios.get<{
+      status: boolean;
+      message: string;
+      errorcode?: string;
+      data?: Position[] | null;
+    }>(url, { headers });
+
+    const { status, message, data, errorcode } = response.data;
+
+    if (!status) {
+      const errMsg = errorcode
+        ? `[${errorcode}] ${message}`
+        : message || `Failed to fetch positions (status: ${status}, response: ${JSON.stringify(response.data)})`;
+      console.error(`[SmartAPI] Position fetch failed details:`, response.data);
+      throw new Error(errMsg);
+    }
+
+    console.log("[SmartAPI] Positions fetched successfully.");
+    return data || [];
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if (!error.response) {
+        console.error("[SmartAPI] Network error during position fetch:", error.message);
+        throw new Error(`Position fetch failed due to network error: ${error.message}`);
+      }
+      const status = error.response.status;
+      const body = error.response.data;
+      console.error(
+        `[SmartAPI] Position fetch failed (HTTP ${status}):`,
+        JSON.stringify(body)
+      );
+      throw new Error(
+        `Position fetch failed (HTTP ${status}): ${JSON.stringify(body)}`
+      );
+    }
+
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error(`Unexpected position fetch error: ${String(error)}`);
+  }
+}
+
+/**
+ * Retrieve the user's current equity holdings (portfolio).
+ * Requires a valid JWT token.
+ */
+export async function getHoldings(): Promise<Holding[]> {
+  const jwtToken = await getValidSession();
+  const config = getConfig();
+
+  const url = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`;
+  const headers = buildHeaders(config.API_KEY, jwtToken);
+
+  try {
+    const response = await axios.get<{
+      status: boolean;
+      message: string;
+      errorcode?: string;
+      data?: Holding[] | null;
+    }>(url, { headers });
+
+    const { status, message, data, errorcode } = response.data;
+
+    if (!status) {
+      const errMsg = errorcode
+        ? `[${errorcode}] ${message}`
+        : message || `Failed to fetch holdings (status: ${status}, response: ${JSON.stringify(response.data)})`;
+      console.error(`[SmartAPI] Holding fetch failed details:`, response.data);
+      throw new Error(errMsg);
+    }
+
+    console.log("[SmartAPI] Holdings fetched successfully.");
+    return data || [];
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if (!error.response) {
+        console.error("[SmartAPI] Network error during holdings fetch:", error.message);
+        throw new Error(`Holdings fetch failed due to network error: ${error.message}`);
+      }
+      const status = error.response.status;
+      const body = error.response.data;
+      console.error(
+        `[SmartAPI] Holdings fetch failed (HTTP ${status}):`,
+        JSON.stringify(body)
+      );
+      throw new Error(
+        `Holdings fetch failed (HTTP ${status}): ${JSON.stringify(body)}`
+      );
+    }
+
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error(`Unexpected holdings fetch error: ${String(error)}`);
+  }
 }
 
 

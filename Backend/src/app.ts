@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, logout } from "./controllers/user.controller.js";
+import { getProfile, logout, getPositions, getHoldings } from "./controllers/user.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +32,14 @@ app.get("/profile", getProfile);
 
 // Root-level logout endpoint for compatibility
 app.post("/logout", logout);
+
+// Root-level positions endpoint for compatibility
+app.get("/positions", getPositions);
+
+// Root-level holdings endpoint for compatibility
+app.get("/holdings", getHoldings);
+
+
 
 
 // Register Swagger documentation UI endpoint
