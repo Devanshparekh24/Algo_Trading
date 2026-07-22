@@ -13,6 +13,8 @@ export type {
   Position,
   Holding,
   TokenStore,
+  HistoricalDataRequest,
+  CandleData,
 } from "./types.js";
 
 // API functions
@@ -23,6 +25,7 @@ export {
   getUserProfile,
   getPositions,
   getHoldings,
+  getCandleData,
 } from "./api/index.js";
 
 // Session management
@@ -34,4 +37,4 @@ export {
 // Token store (debug/monitoring)
 export {
   getStore as getTokenStore,
-} from "./store.js";
+} from "./store.js";

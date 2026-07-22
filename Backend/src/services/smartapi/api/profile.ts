@@ -8,6 +8,7 @@ import { BASE_URL } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { UserProfile } from "../types.js";
+import { handleApiError } from "./errorHandler.js";
 
 /**
  * Fetch the user profile / account details.
@@ -41,26 +42,6 @@ export async function getUserProfile(): Promise<UserProfile> {
     console.log("[SmartAPI] Profile fetched successfully.");
     return data;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (!error.response) {
-        console.error("[SmartAPI] Network error during profile fetch:", error.message);
-        throw new Error(`Profile fetch failed due to network error: ${error.message}`);
-      }
-      const status = error.response.status;
-      const body = error.response.data;
-      console.error(
-        `[SmartAPI] Profile fetch failed (HTTP ${status}):`,
-        JSON.stringify(body)
-      );
-      throw new Error(
-        `Profile fetch failed (HTTP ${status}): ${JSON.stringify(body)}`
-      );
-    }
-
-    if (error instanceof Error) {
-      throw error;
-    }
-
-    throw new Error(`Unexpected profile error: ${String(error)}`);
+    handleApiError(error, "profile fetch");
   }
 }

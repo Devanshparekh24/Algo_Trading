@@ -54,3 +54,13 @@ export interface TokenStore {
   feedToken: string | null;
   issuedAt: Date | null;
 }
+
+export interface HistoricalDataRequest {
+  exchange: string;
+  symboltoken: string;
+  interval: string;
+  fromdate: string;
+  todate: string;
+}
+
+export type CandleData = [string, number, number, number, number, number];

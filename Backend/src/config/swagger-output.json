@@ -55,8 +55,44 @@
       "get": {
         "description": "",
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/historical": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "exchange": {
+                  "example": "any"
+                },
+                "symboltoken": {
+                  "example": "any"
+                },
+                "interval": {
+                  "example": "any"
+                },
+                "fromdate": {
+                  "example": "any"
+                },
+                "todate": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -95,8 +131,44 @@
       "get": {
         "description": "",
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/user/historical": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "exchange": {
+                  "example": "any"
+                },
+                "symboltoken": {
+                  "example": "any"
+                },
+                "interval": {
+                  "example": "any"
+                },
+                "fromdate": {
+                  "example": "any"
+                },
+                "todate": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }

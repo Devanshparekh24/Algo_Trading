@@ -1,7 +1,13 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { getUserProfile, logoutSmartAPI, getPositions as fetchPositions, getHoldings as fetchHoldings } from "../services/smartapi/index.js";
+import {
+  getUserProfile,
+  logoutSmartAPI,
+  getPositions as fetchPositions,
+  getHoldings as fetchHoldings,
+  getCandleData,
+} from "../services/smartapi/index.js";
 
 /**
  * Get user profile details from Angel One SmartAPI.
@@ -42,6 +48,18 @@ export const getHoldings = asyncHandler(async (_req: Request, res: Response): Pr
     new ApiResponse(200, holdings, "Holdings fetched successfully")
   );
 });
+
+/**
+ * Fetch historical candle data.
+ */
+export const getHistoricalData = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const { exchange, symboltoken, interval, fromdate, todate } = req.body;
+  const candles = await getCandleData({ exchange, symboltoken, interval, fromdate, todate });
+  res.status(200).json(
+    new ApiResponse(200, candles, "Historical candle data fetched successfully")
+  );
+});
+
 
 
 

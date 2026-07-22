@@ -8,6 +8,7 @@ import { BASE_URL } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { Holding } from "../types.js";
+import { handleApiError } from "./errorHandler.js";
 
 /**
  * Retrieve the user's current equity holdings (portfolio).
@@ -41,26 +42,6 @@ export async function getHoldings(): Promise<Holding[]> {
     console.log("[SmartAPI] Holdings fetched successfully.");
     return data || [];
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (!error.response) {
-        console.error("[SmartAPI] Network error during holdings fetch:", error.message);
-        throw new Error(`Holdings fetch failed due to network error: ${error.message}`);
-      }
-      const status = error.response.status;
-      const body = error.response.data;
-      console.error(
-        `[SmartAPI] Holdings fetch failed (HTTP ${status}):`,
-        JSON.stringify(body)
-      );
-      throw new Error(
-        `Holdings fetch failed (HTTP ${status}): ${JSON.stringify(body)}`
-      );
-    }
-
-    if (error instanceof Error) {
-      throw error;
-    }
-
-    throw new Error(`Unexpected holdings fetch error: ${String(error)}`);
+    handleApiError(error, "holdings fetch");
   }
 }

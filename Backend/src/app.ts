@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, logout, getPositions, getHoldings } from "./controllers/user.controller.js";
+import { getProfile, logout, getPositions, getHoldings, getHistoricalData } from "./controllers/user.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +38,10 @@ app.get("/positions", getPositions);
 
 // Root-level holdings endpoint for compatibility
 app.get("/holdings", getHoldings);
+
+// Root-level historical data endpoint for compatibility
+app.post("/historical", getHistoricalData);
+
 
 
 

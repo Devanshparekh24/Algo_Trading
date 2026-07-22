@@ -39,3 +39,4 @@ export function buildHeaders(apiKey: string, jwtToken?: string): Record<string, 
   }
   return headers;
 }
+

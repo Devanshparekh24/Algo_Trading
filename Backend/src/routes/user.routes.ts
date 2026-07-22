@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getProfile, logout, getPositions, getHoldings } from "../controllers/user.controller.js";
+import { getProfile, logout, getPositions, getHoldings, getHistoricalData } from "../controllers/user.controller.js";
 
 const router = Router();
 
@@ -15,4 +15,8 @@ router.get("/positions", getPositions);
 // GET /holdings -> Get equity holdings from SmartAPI
 router.get("/holdings", getHoldings);
 
+// POST /historical -> Fetch historical candle data from SmartAPI
+router.post("/historical", getHistoricalData);
+
 export default router;
+

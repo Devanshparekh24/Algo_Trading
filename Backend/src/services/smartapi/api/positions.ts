@@ -8,6 +8,7 @@ import { BASE_URL } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { Position } from "../types.js";
+import { handleApiError } from "./errorHandler.js";
 
 /**
  * Retrieve the user's current open trading positions.
@@ -41,26 +42,6 @@ export async function getPositions(): Promise<Position[]> {
     console.log("[SmartAPI] Positions fetched successfully.");
     return data || [];
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (!error.response) {
-        console.error("[SmartAPI] Network error during position fetch:", error.message);
-        throw new Error(`Position fetch failed due to network error: ${error.message}`);
-      }
-      const status = error.response.status;
-      const body = error.response.data;
-      console.error(
-        `[SmartAPI] Position fetch failed (HTTP ${status}):`,
-        JSON.stringify(body)
-      );
-      throw new Error(
-        `Position fetch failed (HTTP ${status}): ${JSON.stringify(body)}`
-      );
-    }
-
-    if (error instanceof Error) {
-      throw error;
-    }
-
-    throw new Error(`Unexpected position fetch error: ${String(error)}`);
+    handleApiError(error, "position fetch");
   }
 }
