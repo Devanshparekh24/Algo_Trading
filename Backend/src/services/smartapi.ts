@@ -148,7 +148,7 @@ export async function loginSmartAPI(): Promise<LoginResponse> {
       message,
     };
   } catch (error) {
-    if (error instanceof AxiosError) {
+    if (axios.isAxiosError(error)) {
       if (!error.response) {
         console.error("[SmartAPI] Network error during login:", error.message);
         throw new Error(`Network error during login: ${error.message}`);
@@ -232,7 +232,7 @@ export async function refreshSmartAPISession(
       message,
     };
   } catch (error) {
-    if (error instanceof AxiosError) {
+    if (axios.isAxiosError(error)) {
       if (!error.response) {
         console.error("[SmartAPI] Network error during session refresh:", error.message);
         throw new Error(`Session refresh failed due to network error: ${error.message}`);
@@ -288,7 +288,7 @@ export async function getUserProfile(): Promise<UserProfile> {
     console.log("[SmartAPI] Profile fetched successfully.");
     return data;
   } catch (error) {
-    if (error instanceof AxiosError) {
+    if (axios.isAxiosError(error)) {
       if (!error.response) {
         console.error("[SmartAPI] Network error during profile fetch:", error.message);
         throw new Error(`Profile fetch failed due to network error: ${error.message}`);
@@ -311,6 +311,69 @@ export async function getUserProfile(): Promise<UserProfile> {
     throw new Error(`Unexpected profile error: ${String(error)}`);
   }
 }
+
+/**
+ * Log out from the Angel One SmartAPI session.
+ *
+ * Invalidates the session on the server and clears stored tokens in memory.
+ */
+export async function logoutSmartAPI(): Promise<boolean> {
+  const config = getConfig();
+  const jwtToken = store.jwtToken;
+
+  if (!jwtToken) {
+    console.log("[SmartAPI] No active session to log out.");
+    return false;
+  }
+
+  const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/logout`;
+  const headers = buildHeaders(config.API_KEY, jwtToken);
+  const body = {
+    clientcode: config.CLIENT_CODE,
+  };
+
+  console.log("[SmartAPI] Attempting logout...");
+
+  try {
+    const response = await axios.post<{
+      status: boolean;
+      message: string;
+      errorcode?: string;
+    }>(url, body, { headers });
+
+    const { status, message, errorcode } = response.data;
+
+    if (!status) {
+      const errMsg = errorcode
+        ? `[${errorcode}] ${message}`
+        : message || "Logout failed with no error message";
+      console.error(`[SmartAPI] Logout failed: ${errMsg}`);
+    } else {
+      console.log("[SmartAPI] Logout successful on server.");
+    }
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const bodyData = error.response?.data;
+      console.error(
+        `[SmartAPI] Logout API call error (HTTP ${status}):`,
+        JSON.stringify(bodyData || error.message)
+      );
+    } else {
+      console.error("[SmartAPI] Unexpected error during logout call:", String(error));
+    }
+  } finally {
+    // Always clear the local token store on logout
+    store.jwtToken = null;
+    store.refreshToken = null;
+    store.feedToken = null;
+    store.issuedAt = null;
+    console.log("[SmartAPI] Local session tokens cleared.");
+  }
+
+  return true;
+}
+
 
 // ---------------------------------------------------------------------------
 // Session management

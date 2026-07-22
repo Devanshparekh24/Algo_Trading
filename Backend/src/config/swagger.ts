@@ -117,5 +117,64 @@ export const swaggerDocument = {
         },
       },
     },
+    "/logout": {
+      post: {
+        summary: "Log Out User",
+        description: "Invalidates the Angel One SmartAPI session and clears in-memory tokens.",
+        responses: {
+          200: {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    statusCode: { type: "integer" },
+                    data: {
+                      type: "object",
+                      properties: {
+                        loggedOut: { type: "boolean" },
+                      },
+                    },
+                    message: { type: "string" },
+                    success: { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/user/logout": {
+      post: {
+        summary: "Log Out User (Versioned)",
+        description: "Invalidates the Angel One SmartAPI session and clears in-memory tokens via the versioned API route.",
+        responses: {
+          200: {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    statusCode: { type: "integer" },
+                    data: {
+                      type: "object",
+                      properties: {
+                        loggedOut: { type: "boolean" },
+                      },
+                    },
+                    message: { type: "string" },
+                    success: { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 };
+
