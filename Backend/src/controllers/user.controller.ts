@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { getUserProfile, logoutSmartAPI, getPositions as fetchPositions, getHoldings as fetchHoldings } from "../services/smartapi.js";
+import { getUserProfile, logoutSmartAPI, getPositions as fetchPositions, getHoldings as fetchHoldings } from "../services/smartapi/index.js";
 
 /**
  * Get user profile details from Angel One SmartAPI.

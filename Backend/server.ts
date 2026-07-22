@@ -1,6 +1,6 @@
 import app from "./src/app.js";
 import prisma from "./src/config/prisma.js";
-import { startSessionScheduler } from "./src/services/smartapi.js";
+import { startSessionScheduler } from "./src/services/smartapi/index.js";
 
 const PORT = process.env.PORT || 5000;
 
