@@ -1,33 +1,23 @@
-import express from "express";
-import prisma from "./src/config/prisma";
-import { getUserProfile } from "./src/services/smartapi.js";
+import app from "./src/app.js";
+import prisma from "./src/config/prisma.js";
+import { startSessionScheduler } from "./src/services/smartapi.js";
 
-const app = express();
+const PORT = process.env.PORT || 5000;
 
-app.get("/", async (_, res) => {
+app.listen(PORT, async () => {
+    console.log(` 🪬🪬🪬Server running on http://localhost:${PORT}`);
+
     try {
-        // Test the connection only
         await prisma.$connect();
-        res.json({ message: "Successfully connected to the database!" });
+        console.log("[Database] Connected successfully via Prisma.");
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Database connection failed" });
+        console.error("[Database] Connection failed:", error);
     }
-});
 
-app.get("/profile", async (_, res) => {
     try {
-        const profile = await getUserProfile();
-        res.json({ success: true, profile });
+        // Start periodic session refresh loop for SmartAPI
+        startSessionScheduler();
     } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: error instanceof Error ? error.message : String(error)
-        });
+        console.error("[SmartAPI] Failed to start session scheduler:", error);
     }
-});
-
-app.listen(5000, () => {
-    console.log(" 🪬🪬🪬Server running on http://localhost:5000");
-});
+});

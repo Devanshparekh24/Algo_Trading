@@ -149,19 +149,19 @@ export async function loginSmartAPI(): Promise<LoginResponse> {
     };
   } catch (error) {
     if (error instanceof AxiosError) {
-      const status = error.response?.status;
-      const body = error.response?.data;
+      if (!error.response) {
+        console.error("[SmartAPI] Network error during login:", error.message);
+        throw new Error(`Network error during login: ${error.message}`);
+      }
+
+      const status = error.response.status;
+      const body = error.response.data;
 
       if (status === 401) {
         const errMsg =
           body?.message || "Unauthorized – check credentials, TOTP, or IP whitelist";
         console.error(`[SmartAPI] Login failed (401): ${errMsg}`);
         throw new Error(`Login failed: ${errMsg}`);
-      }
-
-      if (error.code === "ECONNABORTED" || error.code === "ERR_NETWORK") {
-        console.error("[SmartAPI] Network error during login:", error.message);
-        throw new Error(`Network error: ${error.message}`);
       }
 
       console.error(
@@ -233,8 +233,12 @@ export async function refreshSmartAPISession(
     };
   } catch (error) {
     if (error instanceof AxiosError) {
-      const status = error.response?.status;
-      const body = error.response?.data;
+      if (!error.response) {
+        console.error("[SmartAPI] Network error during session refresh:", error.message);
+        throw new Error(`Session refresh failed due to network error: ${error.message}`);
+      }
+      const status = error.response.status;
+      const body = error.response.data;
       console.error(
         `[SmartAPI] Refresh failed (HTTP ${status}):`,
         JSON.stringify(body)
@@ -285,8 +289,12 @@ export async function getUserProfile(): Promise<UserProfile> {
     return data;
   } catch (error) {
     if (error instanceof AxiosError) {
-      const status = error.response?.status;
-      const body = error.response?.data;
+      if (!error.response) {
+        console.error("[SmartAPI] Network error during profile fetch:", error.message);
+        throw new Error(`Profile fetch failed due to network error: ${error.message}`);
+      }
+      const status = error.response.status;
+      const body = error.response.data;
       console.error(
         `[SmartAPI] Profile fetch failed (HTTP ${status}):`,
         JSON.stringify(body)
