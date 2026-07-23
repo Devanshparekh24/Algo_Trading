@@ -15,6 +15,8 @@ export type {
   TokenStore,
   HistoricalDataRequest,
   CandleData,
+  LtpDataRequest,
+  LtpDataResponse,
 } from "./types.js";
 
 // API functions
@@ -26,6 +28,7 @@ export {
   getPositions,
   getHoldings,
   getCandleData,
+  getLtpData,
 } from "./api/index.js";
 
 // Session management
@@ -37,4 +40,11 @@ export {
 // Token store (debug/monitoring)
 export {
   getStore as getTokenStore,
-} from "./store.js";
+} from "./store.js";
+
+// Instrument service (Postgres backed)
+export {
+  syncInstruments,
+  searchInstruments,
+  startInstrumentScheduler,
+} from "./instrument.service.js";

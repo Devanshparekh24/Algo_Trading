@@ -64,3 +64,20 @@ export interface HistoricalDataRequest {
 }
 
 export type CandleData = [string, number, number, number, number, number];
+
+export interface LtpDataRequest {
+  exchange: string;
+  tradingsymbol: string;
+  symboltoken: string;
+}
+
+export interface LtpDataResponse {
+  exchange: string;
+  tradingSymbol: string;
+  symbolToken: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  ltp: number;
+}

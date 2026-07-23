@@ -9,3 +9,22 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Instrument {
+  id             String   @id @default(uuid())
+  token          String   @unique
+  symbol         String
+  name           String
+  expiry         String
+  strike         String
+  lotsize        String
+  instrumenttype String
+  exch_seg       String
+  tick_size      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([symbol])
+  @@index([exch_seg])
+  @@index([name])
+}

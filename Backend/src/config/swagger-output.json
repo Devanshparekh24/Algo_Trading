@@ -63,28 +63,35 @@
     },
     "/historical": {
       "post": {
-        "description": "",
+        "description": "Fetch historical candle data.",
         "parameters": [
           {
             "name": "body",
             "in": "body",
+            "description": "Historical Data Request parameters",
+            "required": true,
             "schema": {
               "type": "object",
               "properties": {
                 "exchange": {
-                  "example": "any"
+                  "type": "string",
+                  "example": "NSE"
                 },
-                "symboltoken": {
-                  "example": "any"
+                "symbolToken": {
+                  "type": "string",
+                  "example": "3045"
                 },
                 "interval": {
-                  "example": "any"
+                  "type": "string",
+                  "example": "FIVE_MINUTE"
                 },
-                "fromdate": {
-                  "example": "any"
+                "fromDate": {
+                  "type": "string",
+                  "example": "2026-07-20 09:15"
                 },
-                "todate": {
-                  "example": "any"
+                "toDate": {
+                  "type": "string",
+                  "example": "2026-07-22 15:30"
                 }
               }
             }
@@ -93,6 +100,41 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/ltp": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "LTP Request parameters",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "exchange": {
+                  "type": "string",
+                  "example": "NSE"
+                },
+                "tradingSymbol": {
+                  "type": "string",
+                  "example": "SBIN-EQ"
+                },
+                "symbolToken": {
+                  "type": "string",
+                  "example": "3045"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
           }
         }
       }
@@ -139,28 +181,35 @@
     },
     "/api/v1/user/historical": {
       "post": {
-        "description": "",
+        "description": "Fetch historical candle data.",
         "parameters": [
           {
             "name": "body",
             "in": "body",
+            "description": "Historical Data Request parameters",
+            "required": true,
             "schema": {
               "type": "object",
               "properties": {
                 "exchange": {
-                  "example": "any"
+                  "type": "string",
+                  "example": "NSE"
                 },
-                "symboltoken": {
-                  "example": "any"
+                "symbolToken": {
+                  "type": "string",
+                  "example": "3045"
                 },
                 "interval": {
-                  "example": "any"
+                  "type": "string",
+                  "example": "FIVE_MINUTE"
                 },
-                "fromdate": {
-                  "example": "any"
+                "fromDate": {
+                  "type": "string",
+                  "example": "2026-07-20 09:15"
                 },
-                "todate": {
-                  "example": "any"
+                "toDate": {
+                  "type": "string",
+                  "example": "2026-07-22 15:30"
                 }
               }
             }
@@ -169,6 +218,61 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/user/ltp": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "LTP Request parameters",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "exchange": {
+                  "type": "string",
+                  "example": "NSE"
+                },
+                "tradingSymbol": {
+                  "type": "string",
+                  "example": "SBIN-EQ"
+                },
+                "symbolToken": {
+                  "type": "string",
+                  "example": "3045"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/scrips/sync": {
+      "post": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/scrips/search": {
+      "get": {
+        "description": "",
+        "responses": {
+          "default": {
+            "description": ""
           }
         }
       }

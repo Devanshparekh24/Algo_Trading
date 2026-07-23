@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, logout, getPositions, getHoldings, getHistoricalData } from "./controllers/user.controller.js";
+import { getProfile, logout, getPositions, getHoldings, getHistoricalData, getLtp } from "./controllers/user.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +18,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Root health check endpoint
 app.get("/", (_req, res) => {
@@ -40,7 +41,36 @@ app.get("/positions", getPositions);
 app.get("/holdings", getHoldings);
 
 // Root-level historical data endpoint for compatibility
-app.post("/historical", getHistoricalData);
+app.post("/historical", (req, res, next) => {
+  /* #swagger.parameters['body'] = {
+        in: 'body',
+        description: 'Historical Data Request parameters',
+        required: true,
+        schema: {
+            exchange: 'NSE',
+            symbolToken: '3045',
+            interval: 'FIVE_MINUTE',
+            fromDate: '2026-07-20 09:15',
+            toDate: '2026-07-22 15:30'
+        }
+  } */
+  return getHistoricalData(req, res, next);
+});
+
+// Root-level ltp data endpoint for compatibility
+app.post("/ltp", (req, res, next) => {
+  /* #swagger.parameters['body'] = {
+        in: 'body',
+        description: 'LTP Request parameters',
+        required: true,
+        schema: {
+            exchange: 'NSE',
+            tradingSymbol: 'SBIN-EQ',
+            symbolToken: '3045'
+        }
+  } */
+  return getLtp(req, res, next);
+});
 
 
 

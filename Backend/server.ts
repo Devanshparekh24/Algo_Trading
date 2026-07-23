@@ -1,6 +1,6 @@
 import app from "./src/app.js";
 import prisma from "./src/config/prisma.js";
-import { startSessionScheduler } from "./src/services/smartapi/index.js";
+import { startSessionScheduler, startInstrumentScheduler } from "./src/services/smartapi/index.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -20,5 +20,12 @@ app.listen(PORT, async () => {
         startSessionScheduler();
     } catch (error) {
         console.error("[SmartAPI] Failed to start session scheduler:", error);
+    }
+
+    try {
+        // Start instrument scheduler check and daily sync
+        await startInstrumentScheduler();
+    } catch (error) {
+        console.error("[SmartAPI] Failed to start instrument scheduler:", error);
     }
 });
