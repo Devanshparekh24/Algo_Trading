@@ -75,9 +75,9 @@ export interface LtpDataResponse {
   exchange: string;
   tradingSymbol: string;
   symbolToken: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  ltp: number;
+  open: number | string;
+  high: number | string;
+  low: number | string;
+  close: number | string;
+  ltp: number | string;
 }

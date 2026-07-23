@@ -1,13 +1,15 @@
 import { Router } from "express";
-import userRoutes from "./user.routes.js";
+import authRoutes from "./auth.routes.js";
+import portfolioRoutes from "./portfolio.routes.js";
+import marketRoutes from "./market.routes.js";
 import scripRoutes from "./scrip.routes.js";
 
 const router = Router();
 
-// Mount user routes
-router.use("/user", userRoutes);
-
-// Mount scrip routes
+// Mount modular routes
+router.use("/auth", authRoutes);
+router.use("/portfolio", portfolioRoutes);
+router.use("/market", marketRoutes);
 router.use("/scrips", scripRoutes);
 
 export default router;

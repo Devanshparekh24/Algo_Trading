@@ -6,7 +6,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, logout, getPositions, getHoldings, getHistoricalData, getLtp } from "./controllers/user.controller.js";
+import { getProfile, logout } from "./controllers/auth.controller.js";
+import { getPositions, getHoldings } from "./controllers/portfolio.controller.js";
+import { getHistoricalData, getLtp } from "./controllers/market.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

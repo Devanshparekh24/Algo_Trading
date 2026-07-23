@@ -35,8 +35,8 @@
       "post": {
         "description": "",
         "responses": {
-          "200": {
-            "description": "OK"
+          "default": {
+            "description": ""
           }
         }
       }
@@ -55,15 +55,15 @@
       "get": {
         "description": "",
         "responses": {
-          "200": {
-            "description": "OK"
+          "default": {
+            "description": ""
           }
         }
       }
     },
     "/historical": {
       "post": {
-        "description": "Fetch historical candle data.",
+        "description": "",
         "parameters": [
           {
             "name": "body",
@@ -139,7 +139,7 @@
         }
       }
     },
-    "/api/v1/user/profile": {
+    "/api/v1/auth/profile": {
       "get": {
         "description": "",
         "responses": {
@@ -149,17 +149,17 @@
         }
       }
     },
-    "/api/v1/user/logout": {
+    "/api/v1/auth/logout": {
       "post": {
         "description": "",
         "responses": {
-          "200": {
-            "description": "OK"
+          "default": {
+            "description": ""
           }
         }
       }
     },
-    "/api/v1/user/positions": {
+    "/api/v1/portfolio/positions": {
       "get": {
         "description": "",
         "responses": {
@@ -169,19 +169,19 @@
         }
       }
     },
-    "/api/v1/user/holdings": {
+    "/api/v1/portfolio/holdings": {
       "get": {
         "description": "",
         "responses": {
-          "200": {
-            "description": "OK"
+          "default": {
+            "description": ""
           }
         }
       }
     },
-    "/api/v1/user/historical": {
+    "/api/v1/market/historical": {
       "post": {
-        "description": "Fetch historical candle data.",
+        "description": "",
         "parameters": [
           {
             "name": "body",
@@ -222,7 +222,7 @@
         }
       }
     },
-    "/api/v1/user/ltp": {
+    "/api/v1/market/ltp": {
       "post": {
         "description": "",
         "parameters": [
