@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "tsx watch server.ts",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
     "swagger": "tsx src/config/swagger-generator.ts"
   },
   "keywords": [],

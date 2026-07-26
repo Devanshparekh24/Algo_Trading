@@ -104,6 +104,34 @@ export async function searchInstruments(params: {
 }
 
 /**
+ * Ensure the Instrument table and indexes exist in PostgreSQL.
+ */
+export async function ensureInstrumentTable(): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "Instrument" (
+        "id" TEXT NOT NULL,
+        "token" TEXT NOT NULL,
+        "symbol" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "expiry" TEXT NOT NULL,
+        "strike" TEXT NOT NULL,
+        "lotsize" TEXT NOT NULL,
+        "instrumenttype" TEXT NOT NULL,
+        "exch_seg" TEXT NOT NULL,
+        "tick_size" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT "Instrument_pkey" PRIMARY KEY ("id")
+    );
+  `);
+  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Instrument_token_key" ON "Instrument"("token");`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Instrument_symbol_idx" ON "Instrument"("symbol");`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Instrument_exch_seg_idx" ON "Instrument"("exch_seg");`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Instrument_name_idx" ON "Instrument"("name");`);
+}
+
+/**
  * Background scheduler check at startup and every 24 hours.
  */
 export async function startInstrumentScheduler(): Promise<void> {
@@ -111,6 +139,7 @@ export async function startInstrumentScheduler(): Promise<void> {
 
   // Run initial check
   try {
+    await ensureInstrumentTable();
     const count = await prisma.instrument.count();
     let needsSync = count === 0;
 
