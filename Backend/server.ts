@@ -5,8 +5,8 @@ import { startSessionScheduler, startInstrumentScheduler } from "./src/services/
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, async () => {
-    console.log(` 🪬🪬🪬Server running on http://localhost:${PORT}`);
-    console.log(`✌✌Swagger documentation on http://localhost:${PORT}/api-docs`);
+    console.log(` 🪬 🪬 🪬 Server running on http://localhost:${PORT}`);
+    console.log(`✌ ✌ Swagger documentation on http://localhost:${PORT}/api-docs`);
 
     try {
         await prisma.$connect();

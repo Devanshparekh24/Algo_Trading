@@ -81,3 +81,55 @@ export interface LtpDataResponse {
   close: number | string;
   ltp: number | string;
 }
+
+export interface FullModeResponse {
+  status: boolean;
+  message: string;
+  errorcode: string;
+  data: {
+    fetched: FullMode[];
+    unfetched: UnFetched[];
+  };
+}
+
+export interface FullMode {
+  exchange: string;
+  tradingSymbol: string;
+  symbolToken: string;
+  ltp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  lastTradeQty: number;
+  exchFeedTime: string;
+  exchTradeTime: string;
+  netChange: number;
+  percentChange: number;
+  avgPrice: number;
+  tradeVolume: number;
+  opnInterest: number;
+  lowerCircuit: number;
+  upperCircuit: number;
+  totBuyQuan: number;
+  totSellQuan: number;
+  "52WeekLow": number;
+  "52WeekHigh": number;
+  depth: MarketDepth;
+}
+export interface MarketDepth {
+  buy: DepthOrder[];
+  sell: DepthOrder[];
+}
+
+export interface DepthOrder {
+  price: number;
+  quantity: number;
+  orders: number;
+}
+
+export interface UnFetched {
+  exchange: string;
+  tradingSymbol: string;
+  symbolToken: string;
+}

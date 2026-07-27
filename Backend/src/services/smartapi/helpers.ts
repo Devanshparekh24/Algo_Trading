@@ -4,7 +4,7 @@
 
 import speakeasy from "speakeasy";
 import { getConfig } from "../../config/env.js";
-
+import axios from "axios";
 /**
  * Generate a TOTP (6-digit code) from a base32-encoded secret.
  */
@@ -39,4 +39,26 @@ export function buildHeaders(apiKey: string, jwtToken?: string): Record<string, 
   }
   return headers;
 }
-
+
+
+
+/**
+ * Helper to check if an error is an Angel One rate limit error.
+ */
+export function isRateLimitError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const body = error.response?.data;
+
+    if (status === 429 || status === 403) {
+      const bodyStr = typeof body === "string" ? body : JSON.stringify(body || "");
+      const lower = bodyStr.toLowerCase();
+      return (
+        lower.includes("exceeding access rate") ||
+        lower.includes("rate limit") ||
+        lower.includes("access denied")
+      );
+    }
+  }
+  return false;
+}
