@@ -133,8 +133,49 @@
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/fullmode": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "Full Mode Request parameters",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "example": "FULL"
+                },
+                "exchangeTokens": {
+                  "type": "object",
+                  "properties": {
+                    "NSE": {
+                      "type": "array",
+                      "example": [
+                        "3045"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -251,8 +292,61 @@
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/market/fullmode": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "Full Mode Request parameters",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "example": "FULL"
+                },
+                "exchangeTokens": {
+                  "type": "object",
+                  "properties": {
+                    "NSE": {
+                      "type": "array",
+                      "example": [
+                        "3045"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "tradingsymbol": {
+                  "type": "string",
+                  "example": "SBIN-EQ"
+                },
+                "exchange": {
+                  "type": "string",
+                  "example": "NSE"
+                },
+                "symboltoken": {
+                  "type": "string",
+                  "example": "3045"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }

@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
-import { getCandleData, getLtpData } from "../services/smartapi/index.js";
+import { getCandleData, getFullModeData, getLtpData, type FullModeRequest } from "../services/smartapi/index.js";
 
 /**
  * Fetch historical candle data.
@@ -80,5 +80,58 @@ export const getLtp = asyncHandler(async (req: Request, res: Response): Promise<
 
   res.status(200).json(
     new ApiResponse(200, ltpData, "LTP data fetched successfully")
+  );
+});
+
+/**
+ * Fetch Full Mode / Quote data.
+ */
+export const getFullMode = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  console.log("[getFullMode] Raw request body:", req.body);
+
+  const {
+    mode,
+    exchangeTokens,
+    tradingsymbol,
+    tradingSymbol,
+    exchange,
+    symboltoken,
+    symbolToken,
+  } = req.body || {};
+
+  const finalMode = mode || "FULL";
+  const finalExchange = exchange;
+  const finalSymbolToken = symboltoken || symbolToken;
+  const finalTradingSymbol = tradingsymbol || tradingSymbol;
+
+  let finalExchangeTokens = exchangeTokens;
+
+  // Auto-construct exchangeTokens if not explicitly provided but exchange & symboltoken are present
+  if (!finalExchangeTokens && finalExchange && finalSymbolToken) {
+    finalExchangeTokens = {
+      [finalExchange]: [String(finalSymbolToken)],
+    };
+  }
+
+  if (!finalExchangeTokens || typeof finalExchangeTokens !== "object" || Object.keys(finalExchangeTokens).length === 0) {
+    throw new ApiError(
+      400,
+      "Missing required parameters in request body. Provide 'exchangeTokens' (e.g. {\"NSE\":[\"3045\"]}) or ('exchange' and 'symboltoken')"
+    );
+  }
+
+  const requestData: FullModeRequest = {
+    mode: finalMode,
+    exchangeTokens: finalExchangeTokens,
+  };
+
+  if (finalTradingSymbol) requestData.tradingsymbol = finalTradingSymbol;
+  if (finalExchange) requestData.exchange = finalExchange;
+  if (finalSymbolToken) requestData.symboltoken = String(finalSymbolToken);
+
+  const fullModeData = await getFullModeData(requestData);
+
+  res.status(200).json(
+    new ApiResponse(200, fullModeData, "Full Mode / Quote data fetched successfully")
   );
 });

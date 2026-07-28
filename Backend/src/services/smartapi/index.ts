@@ -17,6 +17,12 @@ export type {
   CandleData,
   LtpDataRequest,
   LtpDataResponse,
+  FullModeRequest,
+  FullModeResponse,
+  FullMode,
+  MarketDepth,
+  DepthOrder,
+  UnFetched,
 } from "./types.js";
 
 // API functions
@@ -29,6 +35,7 @@ export {
   getHoldings,
   getCandleData,
   getLtpData,
+  getFullModeData,
 } from "./api/index.js";
 
 // Session management

@@ -82,6 +82,14 @@ export interface LtpDataResponse {
   ltp: number | string;
 }
 
+export interface FullModeRequest {
+  mode: "FULL" | "OHLC" | "LTP" | string;
+  exchangeTokens: Record<string, string[]>;
+  tradingsymbol?: string;
+  exchange?: string;
+  symboltoken?: string;
+}
+
 export interface FullModeResponse {
   status: boolean;
   message: string;

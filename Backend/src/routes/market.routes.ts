@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getHistoricalData, getLtp } from "../controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp } from "../controllers/market.controller.js";
 
 const router = Router();
 
@@ -33,6 +33,25 @@ router.post("/ltp", (req, res, next) => {
         }
   } */
   return getLtp(req, res, next);
+});
+
+// POST /fullmode -> Fetch Full Mode / Quote data from SmartAPI
+router.post("/fullmode", (req, res, next) => {
+  /* #swagger.parameters['body'] = {
+        in: 'body',
+        description: 'Full Mode Request parameters',
+        required: true,
+        schema: {
+            mode: 'FULL',
+            exchangeTokens: {
+                "NSE": ["3045"]
+            },
+            tradingsymbol: 'SBIN-EQ',
+            exchange: 'NSE',
+            symboltoken: '3045'
+        }
+  } */
+  return getFullMode(req, res, next);
 });
 
 export default router;

@@ -8,7 +8,7 @@ import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { getProfile, logout } from "./controllers/auth.controller.js";
 import { getPositions, getHoldings } from "./controllers/portfolio.controller.js";
-import { getHistoricalData, getLtp } from "./controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp } from "./controllers/market.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,6 +74,21 @@ app.post("/ltp", (req, res, next) => {
   return getLtp(req, res, next);
 });
 
+// Root-level fullmode data endpoint for compatibility
+app.post("/fullmode", (req, res, next) => {
+  /* #swagger.parameters['body'] = {
+        in: 'body',
+        description: 'Full Mode Request parameters',
+        required: true,
+        schema: {
+            mode: 'FULL',
+            exchangeTokens: {
+                "NSE": ["3045"]
+            }
+        }
+  } */
+  return getFullMode(req, res, next);
+});
 
 
 

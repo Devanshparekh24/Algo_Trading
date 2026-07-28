@@ -1,11 +1,10 @@
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
 import { BASE_URL } from "../constants.js";
-import { buildHeaders } from "../helpers.js";
+import { buildHeaders, isRateLimitError } from "../helpers.js";
 import { getValidSession } from "../session.js";
-import type { LtpDataRequest, LtpDataResponse } from "../types.js";
+import type { FullModeRequest, FullModeResponse } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
-import { isRateLimitError } from "../helpers.js";
 
 /**
  * Simple sleep helper.
@@ -15,15 +14,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Fetch last traded price (LTP) data for a scrip.
+ * Fetch Full Mode / Quote data for scrips.
  * Requires a valid JWT token.
  * Retries with exponential backoff on rate limit errors.
  *
- * @param request The parameters for fetching LTP data.
+ * @param request The parameters for fetching Full Mode data.
  */
-export async function getLtpData(
-  request: LtpDataRequest
-): Promise<LtpDataResponse> {
+export async function getFullModeData(
+  request: FullModeRequest
+): Promise<FullModeResponse> {
   const maxRetries = 5;
   let attempt = 0;
   let delay = 500; // ms
@@ -36,12 +35,7 @@ export async function getLtpData(
       const url = `${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`;
       const headers = buildHeaders(config.API_KEY, jwtToken);
 
-      const response = await axios.post<{
-        status: boolean;
-        message: string;
-        errorcode?: string;
-        data?: LtpDataResponse;
-      }>(url, request, { headers });
+      const response = await axios.post<FullModeResponse>(url, request, { headers });
 
       const { status, message, data, errorcode } = response.data;
 
@@ -64,23 +58,23 @@ export async function getLtpData(
               response.data
             )})`;
         console.error(
-          `[SmartAPI] LTP data fetch failed details:`,
+          `[SmartAPI] Full Mode data fetch failed details:`,
           response.data
         );
         throw new Error(errMsg);
       }
 
       console.log(
-        `[SmartAPI] LTP data fetched successfully for symbol: ${request.tradingsymbol}`
+        `[SmartAPI] Full Mode data fetched successfully`
       );
-      return data;
+      return response.data;
     } catch (error: any) {
       const isRateLimit = isRateLimitError(error) || error?.isRateLimitStatus;
 
       if (isRateLimit && attempt < maxRetries) {
         attempt++;
         console.warn(
-          `[SmartAPI] Rate limit hit for LTP data. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`
+          `[SmartAPI] Rate limit hit for Full Mode data. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`
         );
         await sleep(delay);
         delay *= 2;
@@ -91,7 +85,7 @@ export async function getLtpData(
         throw new Error(`[SmartAPI] Rate limit exceeded: ${error.message}`);
       }
 
-      handleApiError(error, "LTP data fetch");
+      handleApiError(error, "Full Mode data fetch");
     }
   }
 }
