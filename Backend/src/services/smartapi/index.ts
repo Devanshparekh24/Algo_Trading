@@ -10,6 +10,7 @@
 export type {
   LoginResponse,
   UserProfile,
+  RMSData,
   Position,
   Holding,
   TokenStore,
@@ -31,12 +32,14 @@ export {
   refreshSmartAPISession,
   logoutSmartAPI,
   getUserProfile,
+  getRMS,
   getPositions,
   getHoldings,
   getCandleData,
   getLtpData,
   getFullModeData,
 } from "./api/index.js";
+
 
 // Session management
 export {

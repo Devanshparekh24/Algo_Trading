@@ -19,6 +19,20 @@ export interface UserProfile {
   lastaccesstime: string;
 }
 
+export interface RMSData {
+  net?: string;
+  availablecash?: string;
+  collateral?: string;
+  m2mUnrealized?: string;
+  m2mRealized?: string;
+  utilisedDebits?: string;
+  utilisedOptionpremium?: string;
+  utilisedPayOut?: string;
+  utilisedHoldings?: string;
+  [key: string]: unknown;
+}
+
+
 export interface Position {
   exchange?: string;
   tradingsymbol?: string;

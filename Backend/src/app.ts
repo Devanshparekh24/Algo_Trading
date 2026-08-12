@@ -6,9 +6,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, logout } from "./controllers/auth.controller.js";
+import { getProfile, getRMSLimit, logout } from "./controllers/auth.controller.js";
 import { getPositions, getHoldings } from "./controllers/portfolio.controller.js";
 import { getFullMode, getHistoricalData, getLtp } from "./controllers/market.controller.js";
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,9 @@ app.get("/", (_req, res) => {
 
 // Root-level profile endpoint for compatibility
 app.get("/profile", getProfile);
+
+// Root-level RMS endpoint for compatibility
+app.get("/rms", getRMSLimit);
 
 // Root-level logout endpoint for compatibility
 app.post("/logout", logout);

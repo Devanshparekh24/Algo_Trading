@@ -1,35 +1,43 @@
-export interface Instrument {
-  token: string;
-  symbol: string;
+export interface UserProfile {
+  clientcode: string;
   name: string;
-  expiry: string;
-  strike: string;
-  lotsize: string;
-  instrumenttype: string;
-  exch_seg: string;
-  tick_size: string;
+  email: string;
+  mobileno: string;
+  exg: string[];
+  lastaccesstime: string;
 }
 
-export interface MarketTick {
-  token: string;
-  symbol: string;
-  ltp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  changePercent: number;
+export interface Position {
+  exchange?: string;
+  tradingsymbol?: string;
+  symboltoken?: string;
+  producttype?: string;
+  transactiontype?: string;
+  quantity?: string | number;
+  averageprice?: string | number;
+  netqty?: string | number;
+  lp?: string | number;
+  pnl?: string | number;
+  m2m?: string | number;
 }
 
-export interface Order {
-  id: string;
-  symbol: string;
-  token: string;
-  type: "MARKET" | "LIMIT" | "STOPLOSS";
-  side: "BUY" | "SELL";
-  price: number;
-  quantity: number;
-  status: "PENDING" | "EXECUTED" | "CANCELLED" | "REJECTED";
-  createdAt: string;
+export interface ApiResponse<T> {
+  statusCode: number;
+  data: T;
+  message: string;
+  success: boolean;
 }
+
+export interface RMSData {
+  net?: string | number;
+  availablecash?: string | number;
+  collateral?: string | number;
+  m2mUnrealized?: string | number;
+  m2mRealized?: string | number;
+  utilisedDebits?: string | number;
+  utilisedOptionpremium?: string | number;
+  utilisedPayOut?: string | number;
+  utilisedHoldings?: string | number;
+  [key: string]: unknown;
+}
+
