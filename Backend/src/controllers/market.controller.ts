@@ -135,3 +135,84 @@ export const getFullMode = asyncHandler(async (req: Request, res: Response): Pro
     new ApiResponse(200, fullModeData, "Full Mode / Quote data fetched successfully")
   );
 });
+
+/**
+ * Nifty 50 index token & trading symbol (from Angel One scrip master).
+ * @see Backend/data/scripMaster.json
+ */
+const NIFTY_INDEX = {
+  exchange: "NSE",
+  tradingSymbol: "NIFTY",
+  symbolToken: "99926000",
+};
+
+/**
+ * Fetch the Nifty 50 index live quote (current price + OHLC + change stats).
+ * Combines the LTP endpoint (current price / OHLC) with the Full Mode quote
+ * endpoint (net change, % change, volume, 52 week high/low). If the richer
+ * Full Mode payload fails, it gracefully falls back to LTP-only data.
+ */
+export const getNiftyQuote = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  const { exchange, tradingSymbol, symbolToken } = NIFTY_INDEX;
+
+  const ltpData = await getLtpData({
+    exchange,
+    tradingsymbol: tradingSymbol,
+    symboltoken: symbolToken,
+  });
+
+  let change: Partial<{
+    netChange: number | null;
+    percentChange: number | null;
+    avgPrice: number | null;
+    tradeVolume: number | null;
+    exchFeedTime: string | null;
+    high52: number | null;
+    low52: number | null;
+  }> = {};
+
+  try {
+    const fullModeData = await getFullModeData({
+      mode: "FULL",
+      exchangeTokens: { [exchange]: [symbolToken] },
+      tradingsymbol: tradingSymbol,
+      exchange,
+      symboltoken: symbolToken,
+    });
+
+    const details = fullModeData.data?.fetched?.[0];
+    if (details) {
+      change = {
+        netChange: details.netChange ?? null,
+        percentChange: details.percentChange ?? null,
+        avgPrice: details.avgPrice ?? null,
+        tradeVolume: details.tradeVolume ?? null,
+        exchFeedTime: details.exchFeedTime ?? null,
+        high52: details["52WeekHigh"] ?? null,
+        low52: details["52WeekLow"] ?? null,
+      };
+    }
+  } catch (err: any) {
+    console.warn(
+      `[getNiftyQuote] Full Mode quote unavailable, falling back to LTP only: ${err?.message}`
+    );
+  }
+
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        exchange,
+        tradingSymbol,
+        symbolToken,
+        ltp: ltpData.ltp,
+        open: ltpData.open,
+        high: ltpData.high,
+        low: ltpData.low,
+        close: ltpData.close,
+        ...change,
+      },
+      "Nifty 50 live quote fetched successfully"
+    )
+  );
+});

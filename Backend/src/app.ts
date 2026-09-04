@@ -8,7 +8,7 @@ import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { getProfile, getRMSLimit, logout } from "./controllers/auth.controller.js";
 import { getPositions, getHoldings } from "./controllers/portfolio.controller.js";
-import { getFullMode, getHistoricalData, getLtp } from "./controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp, getNiftyQuote } from "./controllers/market.controller.js";
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,6 +93,8 @@ app.post("/fullmode", (req, res, next) => {
   } */
   return getFullMode(req, res, next);
 });
+// Root-level Nifty 50 index live quote endpoint for compatibility
+app.get("/nifty", getNiftyQuote);
 
 
 

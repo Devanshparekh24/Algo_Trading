@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useUserProfile, useRMSLimit } from '../../hooks/useUserProfile';
 
 interface NavbarProps {
-  activeView?: 'home' | 'positions';
-  onNavigate?: (view: 'home' | 'positions') => void;
+  activeView?: 'home' | 'positions' | 'markets';
+  onNavigate?: (view: 'home' | 'positions' | 'markets') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ activeView = 'positions', onNavigate }) => {
@@ -71,6 +71,17 @@ export const Navbar: React.FC<NavbarProps> = ({ activeView = 'positions', onNavi
           }`}
         >
           Positions
+        </button>
+
+        <button
+          onClick={() => onNavigate && onNavigate('markets')}
+          className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            activeView === 'markets'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+          }`}
+        >
+          Markets
         </button>
       </nav>
 

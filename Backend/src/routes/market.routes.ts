@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getFullMode, getHistoricalData, getLtp } from "../controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp, getNiftyQuote } from "../controllers/market.controller.js";
 
 const router = Router();
 
@@ -53,5 +53,8 @@ router.post("/fullmode", (req, res, next) => {
   } */
   return getFullMode(req, res, next);
 });
+
+// GET /nifty -> Fetch Nifty 50 index live quote (current price + OHLC + change)
+router.get("/nifty", getNiftyQuote);
 
 export default router;

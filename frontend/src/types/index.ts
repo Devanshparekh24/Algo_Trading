@@ -41,3 +41,21 @@ export interface RMSData {
   [key: string]: unknown;
 }
 
+export interface NiftyQuote {
+  exchange?: string;
+  tradingSymbol?: string;
+  symbolToken?: string;
+  ltp?: string | number;
+  open?: string | number;
+  high?: string | number;
+  low?: string | number;
+  close?: string | number;
+  netChange?: number | null;
+  percentChange?: number | null;
+  avgPrice?: number | null;
+  tradeVolume?: number | null;
+  exchFeedTime?: string | null;
+  high52?: number | null;
+  low52?: number | null;
+}
+
