@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getFullMode, getHistoricalData, getLtp, getNiftyQuote } from "../controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp, getNiftyQuote, getGainersLosers, getFnoMovers, getMarketStatusController } from "../controllers/market.controller.js";
 
 const router = Router();
 
@@ -56,5 +56,16 @@ router.post("/fullmode", (req, res, next) => {
 
 // GET /nifty -> Fetch Nifty 50 index live quote (current price + OHLC + change)
 router.get("/nifty", getNiftyQuote);
+
+// GET & POST /gainers-losers -> Top gainers/losers in derivatives
+router.get("/gainers-losers", getGainersLosers);
+router.post("/gainers-losers", getGainersLosers);
+
+// GET /fno-movers & /top-volatile -> Top volatile ups-down F&O (Futures & Options, Call & Put)
+router.get("/fno-movers", getFnoMovers);
+router.get("/top-volatile", getFnoMovers);
+
+// GET /status -> Live Indian market open/closed status
+router.get("/status", getMarketStatusController);
 
 export default router;

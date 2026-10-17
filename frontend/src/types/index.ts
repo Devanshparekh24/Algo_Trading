@@ -59,3 +59,62 @@ export interface NiftyQuote {
   low52?: number | null;
 }
 
+export interface FnoMoverItem {
+  symbolToken: string;
+  tradingSymbol: string;
+  name: string;
+  instrumentType: 'FUT' | 'CE' | 'PE';
+  strike: number | null;
+  expiry: string;
+  ltp: number;
+  netChange: number;
+  percentChange: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  tradeVolume?: number;
+  opnInterest?: number;
+  exchange: string;
+}
+
+export interface FnoMoversSummary {
+  totalCount: number;
+  gainersCount: number;
+  losersCount: number;
+  callsCount: number;
+  putsCount: number;
+  futuresCount: number;
+  topGainer: FnoMoverItem | null;
+  topLoser: FnoMoverItem | null;
+  mostVolatile: FnoMoverItem | null;
+  marketSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  lastUpdated: string;
+}
+
+export interface FnoMoversResponse {
+  summary: FnoMoversSummary;
+  all: FnoMoverItem[];
+  gainers: FnoMoverItem[];
+  losers: FnoMoverItem[];
+  calls: FnoMoverItem[];
+  puts: FnoMoverItem[];
+  futures: FnoMoverItem[];
+}
+
+export interface MarketStatusInfo {
+  isOpen: boolean;
+  status: 'OPEN' | 'CLOSED' | 'PRE_MARKET' | 'POST_MARKET';
+  subStatus: string;
+  message: string;
+  closeReason?: string;
+  exchange: string;
+  timeIST: string;
+  tradingHours: string;
+  isWeekend: boolean;
+  isHoliday?: boolean;
+  holidayName?: string;
+  nextSession: string;
+}
+
+

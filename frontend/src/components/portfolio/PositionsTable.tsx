@@ -1,13 +1,10 @@
 import React from 'react';
+import { RefreshCw } from 'lucide-react';
 import { usePositions } from '../../hooks/usePortfolio';
+import { formatINR } from '../../utils/formatters';
 
 export const PositionsTable: React.FC = () => {
   const { data: positions = [], isLoading, isError, error, refetch, isFetching } = usePositions();
-
-  const formatINR = (val?: string | number) => {
-    const num = typeof val === 'string' ? parseFloat(val) : val || 0;
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(isNaN(num) ? 0 : num);
-  };
 
   const totalPnL = positions.reduce((acc, pos) => {
     const pnl = parseFloat(String(pos.pnl || pos.m2m || 0));
@@ -38,8 +35,6 @@ export const PositionsTable: React.FC = () => {
       {/* Header Bar */}
       <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         <div>
-          <h2 className="text-base font-bold text-gray-900 dark:text-white">Positions</h2>
-          <p className="text-xs text-gray-400 font-mono">GET /api/v1/portfolio/positions</p>
         </div>
 
         <div className="flex items-center space-x-4">
@@ -53,10 +48,10 @@ export const PositionsTable: React.FC = () => {
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            className="p-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+            className="p-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 text-gray-700 dark:text-gray-300"
             title="Refresh Positions"
           >
-            <span className={isFetching ? 'animate-spin block' : ''}>🔄</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>

@@ -6,10 +6,23 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { getProfile, getRMSLimit, logout } from "./controllers/auth.controller.js";
-import { getPositions, getHoldings } from "./controllers/portfolio.controller.js";
-import { getFullMode, getHistoricalData, getLtp, getNiftyQuote } from "./controllers/market.controller.js";
-
+import {
+  getProfile,
+  getRMSLimit,
+  logout,
+} from "./controllers/auth.controller.js";
+import {
+  getPositions,
+  getHoldings,
+} from "./controllers/portfolio.controller.js";
+import {
+  getFullMode,
+  getHistoricalData,
+  getLtp,
+  getNiftyQuote,
+  getFnoMovers,
+  getMarketStatusController,
+} from "./controllers/market.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,8 +109,8 @@ app.post("/fullmode", (req, res, next) => {
 // Root-level Nifty 50 index live quote endpoint for compatibility
 app.get("/nifty", getNiftyQuote);
 
-
-
+// Root-level F&O top volatile movers endpoint
+app.get("/fno-movers", getFnoMovers);
 
 // Register Swagger documentation UI endpoint
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));

@@ -38,6 +38,7 @@ export {
   getCandleData,
   getLtpData,
   getFullModeData,
+  getGainersLosersData,
 } from "./api/index.js";
 
 

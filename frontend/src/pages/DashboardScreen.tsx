@@ -1,11 +1,23 @@
 import React from 'react';
+import { ArrowRight, ChevronRight, User, Zap, Briefcase, TrendingUp, Flame } from 'lucide-react';
 import UserProfileCard from '../components/common/UserProfileCard';
+import { useAppStore } from '../store';
 
 interface DashboardScreenProps {
-  onNavigateToPortfolio: () => void;
+  onNavigateToPortfolio?: () => void;
 }
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPortfolio }) => {
+  const setActiveView = useAppStore((state) => state.setActiveView);
+
+  const handleNavigatePositions = () => {
+    if (onNavigateToPortfolio) {
+      onNavigateToPortfolio();
+    } else {
+      setActiveView('positions');
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8 font-sans">
       {/* Welcome Banner */}
@@ -23,13 +35,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
         </div>
 
         <button
-          onClick={onNavigateToPortfolio}
+          onClick={handleNavigatePositions}
           className="px-6 py-3 bg-white text-blue-600 hover:bg-blue-50 font-bold text-sm rounded-2xl shadow-lg transition-all transform hover:-translate-y-0.5 flex items-center space-x-2 flex-shrink-0"
         >
           <span>View Portfolio Positions</span>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-          </svg>
+          <ArrowRight className="w-4 h-4" />
         </button>
       </div>
 
@@ -38,7 +48,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
         {/* User Profile Overview */}
         <div className="space-y-3">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <span>👤 Connected User Account</span>
+            <User className="w-5 h-5 text-blue-600" />
+            <span>Connected User Account</span>
           </h3>
           <UserProfileCard />
         </div>
@@ -46,48 +57,79 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
         {/* Quick Links Card */}
         <div className="space-y-3">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <span>⚡ Direct Navigation & Features</span>
+            <Zap className="w-5 h-5 text-amber-500" />
+            <span>Direct Navigation & Features</span>
           </h3>
 
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-6 shadow-sm space-y-4">
             <div
-              onClick={onNavigateToPortfolio}
+              onClick={handleNavigatePositions}
               className="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/30 border border-gray-200 dark:border-gray-700 transition-all cursor-pointer group"
             >
               <div className="flex justify-between items-center">
                 <div className="flex items-center space-x-3">
-                  <span className="text-2xl">💼</span>
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <Briefcase className="w-5 h-5" />
+                  </div>
                   <div>
                     <h4 className="font-bold text-sm text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
                       Portfolio Positions & Holdings
                     </h4>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Endpoint: <code className="font-mono text-[11px]">/api/v1/portfolio/positions</code>
+                      Track open positions, P&L, M2M, and delivery holdings
                     </p>
                   </div>
                 </div>
-                <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-700">
+            <div
+              onClick={() => setActiveView('fno')}
+              className="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-gray-200 dark:border-gray-700 transition-all cursor-pointer group"
+            >
               <div className="flex justify-between items-center">
                 <div className="flex items-center space-x-3">
-                  <span className="text-2xl">📈</span>
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <Flame className="w-5 h-5" />
+                  </div>
                   <div>
-                    <h4 className="font-bold text-sm text-gray-900 dark:text-white">
-                      Market Watch & Quotes
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-sm text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                        Top Volatile F&O Movers
+                      </h4>
+                      <span className="text-[10px] px-2 py-0.2 bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold rounded-full">
+                        Live
+                      </span>
+                    </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Fullmode & LTP live market stream
+                      Futures, Call (CE) & Put (PE) high-swing derivatives
                     </p>
                   </div>
                 </div>
-                <span className="text-[10px] px-2 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 font-semibold rounded">
-                  Coming Soon
-                </span>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+              </div>
+            </div>
+
+            <div
+              onClick={() => setActiveView('markets')}
+              className="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 border border-gray-200 dark:border-gray-700 transition-all cursor-pointer group"
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-gray-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                      Live Markets & Indices
+                    </h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Track Nifty, Sensex & BankNifty live market streams
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
               </div>
             </div>
           </div>

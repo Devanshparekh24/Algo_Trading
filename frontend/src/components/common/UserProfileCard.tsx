@@ -1,4 +1,5 @@
 import React from 'react';
+import { RefreshCw, Mail, Phone, Zap, AlertCircle } from 'lucide-react';
 import { useUserProfile } from '../../hooks/useUserProfile';
 
 export const UserProfileCard: React.FC = () => {
@@ -27,9 +28,7 @@ export const UserProfileCard: React.FC = () => {
     return (
       <div className="max-w-md w-full bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-6 shadow-lg">
         <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
-          <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <AlertCircle className="w-6 h-6 flex-shrink-0" />
           <h3 className="font-semibold text-lg">Failed to load profile</h3>
         </div>
         <p className="mt-2 text-sm text-red-700 dark:text-red-300">
@@ -39,9 +38,7 @@ export const UserProfileCard: React.FC = () => {
           onClick={() => refetch()}
           className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors duration-150 shadow-md flex items-center space-x-2"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <RefreshCw className="w-4 h-4" />
           <span>Retry</span>
         </button>
       </div>
@@ -60,11 +57,9 @@ export const UserProfileCard: React.FC = () => {
           onClick={() => refetch()}
           disabled={isFetching}
           title="Refresh Profile"
-          className="text-white/80 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors disabled:opacity-50"
+          className="text-white/80 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition-colors disabled:opacity-50"
         >
-          <svg className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
@@ -90,23 +85,17 @@ export const UserProfileCard: React.FC = () => {
         {/* Details List */}
         <div className="mt-5 space-y-3 border-t border-gray-100 dark:border-gray-700/60 pt-4">
           <div className="flex items-center text-sm text-gray-600 dark:text-gray-300">
-            <svg className="w-4 h-4 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
+            <Mail className="w-4 h-4 mr-3 text-gray-400 flex-shrink-0" />
             <span className="truncate">{profile.email || 'N/A'}</span>
           </div>
 
           <div className="flex items-center text-sm text-gray-600 dark:text-gray-300">
-            <svg className="w-4 h-4 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1.001 1.001 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-            </svg>
+            <Phone className="w-4 h-4 mr-3 text-gray-400 flex-shrink-0" />
             <span>{profile.mobileno || 'N/A'}</span>
           </div>
 
           <div className="flex items-start text-sm text-gray-600 dark:text-gray-300">
-            <svg className="w-4 h-4 mr-3 mt-0.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+            <Zap className="w-4 h-4 mr-3 mt-0.5 text-gray-400 flex-shrink-0" />
             <div>
               <span className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Exchanges Allowed</span>
               <div className="flex flex-wrap gap-1.5">

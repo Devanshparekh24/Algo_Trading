@@ -2,7 +2,9 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
-import { getCandleData, getFullModeData, getLtpData, type FullModeRequest } from "../services/smartapi/index.js";
+import { getCandleData, getFullModeData, getLtpData, getGainersLosersData, type FullModeRequest } from "../services/smartapi/index.js";
+import { getTopFnoMovers } from "../services/smartapi/fnoMovers.service.js";
+import { getIndianMarketStatus } from "../utils/marketHours.js";
 
 /**
  * Fetch historical candle data.
@@ -216,3 +218,44 @@ export const getNiftyQuote = asyncHandler(async (_req: Request, res: Response): 
     )
   );
 });
+
+/**
+ * Fetch Top Gainers & Losers (Derivatives market movers) from SmartAPI
+ */
+export const getGainersLosers = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const datatype = (req.query.datatype || req.body?.datatype || "PercPriceGainers") as any;
+  const expirytype = (req.query.expirytype || req.body?.expirytype || "NEAR") as any;
+
+  const data = await getGainersLosersData({
+    datatype,
+    expirytype,
+  });
+
+  res.status(200).json(
+    new ApiResponse(200, data.data, `Gainers/Losers fetched successfully (${datatype})`)
+  );
+});
+
+/**
+ * Fetch Top Volatile Ups & Downs F&O (Futures, Call Options, Put Options)
+ */
+export const getFnoMovers = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const forceRefresh = req.query.refresh === "true" || req.query.refresh === "1";
+  const data = await getTopFnoMovers(forceRefresh);
+
+  res.status(200).json(
+    new ApiResponse(200, data, "Top volatile F&O movers (Futures & Options) fetched successfully")
+  );
+});
+
+/**
+ * Get live Indian market open/closed status (NSE / BSE / NFO)
+ */
+export const getMarketStatusController = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  const status = getIndianMarketStatus();
+
+  res.status(200).json(
+    new ApiResponse(200, status, "Market status fetched successfully")
+  );
+});
+

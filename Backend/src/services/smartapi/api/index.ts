@@ -11,3 +11,4 @@ export { getHoldings } from "./holdings.js";
 export { getCandleData } from "./historical.js";
 export { getLtpData } from "./ltp.js";
 export { getFullModeData } from "./FullMode.js";
+export { getGainersLosersData } from "./gainersLosers.js";

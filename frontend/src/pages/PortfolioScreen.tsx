@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
+import { RefreshCw, TrendingUp, BarChart3, ExternalLink, FolderOpen } from 'lucide-react';
 import { usePositions, useHoldings } from '../hooks/usePortfolio';
 import type { Position, Holding } from '../types';
+import SearchInput from '../components/common/SearchInput';
+import { formatINR, formatNumber } from '../utils/formatters';
 
 export const PortfolioScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'positions' | 'holdings'>('positions');
@@ -9,25 +12,6 @@ export const PortfolioScreen: React.FC = () => {
 
   const positionsQuery = usePositions(useRootEndpoint);
   const holdingsQuery = useHoldings(useRootEndpoint);
-
-  // Helper to safely format numbers/currency
-  const formatCurrency = (val: string | number | undefined) => {
-    if (val === undefined || val === null || val === '') return '₹0.00';
-    const num = typeof val === 'string' ? parseFloat(val) : val;
-    if (isNaN(num)) return '₹0.00';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 2,
-    }).format(num);
-  };
-
-  const formatNumber = (val: string | number | undefined, decimals = 2) => {
-    if (val === undefined || val === null || val === '') return '0.00';
-    const num = typeof val === 'string' ? parseFloat(val) : val;
-    if (isNaN(num)) return '0.00';
-    return num.toFixed(decimals);
-  };
 
   const parseNum = (val: string | number | undefined): number => {
     if (val === undefined || val === null || val === '') return 0;
@@ -128,14 +112,9 @@ export const PortfolioScreen: React.FC = () => {
             disabled={positionsQuery.isFetching || holdingsQuery.isFetching}
             className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-semibold rounded-xl shadow-sm transition-all disabled:opacity-50"
           >
-            <svg
+            <RefreshCw
               className={`w-4 h-4 ${positionsQuery.isFetching || holdingsQuery.isFetching ? 'animate-spin text-blue-600' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            />
             <span>Sync</span>
           </button>
         </div>
@@ -147,11 +126,13 @@ export const PortfolioScreen: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-5 shadow-sm">
           <div className="flex justify-between items-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
             <span>Total Realized & M2M P&L</span>
-            <span className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">📈</span>
+            <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+              <TrendingUp className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className={`text-2xl sm:text-3xl font-extrabold ${currentPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {currentPnL >= 0 ? '+' : ''}{formatCurrency(currentPnL)}
+              {currentPnL >= 0 ? '+' : ''}{formatINR(currentPnL)}
             </span>
           </div>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -163,7 +144,9 @@ export const PortfolioScreen: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-5 shadow-sm">
           <div className="flex justify-between items-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
             <span>Active {activeTab === 'positions' ? 'Positions' : 'Holdings'}</span>
-            <span className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">📊</span>
+            <span className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+              <BarChart3 className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-3 flex items-baseline">
             <span className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white">
@@ -178,7 +161,9 @@ export const PortfolioScreen: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-5 shadow-sm">
           <div className="flex justify-between items-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
             <span>Active Target URL</span>
-            <span className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">🔗</span>
+            <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+              <ExternalLink className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-3 font-mono text-xs font-bold text-blue-600 dark:text-blue-400 truncate" title={currentEndpointUrl}>
             {currentEndpointUrl}
@@ -214,18 +199,12 @@ export const PortfolioScreen: React.FC = () => {
         </div>
 
         {/* Search Input */}
-        <div className="relative max-w-md w-full">
-          <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search by symbol, exchange, product..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-          />
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by symbol, exchange, product..."
+          className="max-w-md w-full"
+        />
       </div>
 
       {/* Main Table Content */}
@@ -290,17 +269,17 @@ export const PortfolioScreen: React.FC = () => {
 
                         {/* Avg Price */}
                         <td className="py-3.5 px-4 text-right font-mono">
-                          {formatCurrency(pos.averageprice)}
+                          {formatINR(pos.averageprice)}
                         </td>
 
                         {/* LTP */}
                         <td className="py-3.5 px-4 text-right font-mono font-semibold">
-                          {formatCurrency(pos.lp || pos.ltp)}
+                          {formatINR(pos.lp || pos.ltp)}
                         </td>
 
                         {/* PnL */}
                         <td className={`py-3.5 px-4 text-right font-mono font-bold text-sm ${pnlVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {pnlVal >= 0 ? '+' : ''}{formatCurrency(pnlVal)}
+                          {pnlVal >= 0 ? '+' : ''}{formatINR(pnlVal)}
                         </td>
                       </tr>
                     );
@@ -345,10 +324,10 @@ export const PortfolioScreen: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono font-semibold">{h.quantity || 0}</td>
-                        <td className="py-3.5 px-4 text-right font-mono">{formatCurrency(h.averageprice)}</td>
-                        <td className="py-3.5 px-4 text-right font-mono font-semibold">{formatCurrency(h.ltp)}</td>
+                        <td className="py-3.5 px-4 text-right font-mono">{formatINR(h.averageprice)}</td>
+                        <td className="py-3.5 px-4 text-right font-mono font-semibold">{formatINR(h.ltp)}</td>
                         <td className={`py-3.5 px-4 text-right font-mono font-bold text-sm ${pnlVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {pnlVal >= 0 ? '+' : ''}{formatCurrency(pnlVal)}
+                          {pnlVal >= 0 ? '+' : ''}{formatINR(pnlVal)}
                         </td>
                       </tr>
                     );
@@ -394,8 +373,8 @@ const ErrorBanner = ({ message, onRetry }: { message: string; onRetry: () => voi
 // Empty State Helper
 const EmptyState = ({ title, description }: { title: string; description: string }) => (
   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-12 text-center shadow-sm">
-    <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 text-gray-400 rounded-full flex items-center justify-center mx-auto text-2xl mb-4">
-      📁
+    <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 text-gray-400 rounded-full flex items-center justify-center mx-auto mb-4">
+      <FolderOpen className="w-8 h-8 text-gray-400" />
     </div>
     <h3 className="font-bold text-gray-900 dark:text-white text-base">{title}</h3>
     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">{description}</p>
