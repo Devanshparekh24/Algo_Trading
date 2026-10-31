@@ -1,4 +1,4 @@
-import React from 'react'
+// LoginPage Component
 import LoginForm from '../components/common/LoginForm'
 
 function LoginPage() {

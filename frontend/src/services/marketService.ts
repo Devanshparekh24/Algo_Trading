@@ -11,6 +11,16 @@ export const getNiftyQuote = async (): Promise<NiftyQuote> => {
   }
 };
 
+export const getMajorIndices = async (): Promise<NiftyQuote[]> => {
+  try {
+    const response = await api.get<ApiResponse<NiftyQuote[]>>('/api/v1/market/indices');
+    return response.data.data || [];
+  } catch {
+    const fallback = await api.get<ApiResponse<NiftyQuote[]>>('/indices');
+    return fallback.data.data || [];
+  }
+};
+
 export const getFnoMovers = async (forceRefresh = false): Promise<FnoMoversResponse> => {
   const url = forceRefresh ? '/api/v1/market/fno-movers?refresh=true' : '/api/v1/market/fno-movers';
   try {
@@ -32,4 +42,3 @@ export const getMarketStatus = async (): Promise<MarketStatusInfo> => {
     return fallback.data.data;
   }
 };
-

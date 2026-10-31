@@ -1,4 +1,4 @@
-import React from 'react'
+// LoginForm Component
 import InputField from './InputField'
 import Button from './Button'
 

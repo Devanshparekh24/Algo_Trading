@@ -1,11 +1,20 @@
+import http from "http";
 import app from "./src/app.js";
 import prisma from "./src/config/prisma.js";
 import { startSessionScheduler, startInstrumentScheduler } from "./src/services/smartapi/index.js";
+import { initSocketServer } from "./src/services/websocket/socketService.js";
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, async () => {
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.IO real-time WebSocket server
+initSocketServer(server);
+
+server.listen(PORT, async () => {
     console.log(` 🪬 🪬 🪬 Server running on http://localhost:${PORT}`);
+    console.log(`📡 WebSocket & Webhook real-time stream ready on ws://localhost:${PORT}`);
     console.log(`✌ ✌ Swagger documentation on http://localhost:${PORT}/api-docs`);
 
     try {

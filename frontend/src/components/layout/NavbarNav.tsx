@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Briefcase, LineChart, Flame } from 'lucide-react';
+import { Home, PieChart, Layers, Briefcase, LineChart, Flame } from 'lucide-react';
 import { useAppStore, type ActiveView } from '../../store';
 import NavTabItem from './NavTabItem';
 
@@ -27,6 +27,8 @@ export const NavbarNav: React.FC<NavbarNavProps> = ({
 
   const navItems = [
     { id: 'home' as ActiveView, label: 'Home', icon: Home },
+    { id: 'portfolio' as ActiveView, label: 'Portfolio', icon: PieChart },
+    { id: 'equity' as ActiveView, label: 'Equity', icon: Layers },
     { id: 'positions' as ActiveView, label: 'Positions', icon: Briefcase },
     { id: 'markets' as ActiveView, label: 'Markets', icon: LineChart },
     { id: 'fno' as ActiveView, label: 'F&O Movers', icon: Flame, pulseDot: true },

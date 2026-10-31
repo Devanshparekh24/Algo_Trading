@@ -1,6 +1,5 @@
-import React from 'react';
 import Navbar from './components/layout/Navbar';
-import PositionsTable from './components/portfolio/PositionsTable';
+import PortfolioScreen from './pages/PortfolioScreen';
 import MarketsScreen from './pages/MarketsScreen';
 import DashboardScreen from './pages/DashboardScreen';
 import FnoMoversScreen from './components/fno/FnoMoversScreen';
@@ -12,15 +11,19 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
       <Navbar />
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {activeView === 'fno' ? (
           <FnoMoversScreen />
         ) : activeView === 'markets' ? (
           <MarketsScreen />
+        ) : activeView === 'equity' ? (
+          <PortfolioScreen initialTab="equity" />
+        ) : activeView === 'portfolio' ? (
+          <PortfolioScreen initialTab="equity" />
         ) : activeView === 'positions' ? (
-          <PositionsTable />
+          <PortfolioScreen initialTab="positions" />
         ) : (
-          <DashboardScreen onNavigateToPortfolio={() => setActiveView('positions')} />
+          <DashboardScreen onNavigateToPortfolio={() => setActiveView('portfolio')} />
         )}
       </main>
     </div>

@@ -10,6 +10,7 @@ export interface UserProfile {
 export interface Position {
   exchange?: string;
   tradingsymbol?: string;
+  symbol?: string;
   symboltoken?: string;
   producttype?: string;
   transactiontype?: string;
@@ -17,8 +18,43 @@ export interface Position {
   averageprice?: string | number;
   netqty?: string | number;
   lp?: string | number;
+  ltp?: string | number;
   pnl?: string | number;
   m2m?: string | number;
+}
+
+export interface Holding {
+  tradingsymbol?: string;
+  exchange?: string;
+  isin?: string;
+  t1quantity?: number;
+  realisedquantity?: number;
+  quantity?: number;
+  authorisedquantity?: number;
+  product?: string;
+  collateralquantity?: number | null;
+  collateraltype?: string | null;
+  haircut?: number;
+  averageprice?: number;
+  ltp?: number;
+  symboltoken?: string;
+  close?: number;
+  profitandloss?: number;
+  pnlpercentage?: number;
+  [key: string]: unknown;
+}
+
+export interface TotalHolding {
+  totalholdingvalue?: number;
+  totalinvvalue?: number;
+  totalprofitandloss?: number;
+  totalpnlpercentage?: number;
+  [key: string]: unknown;
+}
+
+export interface HoldingsResponseData {
+  holdings: Holding[];
+  totalholding?: TotalHolding;
 }
 
 export interface ApiResponse<T> {
@@ -42,6 +78,7 @@ export interface RMSData {
 }
 
 export interface NiftyQuote {
+  name?: string;
   exchange?: string;
   tradingSymbol?: string;
   symbolToken?: string;
@@ -116,5 +153,3 @@ export interface MarketStatusInfo {
   holidayName?: string;
   nextSession: string;
 }
-
-

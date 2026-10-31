@@ -49,6 +49,13 @@ export interface Position {
 }
 
 export interface Holding {
+  isin?: string;
+  t1quantity?: number;
+  authorisedquantity?: number;
+  collateralquantity?: number | null;
+  collateraltype?: string | null;
+  haircut?: number;
+  pnlpercentage?: number;
   tradingsymbol?: string;
   exchange?: string;
   symboltoken?: string;
@@ -60,6 +67,19 @@ export interface Holding {
   profitandloss?: number;
   realisedquantity?: number;
   [key: string]: unknown;
+}
+
+export interface TotalHolding {
+  totalholdingvalue?: number;
+  totalinvvalue?: number;
+  totalprofitandloss?: number;
+  totalpnlpercentage?: number;
+  [key: string]: unknown;
+}
+
+export interface HoldingsPayload {
+  holdings: Holding[];
+  totalholding?: TotalHolding;
 }
 
 export interface TokenStore {

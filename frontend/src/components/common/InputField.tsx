@@ -1,4 +1,4 @@
-import React from 'react'
+// InputField Component
 
 interface InputFieldProps {
     id: string

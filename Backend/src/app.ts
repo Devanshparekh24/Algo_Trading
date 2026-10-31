@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
+import { handleWebhook, simulateWebhook } from "./controllers/webhook.controller.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import {
   getProfile,
@@ -20,6 +21,7 @@ import {
   getHistoricalData,
   getLtp,
   getNiftyQuote,
+  getMajorIndices,
   getFnoMovers,
   getMarketStatusController,
 } from "./controllers/market.controller.js";
@@ -108,12 +110,17 @@ app.post("/fullmode", (req, res, next) => {
 });
 // Root-level Nifty 50 index live quote endpoint for compatibility
 app.get("/nifty", getNiftyQuote);
+app.get("/indices", getMajorIndices);
 
 // Root-level F&O top volatile movers endpoint
 app.get("/fno-movers", getFnoMovers);
 
 // Register Swagger documentation UI endpoint
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// Root-level Webhook endpoints for external integrations / TradingView / Angel One postbacks
+app.post("/webhook", handleWebhook);
+app.post("/webhook/simulate", simulateWebhook);
 
 // Register API routes
 app.use("/api/v1", router);

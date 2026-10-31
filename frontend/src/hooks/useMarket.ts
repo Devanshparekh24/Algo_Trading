@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getNiftyQuote, getFnoMovers, getMarketStatus } from '../services/marketService';
+import { getNiftyQuote, getMajorIndices, getFnoMovers, getMarketStatus } from '../services/marketService';
 import { queryKeys } from '../constants/queryKeys';
 
 /**
@@ -10,8 +10,20 @@ export const useNiftyQuote = () => {
   return useQuery({
     queryKey: queryKeys.market.niftyQuote(),
     queryFn: () => getNiftyQuote(),
-    staleTime: 1000 * 15, // Consider fresh for 15s
-    refetchInterval: 1000 * 30, // Polling interval
+    staleTime: 1000 * 15,
+    refetchInterval: 1000 * 30,
+  });
+};
+
+/**
+ * Hook to fetch major benchmark indices live quotes (Nifty 50, Bank Nifty, Fin Nifty)
+ */
+export const useMajorIndices = () => {
+  return useQuery({
+    queryKey: ['market', 'indices'],
+    queryFn: () => getMajorIndices(),
+    staleTime: 1000 * 15,
+    refetchInterval: 1000 * 30,
   });
 };
 

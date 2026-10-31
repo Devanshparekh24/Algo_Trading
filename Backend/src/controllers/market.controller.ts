@@ -251,6 +251,47 @@ export const getFnoMovers = asyncHandler(async (req: Request, res: Response): Pr
 /**
  * Get live Indian market open/closed status (NSE / BSE / NFO)
  */
+export const MAJOR_INDICES_CONFIG = [
+  { name: "NIFTY 50", exchange: "NSE", tradingSymbol: "Nifty 50", symbolToken: "99926000" },
+  { name: "NIFTY BANK", exchange: "NSE", tradingSymbol: "Nifty Bank", symbolToken: "99926009" },
+  { name: "FIN NIFTY", exchange: "NSE", tradingSymbol: "Nifty Fin Service", symbolToken: "99926037" },
+];
+
+export const getMajorIndices = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  const tokens = MAJOR_INDICES_CONFIG.map((i) => i.symbolToken);
+  const fullModeRes = await getFullModeData({
+    mode: "FULL",
+    exchangeTokens: { NSE: tokens },
+  });
+
+  const fetched = fullModeRes.data?.fetched || [];
+  const results = MAJOR_INDICES_CONFIG.map((idx) => {
+    const live = fetched.find((f) => f.symbolToken === idx.symbolToken);
+    return {
+      name: idx.name,
+      exchange: idx.exchange,
+      tradingSymbol: live?.tradingSymbol || idx.tradingSymbol,
+      symbolToken: idx.symbolToken,
+      ltp: live ? Number(live.ltp) : 0,
+      open: live ? Number(live.open) : 0,
+      high: live ? Number(live.high) : 0,
+      low: live ? Number(live.low) : 0,
+      close: live ? Number(live.close) : 0,
+      netChange: live ? Number(live.netChange) : 0,
+      percentChange: live ? Number(live.percentChange) : 0,
+      avgPrice: live ? Number(live.avgPrice) : 0,
+      tradeVolume: live ? Number(live.tradeVolume) : 0,
+      high52: live ? Number(live["52WeekHigh"] || 0) : null,
+      low52: live ? Number(live["52WeekLow"] || 0) : null,
+      exchFeedTime: live?.exchFeedTime || new Date().toISOString(),
+    };
+  });
+
+  res.status(200).json(
+    new ApiResponse(200, results, "Major market benchmark indices live quotes fetched successfully")
+  );
+});
+
 export const getMarketStatusController = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const status = getIndianMarketStatus();
 
