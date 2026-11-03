@@ -24,6 +24,10 @@ export type {
   MarketDepth,
   DepthOrder,
   UnFetched,
+  OrderPlacementRequest,
+  OrderPlacementResponse,
+  OrderBookItem,
+  HoldingsPayload,
 } from "./types.js";
 
 // API functions
@@ -39,6 +43,9 @@ export {
   getLtpData,
   getFullModeData,
   getGainersLosersData,
+  placeSmartApiOrder,
+  getSmartApiOrderBook,
+  cancelSmartApiOrder,
 } from "./api/index.js";
 
 

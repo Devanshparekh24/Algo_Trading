@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ActiveView = 'home' | 'portfolio' | 'equity' | 'positions' | 'markets' | 'fno';
+export type ActiveView = 'home' | 'portfolio' | 'equity' | 'positions' | 'markets' | 'fno' | 'ai-trading';
 
 export interface AppState {
   activeView: ActiveView;

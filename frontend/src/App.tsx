@@ -3,6 +3,7 @@ import PortfolioScreen from './pages/PortfolioScreen';
 import MarketsScreen from './pages/MarketsScreen';
 import DashboardScreen from './pages/DashboardScreen';
 import FnoMoversScreen from './components/fno/FnoMoversScreen';
+import AiTradingScreen from './pages/AiTradingScreen';
 import { useAppStore } from './store';
 
 function App() {
@@ -12,7 +13,9 @@ function App() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        {activeView === 'fno' ? (
+        {activeView === 'ai-trading' ? (
+          <AiTradingScreen />
+        ) : activeView === 'fno' ? (
           <FnoMoversScreen />
         ) : activeView === 'markets' ? (
           <MarketsScreen />

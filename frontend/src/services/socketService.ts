@@ -81,3 +81,15 @@ export const triggerWebhookSimulation = async (
   return response.data.data;
 };
 
+/**
+ * Request immediate live price refresh for AI trading universe
+ */
+export const requestAiPricesRefresh = (
+  extraTokens?: Array<{ token: string; exchange?: string }>
+): void => {
+  const s = getSocket();
+  if (s.connected) {
+    s.emit('request_ai_prices_refresh', { extraTokens });
+  }
+};
+

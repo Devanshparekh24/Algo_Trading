@@ -6,9 +6,19 @@ import { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { getHoldings } from "../smartapi/api/holdings.js";
 import { getFullModeData } from "../smartapi/api/FullMode.js";
+import { getUniverseScrips, updateLiveSignalPrice } from "../ai/aiTrading.service.js";
 
 let io: SocketIOServer | null = null;
 let streamInterval: NodeJS.Timeout | null = null;
+
+// Dynamic in-memory set of actively monitored tokens (e.g. from user chart views or strike queries)
+const dynamicWatchedTokens = new Map<string, string>(); // token -> exchange
+
+export function registerWatchedToken(token: string, exchange = "NSE"): void {
+  if (token) {
+    dynamicWatchedTokens.set(token, exchange);
+  }
+}
 
 export const MARKET_INDICES_TOKENS = ["99926000", "99926009", "99926037"];
 
@@ -108,6 +118,70 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
       }
     });
 
+    // Client requests immediate live refresh for AI Trading universe
+    socket.on("request_ai_prices_refresh", async (payload?: { extraTokens?: Array<{ token: string; exchange?: string }> }) => {
+      try {
+        if (payload?.extraTokens && Array.isArray(payload.extraTokens)) {
+          for (const item of payload.extraTokens) {
+            if (item && item.token) {
+              dynamicWatchedTokens.set(item.token, item.exchange || "NSE");
+            }
+          }
+        }
+
+        const universe = await getUniverseScrips();
+        const exchangeTokens: Record<string, string[]> = { NSE: [...MARKET_INDICES_TOKENS] };
+        for (const u of universe) {
+          if (u.token) {
+            const ex = u.exchange || (u.segment === "FNO" ? "NFO" : "NSE");
+            const list = exchangeTokens[ex] ?? [];
+            if (!list.includes(u.token)) {
+              list.push(u.token);
+            }
+            exchangeTokens[ex] = list;
+          }
+        }
+
+        // Add dynamic watched tokens (extra stocks/options)
+        for (const [token, ex] of dynamicWatchedTokens.entries()) {
+          const list = exchangeTokens[ex] ?? [];
+          if (!list.includes(token)) {
+            list.push(token);
+          }
+          exchangeTokens[ex] = list;
+        }
+        const quotesRes = await getFullModeData({
+          mode: "FULL",
+          exchangeTokens,
+        });
+        for (const q of quotesRes.data?.fetched || []) {
+          const freshLtp = Number(q.ltp);
+          const closePrice = Number(q.close || freshLtp);
+          const change = Number(q.netChange ?? freshLtp - closePrice);
+          const percentChange = Number(q.percentChange ?? (closePrice > 0 ? (change / closePrice) * 100 : 0));
+          const tickData: RealtimeTickData = {
+            symbolToken: q.symbolToken,
+            tradingSymbol: q.tradingSymbol,
+            exchange: q.exchange,
+            ltp: freshLtp,
+            open: Number(q.open),
+            high: Number(q.high),
+            low: Number(q.low),
+            close: closePrice,
+            change: Number(change.toFixed(2)),
+            percentChange: Number(percentChange.toFixed(2)),
+            avgPrice: Number(q.avgPrice),
+            tradeVolume: Number(q.tradeVolume),
+            timestamp: q.exchFeedTime || new Date().toISOString(),
+          };
+          socket.emit("ai_price_tick", tickData);
+          updateLiveSignalPrice(q.symbolToken, freshLtp, tickData.change, tickData.percentChange);
+        }
+      } catch (err: any) {
+        socket.emit("stream_error", { message: err?.message || "Failed to fetch live AI prices" });
+      }
+    });
+
     socket.on("disconnect", (reason) => {
       console.log(`[Socket.IO] Client disconnected: ${socket.id} (Reason: ${reason})`);
     });
@@ -127,6 +201,14 @@ export function getIO(): SocketIOServer {
     throw new Error("[Socket.IO] Socket server has not been initialized!");
   }
   return io;
+}
+
+/**
+ * Broadcast generic socket event to all connected clients
+ */
+export function broadcastSocketEvent(event: string, payload: unknown): void {
+  if (!io) return;
+  io.emit(event, payload);
 }
 
 /**
@@ -183,7 +265,7 @@ export function startRealtimeBroadcaster(): void {
       const holdingsPayload = await getHoldings();
       const holdings = holdingsPayload.holdings || [];
 
-      // 2. Batch tokens by exchange for Angel One Quote API (include major indices)
+      // 2. Batch tokens by exchange for Angel One Quote API (include major indices, holdings & AI universe)
       const exchangeTokens: Record<string, string[]> = {
         NSE: [...MARKET_INDICES_TOKENS],
       };
@@ -191,11 +273,38 @@ export function startRealtimeBroadcaster(): void {
       for (const h of holdings) {
         if (h.symboltoken) {
           const ex = h.exchange || "NSE";
-          if (!exchangeTokens[ex]) exchangeTokens[ex] = [];
-          if (!exchangeTokens[ex].includes(h.symboltoken)) {
-            exchangeTokens[ex].push(h.symboltoken);
+          const list = exchangeTokens[ex] ?? [];
+          if (!list.includes(h.symboltoken)) {
+            list.push(h.symboltoken);
+          }
+          exchangeTokens[ex] = list;
+        }
+      }
+
+      // Add dynamic AI Universe tokens (Equities & F&O)
+      try {
+        const universe = await getUniverseScrips();
+        for (const u of universe) {
+          if (u.token) {
+            const ex = u.exchange || (u.segment === "FNO" ? "NFO" : "NSE");
+            const list = exchangeTokens[ex] ?? [];
+            if (!list.includes(u.token)) {
+              list.push(u.token);
+            }
+            exchangeTokens[ex] = list;
           }
         }
+      } catch (err: any) {
+        // Continue gracefully
+      }
+
+      // Add dynamic watched tokens (currently charted stocks or options)
+      for (const [token, ex] of dynamicWatchedTokens.entries()) {
+        const list = exchangeTokens[ex] ?? [];
+        if (!list.includes(token)) {
+          list.push(token);
+        }
+        exchangeTokens[ex] = list;
       }
 
       // 3. Fetch true live market quote from Angel One
@@ -227,6 +336,10 @@ export function startRealtimeBroadcaster(): void {
           tradeVolume: Number(quote.tradeVolume),
           timestamp: quote.exchFeedTime || new Date().toISOString(),
         };
+
+        // Broadcast to AI Trading Screen
+        broadcastSocketEvent("ai_price_tick", tickData);
+        updateLiveSignalPrice(quote.symbolToken, freshLtp, tickData.change, tickData.percentChange);
 
         // If it's a benchmark index
         if (MARKET_INDICES_TOKENS.includes(quote.symbolToken)) {

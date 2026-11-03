@@ -82,6 +82,66 @@ export interface HoldingsPayload {
   totalholding?: TotalHolding;
 }
 
+export interface OrderPlacementRequest {
+  variety: "NORMAL" | "STOPLOSS" | "AMO" | "ROBO" | string;
+  tradingsymbol: string;
+  symboltoken: string;
+  transactiontype: "BUY" | "SELL";
+  exchange: "NSE" | "BSE" | "NFO" | "MCX" | string;
+  ordertype: "MARKET" | "LIMIT" | "STOPLOSS_LIMIT" | "STOPLOSS_MARKET" | string;
+  producttype: "DELIVERY" | "INTRADAY" | "MARGIN" | "CARRYFORWARD" | "BO" | string;
+  duration: "DAY" | "IOC" | string;
+  price: string | number;
+  squareoff?: string | number | undefined;
+  stoploss?: string | number | undefined;
+  quantity: string | number;
+  triggerprice?: string | number | undefined;
+}
+
+export interface OrderPlacementResponse {
+  script: string;
+  orderid: string;
+  uniqueorderid?: string;
+}
+
+export interface OrderBookItem {
+  variety: string;
+  ordertype: string;
+  producttype: string;
+  duration: string;
+  price: number;
+  triggerprice: number;
+  quantity: string | number;
+  disclosedquantity?: string | number | undefined;
+  squareoff?: number | undefined;
+  stoploss?: number | undefined;
+  trailingstoploss?: number | undefined;
+  tradingsymbol: string;
+  transactiontype: "BUY" | "SELL";
+  exchange: string;
+  symboltoken: string;
+  instrumenttype?: string | undefined;
+  strikeprice?: number | undefined;
+  optiontype?: string | undefined;
+  expirydate?: string | undefined;
+  lotsize?: string | number | undefined;
+  cancelsize?: string | number | undefined;
+  averageprice: number;
+  filledshares: string | number;
+  unfilledshares: string | number;
+  orderid: string;
+  text?: string | undefined;
+  status: string;
+  orderstatus: string;
+  updatetime?: string | undefined;
+  exchtime?: string | undefined;
+  exchorderupdatetime?: string | undefined;
+  fillid?: string | undefined;
+  filltime?: string | undefined;
+  parentorderid?: string | undefined;
+  uniqueorderid?: string | undefined;
+}
+
 export interface TokenStore {
   jwtToken: string | null;
   refreshToken: string | null;

@@ -9,6 +9,7 @@ import { formatINR, formatCompactQty } from '../utils/formatters';
 import { Zap, ArrowRight, RefreshCw, BarChart2, TrendingUp, TrendingDown, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { NiftyQuote } from '../types';
+import TradingViewChart from '../components/tradingview/TradingViewChart';
 
 interface MarketsScreenProps {
   onNavigateFno?: () => void;
@@ -318,6 +319,22 @@ export const MarketsScreen: React.FC<MarketsScreenProps> = ({ onNavigateFno }) =
           </div>
         ))}
       </div>
+
+      {/* Interactive TradingView Live Candlestick Chart */}
+      <TradingViewChart
+        symbol={
+          selectedToken === '99926009'
+            ? 'NSE:BANKBEES'
+            : selectedToken === '99926037'
+            ? 'NSE:HDFCBANK'
+            : 'NSE:NIFTYBEES'
+        }
+        interval="15"
+        height={500}
+        theme="dark"
+        enableStudies={true}
+        allowSymbolChange={true}
+      />
 
       {/* Session & Range Metadata */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-5 shadow-xs space-y-3">
