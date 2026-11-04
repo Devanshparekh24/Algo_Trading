@@ -70,5 +70,6 @@ export {
 // Rate Limiting & Concurrency Queue
 export {
   executeSmartApiRequest,
-  smartApiQueue,
+  smartApiPacer,
+  smartApiPacer as smartApiQueue,
 } from "./rateLimiter.js";

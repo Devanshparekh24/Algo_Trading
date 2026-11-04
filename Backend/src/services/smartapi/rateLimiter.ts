@@ -1,27 +1,19 @@
 // ===========================================================================
-// SmartAPI Central Request Rate Limiter & Concurrency Queue
+// SmartAPI Inter-Request Rate Limiter & Concurrency Pacer
 // ===========================================================================
 // Angel One enforces strict API rate limits (maximum 3 requests/sec per API key).
-// When multiple controllers/services fire simultaneously (quotes, holdings, F&O, RMS),
-// this queue serializes outbound HTTP requests with a minimum 380ms delay (~2.6 req/sec)
-// and automatically handles exponential backoff without throwing 403 errors.
+// This pacer guarantees a minimum 380ms gap between initiating any two outbound requests (~2.6 req/sec).
+// Uses a non-blocking ticket/pacer model to completely eliminate queue deadlocks
+// and handles exponential backoff if Angel One returns a rate limit status.
 
 import axios from "axios";
 
-interface QueueItem<T> {
-  task: () => Promise<T>;
-  resolve: (value: T | PromiseLike<T>) => void;
-  reject: (reason?: any) => void;
-  retries: number;
-  label?: string | undefined;
-}
-
-class SmartApiRequestQueue {
-  private queue: QueueItem<any>[] = [];
-  private isProcessing = false;
-  private minIntervalMs = 380; // Max ~2.6 req/sec (safely under Angel One's 3 req/sec limit)
+class SmartApiPacer {
+  private minIntervalMs = 380; // Safe spacing under Angel One's 3 req/sec cap
   private lastRequestTime = 0;
-  private maxRetries = 3;
+  private queue: (() => void)[] = [];
+  private isScheduling = false;
+  private cooldownUntil = 0;
 
   /**
    * Helper to sleep for ms
@@ -36,12 +28,10 @@ class SmartApiRequestQueue {
   public isRateLimit(error: unknown): boolean {
     if (!error) return false;
 
-    // 1. Direct rate limit flag
     if (typeof error === "object" && (error as any).isRateLimitStatus) {
       return true;
     }
 
-    // 2. Axios response error
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const body = error.response?.data;
@@ -61,7 +51,6 @@ class SmartApiRequestQueue {
       }
     }
 
-    // 3. Wrapped or standard Error message
     if (error instanceof Error) {
       const msg = error.message.toLowerCase();
       if (
@@ -77,89 +66,87 @@ class SmartApiRequestQueue {
       }
     }
 
-    // 4. Raw string error
-    if (typeof error === "string") {
-      const lower = error.toLowerCase();
-      if (
-        lower.includes("exceeding access rate") ||
-        lower.includes("rate limit") ||
-        lower.includes("access denied") ||
-        lower.includes("403")
-      ) {
-        return true;
-      }
-    }
-
     return false;
   }
 
   /**
-   * Enqueue a SmartAPI request to be executed with rate-limiting & backoff
+   * Request a pacing slot before firing an HTTP call
    */
-  public enqueue<T>(task: () => Promise<T>, label?: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      this.queue.push({
-        task,
-        resolve,
-        reject,
-        retries: 0,
-        label,
-      });
-
-      this.processQueue();
+  public acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+      this.dispatchNext();
     });
   }
 
   /**
-   * Process queue items one at a time with guaranteed pacing
+   * Trigger backoff cooldown across all queued requests
    */
-  private async processQueue(): Promise<void> {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    while (this.queue.length > 0) {
-      const item = this.queue.shift();
-      if (!item) break;
-
-      // Ensure minimum interval between outbound requests
-      const now = Date.now();
-      const elapsed = now - this.lastRequestTime;
-      if (elapsed < this.minIntervalMs) {
-        await this.sleep(this.minIntervalMs - elapsed);
-      }
-
-      this.lastRequestTime = Date.now();
-
-      try {
-        const result = await item.task();
-        item.resolve(result);
-      } catch (error: any) {
-        if (this.isRateLimit(error) && item.retries < this.maxRetries) {
-          item.retries += 1;
-          const backoffDelay = 1500 * item.retries; // 1.5s, 3.0s, 4.5s
-          console.warn(
-            `[SmartAPI Queue] Rate limit detected for ${item.label || "request"}. Pausing queue for ${backoffDelay}ms (Retry ${item.retries}/${this.maxRetries})...`
-          );
-          // Wait for Angel One rate limit rolling window to clear
-          await this.sleep(backoffDelay);
-          // Re-queue at the front of the queue
-          this.queue.unshift(item);
-        } else {
-          item.reject(error);
-        }
-      }
+  public triggerCooldown(ms: number): void {
+    const until = Date.now() + ms;
+    if (until > this.cooldownUntil) {
+      this.cooldownUntil = until;
     }
+  }
 
-    this.isProcessing = false;
+  private dispatchNext(): void {
+    if (this.isScheduling || this.queue.length === 0) return;
+    this.isScheduling = true;
+
+    const now = Date.now();
+    const waitCooldown = Math.max(0, this.cooldownUntil - now);
+    const elapsedSinceLast = now - this.lastRequestTime;
+    const waitSpacing = Math.max(0, this.minIntervalMs - elapsedSinceLast);
+    const delay = Math.max(waitCooldown, waitSpacing);
+
+    setTimeout(() => {
+      this.lastRequestTime = Date.now();
+      const nextResolve = this.queue.shift();
+      this.isScheduling = false;
+
+      if (nextResolve) {
+        nextResolve();
+      }
+
+      if (this.queue.length > 0) {
+        this.dispatchNext();
+      }
+    }, delay);
   }
 }
 
-// Global Singleton Queue for the entire backend
-export const smartApiQueue = new SmartApiRequestQueue();
+// Global Singleton Pacer
+export const smartApiPacer = new SmartApiPacer();
 
 /**
- * Execute any SmartAPI async call safely through the rate-limiting queue
+ * Safely execute any SmartAPI call through the rate-limiting pacer with automatic backoff retry.
+ * Eliminates deadlocks because nested calls (e.g. getHoldings calling getFullModeData) simply acquire
+ * their own pacing slot without blocking parent tasks.
  */
-export function executeSmartApiRequest<T>(task: () => Promise<T>, label?: string): Promise<T> {
-  return smartApiQueue.enqueue(task, label);
+export async function executeSmartApiRequest<T>(
+  task: () => Promise<T>,
+  label?: string
+): Promise<T> {
+  const maxRetries = 2;
+  let attempt = 0;
+
+  while (true) {
+    await smartApiPacer.acquire();
+
+    try {
+      return await task();
+    } catch (error: any) {
+      if (smartApiPacer.isRateLimit(error) && attempt < maxRetries) {
+        attempt++;
+        const backoff = 1200 * attempt;
+        console.warn(
+          `[SmartAPI Pacer] Rate limit hit for ${label || "request"}. Backing off for ${backoff}ms (Attempt ${attempt}/${maxRetries})...`
+        );
+        smartApiPacer.triggerCooldown(backoff);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw error;
+    }
+  }
 }
