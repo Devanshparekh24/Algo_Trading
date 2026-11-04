@@ -4,7 +4,7 @@
 
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
-import { BASE_URL } from "../constants.js";
+import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { Holding, TotalHolding, HoldingsPayload } from "../types.js";
@@ -90,7 +90,7 @@ export async function getHoldings(): Promise<HoldingsPayload> {
             holdings?: Holding[];
             totalholding?: TotalHolding;
           } | Holding[] | null;
-        }>(url, { headers });
+        }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
         if (response.data && response.data.status && response.data.data) {
           rawData = response.data.data;
@@ -119,7 +119,7 @@ export async function getHoldings(): Promise<HoldingsPayload> {
               holdings?: Holding[];
               totalholding?: TotalHolding;
             } | Holding[] | null;
-          }>(fallbackUrl, { headers });
+          }>(fallbackUrl, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
           const { status, data } = fallbackRes.data;
 

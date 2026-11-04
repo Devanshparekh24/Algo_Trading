@@ -4,7 +4,7 @@
 
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
-import { BASE_URL } from "../constants.js";
+import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { generateTOTP, buildHeaders } from "../helpers.js";
 import { getStore, setStore, clearStore } from "../store.js";
 import type { LoginResponse } from "../types.js";
@@ -39,7 +39,7 @@ export async function loginSmartAPI(): Promise<LoginResponse> {
         refreshToken: string;
         feedToken: string;
       };
-    }>(url, body, { headers });
+    }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
     const { status, message, data, errorcode } = response.data;
 
@@ -97,7 +97,7 @@ export async function refreshSmartAPISession(
         refreshToken: string;
         feedToken: string;
       };
-    }>(url, body, { headers });
+    }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
     const { status, message, data, errorcode } = response.data;
 

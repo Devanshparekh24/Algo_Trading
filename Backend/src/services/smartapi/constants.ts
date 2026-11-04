@@ -13,3 +13,6 @@ export const REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 
 /** Default session scheduler interval (30 minutes) */
 export const DEFAULT_SCHEDULER_INTERVAL_MS = 30 * 60 * 1000;
+
+/** Default HTTP request timeout (8 seconds) to prevent hanging requests */
+export const DEFAULT_TIMEOUT_MS = 8000;

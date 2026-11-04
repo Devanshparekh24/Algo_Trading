@@ -1,6 +1,6 @@
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
-import { BASE_URL } from "../constants.js";
+import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { FullMode, FullModeRequest, FullModeResponse } from "../types.js";
@@ -114,7 +114,7 @@ export async function getFullModeData(
     const headers = buildHeaders(config.API_KEY, jwtToken);
 
     try {
-      const response = await axios.post<FullModeResponse>(url, prunedRequest, { headers });
+      const response = await axios.post<FullModeResponse>(url, prunedRequest, { headers, timeout: DEFAULT_TIMEOUT_MS });
       const { status, message, data, errorcode } = response.data;
 
       if (!status || !data) {

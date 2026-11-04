@@ -4,7 +4,7 @@
 
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
-import { BASE_URL } from "../constants.js";
+import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { RMSData } from "../types.js";
@@ -63,7 +63,7 @@ export async function getRMS(): Promise<RMSData> {
         message: string;
         errorcode?: string;
         data?: RMSData;
-      }>(url, { headers });
+      }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
       const { status, message, data, errorcode } = response.data;
 
