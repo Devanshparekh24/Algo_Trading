@@ -33,6 +33,7 @@ interface CachedGainersLosers {
   timestamp: number;
 }
 const cache = new Map<string, CachedGainersLosers>();
+const inFlightRequests = new Map<string, Promise<GainersLosersResponse>>();
 const CACHE_TTL_MS = 30000;
 
 export async function getGainersLosersData(
@@ -44,57 +45,71 @@ export async function getGainersLosersData(
     return cached.data;
   }
 
-  return executeSmartApiRequest(async () => {
-    const cachedAgain = cache.get(cacheKey);
-    if (cachedAgain && Date.now() - cachedAgain.timestamp < CACHE_TTL_MS) {
-      return cachedAgain.data;
-    }
+  const existingInFlight = inFlightRequests.get(cacheKey);
+  if (existingInFlight) {
+    return existingInFlight;
+  }
 
+  const fetchPromise = (async () => {
     try {
-      const jwtToken = await getValidSession();
-      const config = getConfig();
-
-      const url = `${BASE_URL}/rest/secure/angelbroking/marketData/v1/gainersLosers`;
-      const headers = buildHeaders(config.API_KEY, jwtToken);
-
-      const response = await axios.post<GainersLosersResponse>(url, request, { headers, timeout: DEFAULT_TIMEOUT_MS });
-      const { status, message, errorcode } = response.data;
-
-      if (!status) {
-        if (
-          message &&
-          (message.toLowerCase().includes("exceeding access rate") ||
-            message.toLowerCase().includes("rate limit") ||
-            message.toLowerCase().includes("access denied"))
-        ) {
-          throw { isRateLimitStatus: true, message };
+      return await executeSmartApiRequest(async () => {
+        const cachedAgain = cache.get(cacheKey);
+        if (cachedAgain && Date.now() - cachedAgain.timestamp < CACHE_TTL_MS) {
+          return cachedAgain.data;
         }
 
-        const errMsg = errorcode
-          ? `[${errorcode}] ${message}`
-          : message || "Gainers/Losers fetch failed";
-        console.warn("[SmartAPI] Gainers/Losers warning:", errMsg);
-        return {
-          status: false,
-          message: errMsg,
-          errorcode: errorcode || "",
-          data: [],
-        };
-      }
+        try {
+          const jwtToken = await getValidSession();
+          const config = getConfig();
 
-      cache.set(cacheKey, { data: response.data, timestamp: Date.now() });
-      return response.data;
-    } catch (error: any) {
-      if (error?.isRateLimitStatus) {
-        throw error;
-      }
-      if (
-        axios.isAxiosError(error) &&
-        (error.response?.status === 403 || error.response?.status === 429)
-      ) {
-        throw error;
-      }
-      handleApiError(error, "gainers/losers fetch");
+          const url = `${BASE_URL}/rest/secure/angelbroking/marketData/v1/gainersLosers`;
+          const headers = buildHeaders(config.API_KEY, jwtToken);
+
+          const response = await axios.post<GainersLosersResponse>(url, request, { headers, timeout: DEFAULT_TIMEOUT_MS });
+          const { status, message, errorcode } = response.data;
+
+          if (!status) {
+            if (
+              message &&
+              (message.toLowerCase().includes("exceeding access rate") ||
+                message.toLowerCase().includes("rate limit") ||
+                message.toLowerCase().includes("access denied"))
+            ) {
+              throw { isRateLimitStatus: true, message };
+            }
+
+            const errMsg = errorcode
+              ? `[${errorcode}] ${message}`
+              : message || "Gainers/Losers fetch failed";
+            console.warn("[SmartAPI] Gainers/Losers warning:", errMsg);
+            return {
+              status: false,
+              message: errMsg,
+              errorcode: errorcode || "",
+              data: [],
+            };
+          }
+
+          cache.set(cacheKey, { data: response.data, timestamp: Date.now() });
+          return response.data;
+        } catch (error: any) {
+          if (error?.isRateLimitStatus) {
+            throw error;
+          }
+          if (
+            axios.isAxiosError(error) &&
+            (error.response?.status === 403 || error.response?.status === 429)
+          ) {
+            throw error;
+          }
+          handleApiError(error, "gainers/losers fetch");
+        }
+      }, `gainersLosers_${cacheKey}`);
+    } finally {
+      inFlightRequests.delete(cacheKey);
     }
-  }, `gainersLosers_${cacheKey}`);
+  })();
+
+  inFlightRequests.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }

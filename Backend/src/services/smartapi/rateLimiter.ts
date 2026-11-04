@@ -2,25 +2,15 @@
 // SmartAPI Inter-Request Rate Limiter & Concurrency Pacer
 // ===========================================================================
 // Angel One enforces strict API rate limits (maximum 3 requests/sec per API key).
-// This pacer guarantees a minimum 380ms gap between initiating any two outbound requests (~2.6 req/sec).
-// Uses a non-blocking ticket/pacer model to completely eliminate queue deadlocks
-// and handles exponential backoff if Angel One returns a rate limit status.
+// This pacer guarantees a minimum 400ms gap between initiating any two outbound requests (~2.5 req/sec).
+// Uses a robust promise-chain FIFO queue to guarantee zero deadlocks and thread-safe serial dispatching.
 
 import axios from "axios";
 
 class SmartApiPacer {
-  private minIntervalMs = 380; // Safe spacing under Angel One's 3 req/sec cap
+  private minIntervalMs = 400; // Safe spacing under Angel One's 3 req/sec cap
   private lastRequestTime = 0;
-  private queue: (() => void)[] = [];
-  private isScheduling = false;
-  private cooldownUntil = 0;
-
-  /**
-   * Helper to sleep for ms
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
+  private chain: Promise<void> = Promise.resolve();
 
   /**
    * Check if an error is an Angel One rate limit error
@@ -33,17 +23,15 @@ class SmartApiPacer {
     }
 
     if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
-      const body = error.response?.data;
-      if (status === 429 || status === 403) {
+      if (error.response?.status === 429) {
         return true;
       }
+      const body = error.response?.data;
       const bodyStr = typeof body === "string" ? body : JSON.stringify(body || "");
       const lower = bodyStr.toLowerCase();
       if (
         lower.includes("exceeding access rate") ||
         lower.includes("rate limit") ||
-        lower.includes("access denied") ||
         lower.includes("ag8001") ||
         lower.includes("ab8050")
       ) {
@@ -56,9 +44,6 @@ class SmartApiPacer {
       if (
         msg.includes("exceeding access rate") ||
         msg.includes("rate limit") ||
-        msg.includes("access denied") ||
-        msg.includes("http 403") ||
-        msg.includes("http 429") ||
         msg.includes("ag8001") ||
         msg.includes("ab8050")
       ) {
@@ -70,48 +55,40 @@ class SmartApiPacer {
   }
 
   /**
-   * Request a pacing slot before firing an HTTP call
+   * Request a pacing slot before firing an HTTP call (FIFO queued)
    */
   public acquire(): Promise<void> {
-    return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-      this.dispatchNext();
+    const nextSlot = this.chain.then(async () => {
+      const now = Date.now();
+      const elapsed = now - this.lastRequestTime;
+      const wait = Math.max(0, this.minIntervalMs - elapsed);
+      if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      this.lastRequestTime = Date.now();
     });
+
+    // Keep chain advancing even if a slot fails
+    this.chain = nextSlot.catch(() => {});
+    return nextSlot;
   }
 
   /**
-   * Trigger backoff cooldown across all queued requests
+   * Pause the pacer queue for ms milliseconds (used for rate limit backoff)
    */
-  public triggerCooldown(ms: number): void {
-    const until = Date.now() + ms;
-    if (until > this.cooldownUntil) {
-      this.cooldownUntil = until;
-    }
+  public pause(ms: number): Promise<void> {
+    const pauseSlot = this.chain.then(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      this.lastRequestTime = Date.now();
+    });
+
+    this.chain = pauseSlot.catch(() => {});
+    return pauseSlot;
   }
 
-  private dispatchNext(): void {
-    if (this.isScheduling || this.queue.length === 0) return;
-    this.isScheduling = true;
-
-    const now = Date.now();
-    const waitCooldown = Math.max(0, this.cooldownUntil - now);
-    const elapsedSinceLast = now - this.lastRequestTime;
-    const waitSpacing = Math.max(0, this.minIntervalMs - elapsedSinceLast);
-    const delay = Math.max(waitCooldown, waitSpacing);
-
-    setTimeout(() => {
-      this.lastRequestTime = Date.now();
-      const nextResolve = this.queue.shift();
-      this.isScheduling = false;
-
-      if (nextResolve) {
-        nextResolve();
-      }
-
-      if (this.queue.length > 0) {
-        this.dispatchNext();
-      }
-    }, delay);
+  // Compatibility helper
+  public triggerCooldown(ms: number): void {
+    this.pause(ms);
   }
 }
 
@@ -120,8 +97,6 @@ export const smartApiPacer = new SmartApiPacer();
 
 /**
  * Safely execute any SmartAPI call through the rate-limiting pacer with automatic backoff retry.
- * Eliminates deadlocks because nested calls (e.g. getHoldings calling getFullModeData) simply acquire
- * their own pacing slot without blocking parent tasks.
  */
 export async function executeSmartApiRequest<T>(
   task: () => Promise<T>,
@@ -142,8 +117,7 @@ export async function executeSmartApiRequest<T>(
         console.warn(
           `[SmartAPI Pacer] Rate limit hit for ${label || "request"}. Backing off for ${backoff}ms (Attempt ${attempt}/${maxRetries})...`
         );
-        smartApiPacer.triggerCooldown(backoff);
-        await new Promise((r) => setTimeout(r, backoff));
+        await smartApiPacer.pause(backoff);
         continue;
       }
       throw error;

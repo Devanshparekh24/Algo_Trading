@@ -1730,13 +1730,15 @@ export async function analyzeBudgetAndSuggestTrades(
     pool = [...activeEquitySignals];
   }
 
-  // If pool is still empty, trigger dynamic scans
+  // If pool is still empty, trigger dynamic scans (for standard equity/fno universe)
   if (pool.length === 0) {
-    await scanMarketUniverse("EQUITY");
-    await scanMarketUniverse("FNO");
-    pool = segment === "ALL" 
-      ? [...activeEquitySignals, ...activeFnoSignals]
-      : segment === "FNO" ? [...activeFnoSignals] : [...activeEquitySignals];
+    if (segment !== "VOLATILE_CALLS" && segment !== "VOLATILE_PUTS" && segment !== "VOLATILE_OPTIONS") {
+      await scanMarketUniverse("EQUITY");
+      await scanMarketUniverse("FNO");
+      pool = segment === "ALL" 
+        ? [...activeEquitySignals, ...activeFnoSignals]
+        : segment === "FNO" ? [...activeFnoSignals] : [...activeEquitySignals];
+    }
   }
 
   // 3. Filter for actionable trade setups (BUY or SELL)

@@ -45,10 +45,11 @@ export interface FnoMoversResponse {
   futures: FnoMoverItem[];
 }
 
-// In-memory cache with 30-second TTL
+// In-memory cache with 45-second TTL & single-flight deduplication
 let cachedData: FnoMoversResponse | null = null;
 let lastCacheTime = 0;
-const CACHE_TTL_MS = 30 * 1000;
+let inFlightPromise: Promise<FnoMoversResponse> | null = null;
+const CACHE_TTL_MS = 45 * 1000;
 
 /**
  * Helper to parse contract type and strike from symbol.
@@ -84,13 +85,28 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
     return cachedData;
   }
 
-  const itemsMap = new Map<string, FnoMoverItem>();
+  // Deduplicate concurrent in-flight scans
+  if (inFlightPromise) {
+    return inFlightPromise;
+  }
+
+  inFlightPromise = (async () => {
+    try {
+      console.log("[FnoMoversService] Starting getTopFnoMovers scan...");
+      const itemsMap = new Map<string, FnoMoverItem>();
 
   // 1. Fetch Top Futures Price Gainers & Losers from SmartAPI marketData
   try {
-    // Fetch sequentially to respect Angel One rate limits
-    const gainersRes = await getGainersLosersData({ datatype: "PercPriceGainers", expirytype: "NEAR" }).catch(() => null);
-    const losersRes = await getGainersLosersData({ datatype: "PercPriceLosers", expirytype: "NEAR" }).catch(() => null);
+    console.log("[FnoMoversService] Step 1: Fetching Futures Gainers...");
+    const gainersRes = await getGainersLosersData({ datatype: "PercPriceGainers", expirytype: "NEAR" }).catch((e) => {
+      console.warn("[FnoMoversService] Gainers error:", e?.message || e);
+      return null;
+    });
+    console.log("[FnoMoversService] Step 2: Fetching Futures Losers...");
+    const losersRes = await getGainersLosersData({ datatype: "PercPriceLosers", expirytype: "NEAR" }).catch((e) => {
+      console.warn("[FnoMoversService] Losers error:", e?.message || e);
+      return null;
+    });
 
     const rawFutures: any[] = [];
     if (gainersRes && gainersRes.status && Array.isArray(gainersRes.data)) {
@@ -134,28 +150,31 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
     console.warn("[FnoMoversService] Futures gainers/losers fetch failed:", err.message);
   }
 
-  // 2. Query PostgreSQL for active Call (CE) and Put (PE) options across NIFTY, BANKNIFTY, FINNIFTY and Top Stock options
+  // 2. Query PostgreSQL for active Call (CE) and Put (PE) options across NIFTY and BANKNIFTY
   try {
-    // Select near-expiry options from DB across NIFTY, BANKNIFTY, FINNIFTY and major stocks
+    console.log("[FnoMoversService] Step 3: Querying DB for near-expiry options...");
     const optionInstruments = await prisma.instrument.findMany({
       where: {
         exch_seg: "NFO",
-        instrumenttype: { in: ["OPTIDX", "OPTSTK"] },
-        name: { in: ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE"] },
+        instrumenttype: "OPTIDX",
+        name: { in: ["NIFTY", "BANKNIFTY"] },
       },
-      take: 40,
+      take: 24,
       orderBy: { expiry: "asc" },
     });
+    console.log(`[FnoMoversService] Step 3 complete: Found ${optionInstruments.length} options in DB.`);
 
     if (optionInstruments.length > 0) {
       const tokens = optionInstruments.map((inst) => inst.token);
       
       // Fetch FullMode live quotes for these options in a single API call
       try {
+        console.log(`[FnoMoversService] Step 4: Fetching FullMode quotes for ${tokens.length} option tokens...`);
         const fullModeRes = await getFullModeData({
           mode: "FULL",
           exchangeTokens: { NFO: tokens },
         });
+        console.log(`[FnoMoversService] Step 4 complete: FullMode returned ${fullModeRes.data?.fetched?.length || 0} quotes.`);
 
         const fetched = fullModeRes.data?.fetched || [];
         for (const item of fetched) {
@@ -263,7 +282,13 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
   };
 
   cachedData = result;
-  lastCacheTime = now;
+      lastCacheTime = Date.now();
 
-  return result;
+      return result;
+    } finally {
+      inFlightPromise = null;
+    }
+  })();
+
+  return inFlightPromise;
 }

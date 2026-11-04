@@ -14,7 +14,7 @@ import { executeSmartApiRequest } from "../rateLimiter.js";
 // In-Memory Holdings Cache & Fallback Store
 let cachedHoldings: HoldingsPayload | null = null;
 let lastHoldingsFetchTime = 0;
-const HOLDINGS_CACHE_TTL_MS = 1500; // 1.5s cache for enriched payload
+const HOLDINGS_CACHE_TTL_MS = 30000; // 30s cache for holdings structure (live prices updated via WebSocket ticks)
 
 // Demat shares cache (broker record of stocks owned)
 let rawDematHoldings: Holding[] = [];

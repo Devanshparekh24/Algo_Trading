@@ -9,8 +9,8 @@ export const usePositions = (useRootEndpoint = false) => {
   return useQuery({
     queryKey: [...queryKeys.portfolio.positions(), { useRootEndpoint }],
     queryFn: () => getPositions(useRootEndpoint),
-    staleTime: 1000 * 2, // 2s stale time for responsive live updates
-    refetchInterval: 1000 * 5, // 5s fallback polling if websocket disconnects
+    staleTime: 1000 * 30, // 30s stale time (real-time ticks handled via WebSocket)
+    refetchInterval: 1000 * 30, // 30s background sync fallback
   });
 };
 
@@ -21,7 +21,7 @@ export const useHoldings = (useRootEndpoint = false) => {
   return useQuery({
     queryKey: [...queryKeys.portfolio.holdings(), { useRootEndpoint }],
     queryFn: () => getHoldings(useRootEndpoint),
-    staleTime: 1000 * 2, // 2s stale time for responsive live updates
-    refetchInterval: 1000 * 5, // 5s fallback polling if websocket disconnects
+    staleTime: 1000 * 30, // 30s stale time (real-time ticks handled via WebSocket)
+    refetchInterval: 1000 * 30, // 30s background sync fallback
   });
 };

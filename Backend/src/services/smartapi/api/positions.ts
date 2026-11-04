@@ -15,7 +15,7 @@ import { getFullModeData } from "./FullMode.js";
 let cachedPositions: Position[] = [];
 let lastPositionsFetchTime = 0;
 let hasPositionsFetchedOnce = false;
-const POSITIONS_CACHE_TTL_MS = 1500; // 1.5s cache for live positions
+const POSITIONS_CACHE_TTL_MS = 10000; // 10s cache for positions structure (live prices updated via WebSocket ticks)
 
 /**
  * Retrieve currently known positions from memory
