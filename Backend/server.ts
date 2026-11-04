@@ -9,8 +9,32 @@ const PORT = process.env.PORT || 5000;
 // Create HTTP server
 const server = http.createServer(app);
 
+// Handle server errors (e.g. EADDRINUSE) gracefully
+server.on("error", (error: any) => {
+    if (error.code === "EADDRINUSE") {
+        console.error(`\n❌ [Server Error] Port ${PORT} is already in use by another process.`);
+        console.error(`💡 Tip: Run 'Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force' to free the port.\n`);
+        process.exit(1);
+    }
+    console.error("❌ [Server Error]:", error);
+    process.exit(1);
+});
+
 // Initialize Socket.IO real-time WebSocket server
 initSocketServer(server);
+
+// Graceful process shutdown
+const gracefulShutdown = () => {
+    console.log("\n[Server] Closing HTTP & WebSocket connections...");
+    server.close(() => {
+        prisma.$disconnect().finally(() => {
+            console.log("[Server] Exited cleanly.");
+            process.exit(0);
+        });
+    });
+};
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 server.listen(PORT, async () => {
     console.log(` 🪬 🪬 🪬 Server running on http://localhost:${PORT}`);
