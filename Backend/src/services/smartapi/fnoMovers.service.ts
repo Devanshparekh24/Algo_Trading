@@ -45,10 +45,10 @@ export interface FnoMoversResponse {
   futures: FnoMoverItem[];
 }
 
-// In-memory cache with 15-second TTL
+// In-memory cache with 30-second TTL
 let cachedData: FnoMoversResponse | null = null;
 let lastCacheTime = 0;
-const CACHE_TTL_MS = 15 * 1000;
+const CACHE_TTL_MS = 30 * 1000;
 
 /**
  * Helper to parse contract type and strike from symbol.
@@ -88,17 +88,16 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
 
   // 1. Fetch Top Futures Price Gainers & Losers from SmartAPI marketData
   try {
-    const [gainersRes, losersRes] = await Promise.allSettled([
-      getGainersLosersData({ datatype: "PercPriceGainers", expirytype: "NEAR" }),
-      getGainersLosersData({ datatype: "PercPriceLosers", expirytype: "NEAR" }),
-    ]);
+    // Fetch sequentially to respect Angel One rate limits
+    const gainersRes = await getGainersLosersData({ datatype: "PercPriceGainers", expirytype: "NEAR" }).catch(() => null);
+    const losersRes = await getGainersLosersData({ datatype: "PercPriceLosers", expirytype: "NEAR" }).catch(() => null);
 
     const rawFutures: any[] = [];
-    if (gainersRes.status === "fulfilled" && Array.isArray(gainersRes.value.data)) {
-      rawFutures.push(...gainersRes.value.data);
+    if (gainersRes && gainersRes.status && Array.isArray(gainersRes.data)) {
+      rawFutures.push(...gainersRes.data);
     }
-    if (losersRes.status === "fulfilled" && Array.isArray(losersRes.value.data)) {
-      rawFutures.push(...losersRes.value.data);
+    if (losersRes && losersRes.status && Array.isArray(losersRes.data)) {
+      rawFutures.push(...losersRes.data);
     }
 
     // Deduplicate futures
@@ -195,6 +194,10 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
   }
 
   const allItems = Array.from(itemsMap.values()).filter((item) => item.ltp > 0 || item.tradeVolume);
+
+  if (allItems.length === 0 && cachedData && cachedData.all.length > 0) {
+    return cachedData;
+  }
 
   // Sort by highest absolute percentage swing (Top Volatile)
   const allVolatile = [...allItems].sort(

@@ -27,13 +27,13 @@ export interface GainersLosersResponse {
   data: RawGainerLoserItem[];
 }
 
-// In-Memory Cache for Gainers / Losers (5s TTL)
+// In-Memory Cache for Gainers / Losers (30s TTL to prevent rate limit spikes)
 interface CachedGainersLosers {
   data: GainersLosersResponse;
   timestamp: number;
 }
 const cache = new Map<string, CachedGainersLosers>();
-const CACHE_TTL_MS = 5000;
+const CACHE_TTL_MS = 30000;
 
 export async function getGainersLosersData(
   request: GainersLosersRequest
