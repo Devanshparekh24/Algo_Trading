@@ -21,6 +21,8 @@ export interface Position {
   ltp?: string | number;
   pnl?: string | number;
   m2m?: string | number;
+  realised?: string | number;
+  [key: string]: any;
 }
 
 export interface Holding {

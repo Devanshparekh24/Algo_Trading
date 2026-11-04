@@ -14,7 +14,12 @@ import { executeSmartApiRequest } from "../rateLimiter.js";
 // In-Memory Holdings Cache & Fallback Store
 let cachedHoldings: HoldingsPayload | null = null;
 let lastHoldingsFetchTime = 0;
-const HOLDINGS_CACHE_TTL_MS = 10000; // 10s cache
+const HOLDINGS_CACHE_TTL_MS = 1500; // 1.5s cache for enriched payload
+
+// Demat shares cache (broker record of stocks owned)
+let rawDematHoldings: Holding[] = [];
+let lastDematFetchTime = 0;
+const DEMAT_CACHE_TTL_MS = 60000; // 60s cache for raw Demat structure
 
 let lastKnownHoldings: HoldingsPayload = {
   holdings: [],
@@ -29,7 +34,7 @@ let lastKnownHoldings: HoldingsPayload = {
 /**
  * Helper to compute totalholding metrics from live stock values
  */
-function computeTotalHolding(holdings: Holding[]): TotalHolding {
+export function computeTotalHolding(holdings: Holding[]): TotalHolding {
   let totalinvvalue = 0;
   let totalholdingvalue = 0;
   let totalprofitandloss = 0;
@@ -57,18 +62,76 @@ function computeTotalHolding(holdings: Holding[]): TotalHolding {
 }
 
 /**
+ * Retrieve currently known holdings from memory
+ */
+export function getKnownHoldings(): Holding[] {
+  if (cachedHoldings && cachedHoldings.holdings.length > 0) {
+    return cachedHoldings.holdings;
+  }
+  if (rawDematHoldings.length > 0) {
+    return rawDematHoldings;
+  }
+  return lastKnownHoldings.holdings;
+}
+
+/**
+ * Instantly update a holding's LTP and PnL in memory on incoming WebSocket tick
+ */
+export function updateHoldingQuoteInCache(
+  tokenOrSymbol: string,
+  ltp: number,
+  close?: number
+): HoldingsPayload | null {
+  if (!cachedHoldings || !cachedHoldings.holdings || cachedHoldings.holdings.length === 0) {
+    return null;
+  }
+
+  let updated = false;
+  const holdings = cachedHoldings.holdings.map((h) => {
+    if (
+      h.symboltoken === tokenOrSymbol ||
+      h.tradingsymbol?.toUpperCase() === tokenOrSymbol.toUpperCase()
+    ) {
+      updated = true;
+      const qty = Number(h.quantity || 0);
+      const avg = Number(h.averageprice || 0);
+      const freshClose = close !== undefined ? close : Number(h.close || ltp);
+      const freshPnl = (ltp - avg) * qty;
+      const freshPnlPct = avg > 0 ? ((ltp - avg) / avg) * 100 : 0;
+
+      return {
+        ...h,
+        ltp,
+        close: freshClose,
+        profitandloss: Number(freshPnl.toFixed(2)),
+        pnlpercentage: Number(freshPnlPct.toFixed(2)),
+      };
+    }
+    return h;
+  });
+
+  if (!updated) return null;
+
+  const totalholding = computeTotalHolding(holdings);
+  cachedHoldings = { holdings, totalholding };
+  lastKnownHoldings = cachedHoldings;
+  lastHoldingsFetchTime = Date.now();
+  return cachedHoldings;
+}
+
+/**
  * Retrieve the user's current equity holdings and enrich with REAL LIVE market quotes from Angel One.
  * Tries `getAllHolding` (with fallback to `getHolding`), and queries live LTP quotes.
- * Uses rate limiter queue and 10s cache.
+ * Supports forceRefresh to bypass all caches.
  */
-export async function getHoldings(): Promise<HoldingsPayload> {
+export async function getHoldings(forceRefresh = false): Promise<HoldingsPayload> {
   const now = Date.now();
-  if (cachedHoldings && now - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
+  if (!forceRefresh && cachedHoldings && now - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
     return cachedHoldings;
   }
 
   return executeSmartApiRequest(async () => {
-    if (cachedHoldings && Date.now() - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
+    if (!forceRefresh && cachedHoldings && Date.now() - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
       return cachedHoldings;
     }
 
@@ -77,41 +140,22 @@ export async function getHoldings(): Promise<HoldingsPayload> {
       const config = getConfig();
       const headers = buildHeaders(config.API_KEY, jwtToken);
 
-      let rawData: any = null;
+      const isDematFresh =
+        !forceRefresh &&
+        rawDematHoldings.length > 0 &&
+        Date.now() - lastDematFetchTime < DEMAT_CACHE_TTL_MS;
 
-      // 1. Try modern 'getAllHolding' endpoint first
-      try {
-        const url = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getAllHolding`;
-        const response = await axios.get<{
-          status: boolean;
-          message: string;
-          errorcode?: string;
-          data?: {
-            holdings?: Holding[];
-            totalholding?: TotalHolding;
-          } | Holding[] | null;
-        }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
+      let holdings: Holding[] = [];
 
-        if (response.data && response.data.status && response.data.data) {
-          rawData = response.data.data;
-          console.log("[SmartAPI] Successfully fetched from getAllHolding.");
-        }
-      } catch (err: any) {
-        if (
-          axios.isAxiosError(err) &&
-          (err.response?.status === 403 || err.response?.status === 429)
-        ) {
-          console.warn("[SmartAPI] getAllHolding hit 403 rate limit, falling back...");
-        } else {
-          console.warn(`[SmartAPI] getAllHolding notice: ${err?.message || err}`);
-        }
-      }
+      if (isDematFresh) {
+        holdings = rawDematHoldings.map((h) => ({ ...h }));
+      } else {
+        let rawData: any = null;
 
-      // 2. Fallback to 'getHolding' endpoint if needed
-      if (!rawData) {
+        // 1. Try modern 'getAllHolding' endpoint first
         try {
-          const fallbackUrl = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`;
-          const fallbackRes = await axios.get<{
+          const url = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getAllHolding`;
+          const response = await axios.get<{
             status: boolean;
             message: string;
             errorcode?: string;
@@ -119,28 +163,64 @@ export async function getHoldings(): Promise<HoldingsPayload> {
               holdings?: Holding[];
               totalholding?: TotalHolding;
             } | Holding[] | null;
-          }>(fallbackUrl, { headers, timeout: DEFAULT_TIMEOUT_MS });
+          }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
-          const { status, data } = fallbackRes.data;
-
-          if (status && data) {
-            rawData = data;
-            console.log("[SmartAPI] Holdings fetched successfully via getHolding fallback.");
+          if (response.data && response.data.status && response.data.data) {
+            rawData = response.data.data;
+            console.log("[SmartAPI] Successfully fetched from getAllHolding.");
           }
-        } catch (error: any) {
-          console.warn(`[SmartAPI] getHolding fallback notice: ${error?.message || error}`);
+        } catch (err: any) {
+          if (
+            axios.isAxiosError(err) &&
+            (err.response?.status === 403 || err.response?.status === 429)
+          ) {
+            console.warn("[SmartAPI] getAllHolding hit 403 rate limit, falling back...");
+          } else {
+            console.warn(`[SmartAPI] getAllHolding notice: ${err?.message || err}`);
+          }
+        }
+
+        // 2. Fallback to 'getHolding' endpoint if needed
+        if (!rawData) {
+          try {
+            const fallbackUrl = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`;
+            const fallbackRes = await axios.get<{
+              status: boolean;
+              message: string;
+              errorcode?: string;
+              data?: {
+                holdings?: Holding[];
+                totalholding?: TotalHolding;
+              } | Holding[] | null;
+            }>(fallbackUrl, { headers, timeout: DEFAULT_TIMEOUT_MS });
+
+            const { status, data } = fallbackRes.data;
+
+            if (status && data) {
+              rawData = data;
+              console.log("[SmartAPI] Holdings fetched successfully via getHolding fallback.");
+            }
+          } catch (error: any) {
+            console.warn(`[SmartAPI] getHolding fallback notice: ${error?.message || error}`);
+          }
+        }
+
+        // Normalize into standard Holdings list
+        if (Array.isArray(rawData)) {
+          holdings = rawData;
+        } else if (Array.isArray(rawData?.holdings)) {
+          holdings = rawData.holdings;
+        }
+
+        if (holdings.length > 0) {
+          rawDematHoldings = holdings.map((h) => ({ ...h }));
+          lastDematFetchTime = Date.now();
+        } else if (rawDematHoldings.length > 0) {
+          holdings = rawDematHoldings.map((h) => ({ ...h }));
         }
       }
 
-      // 3. Normalize into standard Holdings list
-      let holdings: Holding[] = [];
-      if (Array.isArray(rawData)) {
-        holdings = rawData;
-      } else if (Array.isArray(rawData?.holdings)) {
-        holdings = rawData.holdings;
-      }
-
-      // If holdings are present, enrich with real-time market data
+      // If holdings are present, enrich with real-time market quotes
       if (holdings.length > 0) {
         try {
           const exchangeTokens: Record<string, string[]> = {};
@@ -156,6 +236,7 @@ export async function getHoldings(): Promise<HoldingsPayload> {
             const liveQuotesRes = await getFullModeData({
               mode: "FULL",
               exchangeTokens,
+              bypassCache: forceRefresh,
             });
 
             const fetchedQuotes = liveQuotesRes.data?.fetched || [];
@@ -163,12 +244,15 @@ export async function getHoldings(): Promise<HoldingsPayload> {
             for (const q of fetchedQuotes) {
               quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
               quoteMap.set(`${q.symbolToken}`, q);
+              if (q.tradingSymbol) quoteMap.set(q.tradingSymbol.toUpperCase(), q);
             }
 
             for (const h of holdings) {
               const quote =
                 quoteMap.get(`${h.exchange || "NSE"}:${h.symboltoken}`) ||
-                quoteMap.get(`${h.symboltoken}`);
+                quoteMap.get(`${h.symboltoken}`) ||
+                (h.tradingsymbol ? quoteMap.get(h.tradingsymbol.toUpperCase()) : undefined);
+
               if (quote && quote.ltp) {
                 h.ltp = quote.ltp;
                 h.close = quote.close;

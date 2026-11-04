@@ -9,10 +9,12 @@ import {
 /**
  * Get open positions from the portfolio.
  * Never throws 500 or 403 to the frontend; returns 200 with positions (or empty list).
+ * Supports ?refresh=true or ?force=true to bypass cache and fetch ultra fresh live market quotes.
  */
-export const getPositions = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+export const getPositions = asyncHandler(async (req: Request, res: Response): Promise<void> => {
   try {
-    const positions = await fetchPositions();
+    const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
+    const positions = await fetchPositions(forceRefresh);
     res.status(200).json(
       new ApiResponse(200, positions || [], "Positions fetched successfully")
     );
@@ -27,10 +29,12 @@ export const getPositions = asyncHandler(async (_req: Request, res: Response): P
 /**
  * Get equity holdings / portfolio.
  * Never throws 500 or 403 to the frontend; returns 200 with holdings and summary metrics.
+ * Supports ?refresh=true or ?force=true to bypass cache and fetch ultra fresh live market quotes.
  */
-export const getHoldings = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+export const getHoldings = asyncHandler(async (req: Request, res: Response): Promise<void> => {
   try {
-    const holdings = await fetchHoldings();
+    const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
+    const holdings = await fetchHoldings(forceRefresh);
     res.status(200).json(
       new ApiResponse(200, holdings, "Holdings fetched successfully")
     );

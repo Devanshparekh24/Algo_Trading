@@ -4,7 +4,16 @@
 
 import { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
-import { getHoldings } from "../smartapi/api/holdings.js";
+import {
+  getHoldings,
+  getKnownHoldings,
+  updateHoldingQuoteInCache,
+  getPositions,
+  getKnownPositions,
+  updatePositionQuoteInCache,
+  type HoldingsPayload,
+  type Position,
+} from "../smartapi/index.js";
 import { getFullModeData } from "../smartapi/api/FullMode.js";
 import { getUniverseScrips, updateLiveSignalPrice } from "../ai/aiTrading.service.js";
 
@@ -74,13 +83,20 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
       message: "Connected to Angel One SmartAPI Realtime Live Market Stream 🚀",
     });
 
-    // Client requests immediate live portfolio refresh
+    // Client requests immediate live portfolio refresh (forces broker cache bypass)
     socket.on("request_portfolio_refresh", async () => {
       try {
-        const liveHoldingsData = await getHoldings();
+        const [liveHoldingsData, livePositionsData] = await Promise.all([
+          getHoldings(true),
+          getPositions(true),
+        ]);
         socket.emit("portfolio_update", {
           type: "REFRESH",
-          data: liveHoldingsData,
+          data: {
+            holdings: liveHoldingsData.holdings,
+            totalholding: liveHoldingsData.totalholding,
+            positions: livePositionsData,
+          },
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
@@ -94,6 +110,7 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
         const quotesRes = await getFullModeData({
           mode: "FULL",
           exchangeTokens: { NSE: MARKET_INDICES_TOKENS },
+          bypassCache: true,
         });
         const fetched = quotesRes.data?.fetched || [];
         for (const q of fetched) {
@@ -150,15 +167,17 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
           }
           exchangeTokens[ex] = list;
         }
+
         const quotesRes = await getFullModeData({
           mode: "FULL",
           exchangeTokens,
+          bypassCache: true,
         });
         for (const q of quotesRes.data?.fetched || []) {
           const freshLtp = Number(q.ltp);
           const closePrice = Number(q.close || freshLtp);
           const change = Number(q.netChange ?? freshLtp - closePrice);
-          const percentChange = Number(q.percentChange ?? (closePrice > 0 ? (change / closePrice) * 100 : 0));
+          const percentChange = Number(quotePercentChange(freshLtp, closePrice, q.percentChange));
           const tickData: RealtimeTickData = {
             symbolToken: q.symbolToken,
             tradingSymbol: q.tradingSymbol,
@@ -191,6 +210,11 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
   startRealtimeBroadcaster();
 
   return io;
+}
+
+function quotePercentChange(ltp: number, close: number, rawPct?: number): number {
+  if (rawPct !== undefined && !isNaN(rawPct)) return rawPct;
+  return close > 0 ? ((ltp - close) / close) * 100 : 0;
 }
 
 /**
@@ -229,6 +253,14 @@ export function broadcastHoldingTick(tick: RealtimeTickData): void {
 }
 
 /**
+ * Broadcast updated live open position tick
+ */
+export function broadcastPositionTick(tick: RealtimeTickData): void {
+  if (!io) return;
+  io.emit("position_tick", tick);
+}
+
+/**
  * Broadcast updated live market index tick (NIFTY 50, BANK NIFTY, FIN NIFTY)
  */
 export function broadcastMarketTick(tick: RealtimeTickData): void {
@@ -250,7 +282,8 @@ export function broadcastPortfolioUpdate(payload: unknown): void {
 
 /**
  * Real-time background ticker:
- * Queries Angel One's live quotes API every 3 seconds for both holding stocks & major benchmark indices
+ * Queries Angel One's live quotes API every 1500ms for portfolio holdings, open positions & benchmark indices.
+ * Paces requests safely and updates all connected clients with zero price delay.
  */
 export function startRealtimeBroadcaster(): void {
   if (streamInterval) clearInterval(streamInterval);
@@ -261,21 +294,31 @@ export function startRealtimeBroadcaster(): void {
     }
 
     try {
-      // 1. Fetch current holdings
-      const holdingsPayload = await getHoldings();
-      const holdings = holdingsPayload.holdings || [];
+      // 1. Gather active tokens from holdings & open positions
+      const knownHoldings = getKnownHoldings();
+      const knownPositions = getKnownPositions();
 
-      // 2. Batch tokens by exchange for Angel One Quote API (include major indices, holdings & AI universe)
       const exchangeTokens: Record<string, string[]> = {
         NSE: [...MARKET_INDICES_TOKENS],
       };
 
-      for (const h of holdings) {
+      for (const h of knownHoldings) {
         if (h.symboltoken) {
           const ex = h.exchange || "NSE";
           const list = exchangeTokens[ex] ?? [];
           if (!list.includes(h.symboltoken)) {
             list.push(h.symboltoken);
+          }
+          exchangeTokens[ex] = list;
+        }
+      }
+
+      for (const p of knownPositions) {
+        if (p.symboltoken) {
+          const ex = p.exchange || "NSE";
+          const list = exchangeTokens[ex] ?? [];
+          if (!list.includes(p.symboltoken)) {
+            list.push(p.symboltoken);
           }
           exchangeTokens[ex] = list;
         }
@@ -294,7 +337,7 @@ export function startRealtimeBroadcaster(): void {
             exchangeTokens[ex] = list;
           }
         }
-      } catch (err: any) {
+      } catch {
         // Continue gracefully
       }
 
@@ -307,19 +350,22 @@ export function startRealtimeBroadcaster(): void {
         exchangeTokens[ex] = list;
       }
 
-      // 3. Fetch true live market quote from Angel One
+      // 2. Fetch true live market quotes from Angel One
       const quotesRes = await getFullModeData({
         mode: "FULL",
         exchangeTokens,
+        bypassCache: true,
       });
 
       const fetchedQuotes = quotesRes.data?.fetched || [];
+      let updatedHoldingsPayload: HoldingsPayload | null = null;
+      let updatedPositionsList: Position[] | null = null;
 
       for (const quote of fetchedQuotes) {
         const freshLtp = Number(quote.ltp);
         const closePrice = Number(quote.close || freshLtp);
         const change = Number(quote.netChange ?? freshLtp - closePrice);
-        const percentChange = Number(quote.percentChange ?? (closePrice > 0 ? (change / closePrice) * 100 : 0));
+        const percentChange = Number(quotePercentChange(freshLtp, closePrice, quote.percentChange));
 
         const tickData: RealtimeTickData = {
           symbolToken: quote.symbolToken,
@@ -341,20 +387,36 @@ export function startRealtimeBroadcaster(): void {
         broadcastSocketEvent("ai_price_tick", tickData);
         updateLiveSignalPrice(quote.symbolToken, freshLtp, tickData.change, tickData.percentChange);
 
-        // If it's a benchmark index
+        // Benchmark Index
         if (MARKET_INDICES_TOKENS.includes(quote.symbolToken)) {
           broadcastMarketTick(tickData);
-        } else {
-          // If it's a portfolio holding stock
+        }
+
+        // Check if token matches holding
+        const hPayload = updateHoldingQuoteInCache(quote.symbolToken, freshLtp, closePrice);
+        if (hPayload) {
+          updatedHoldingsPayload = hPayload;
           broadcastHoldingTick(tickData);
+        }
+
+        // Check if token matches position
+        const pList = updatePositionQuoteInCache(quote.symbolToken, freshLtp);
+        if (pList && pList.length > 0) {
+          updatedPositionsList = pList;
+          broadcastPositionTick(tickData);
         }
       }
 
-      // Broadcast updated live portfolio calculation
-      broadcastPortfolioUpdate(holdingsPayload);
+      // 3. Broadcast updated live portfolio calculation with TRUE updated prices
+      if (updatedHoldingsPayload || updatedPositionsList) {
+        broadcastPortfolioUpdate({
+          holdings: updatedHoldingsPayload?.holdings ?? getKnownHoldings(),
+          totalholding: updatedHoldingsPayload?.totalholding,
+          positions: updatedPositionsList ?? getKnownPositions(),
+        });
+      }
     } catch (err: any) {
-      // Avoid breaking ticker if rate limit or network glitch occurs
       console.warn("[SmartAPI Streamer] Live quote polling:", err?.message || err);
     }
-  }, 3000);
+  }, 1500);
 }

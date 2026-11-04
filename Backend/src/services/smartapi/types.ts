@@ -179,6 +179,7 @@ export interface LtpDataResponse {
 export interface FullModeRequest {
   mode: "FULL" | "OHLC" | "LTP" | string;
   exchangeTokens: Record<string, string[]>;
+  bypassCache?: boolean;
   tradingsymbol?: string;
   exchange?: string;
   symboltoken?: string;

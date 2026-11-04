@@ -57,6 +57,7 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
     lastTickTime,
     lastWebhookEvent,
     flashes,
+    requestImmediateRefresh,
     dismissWebhookBanner,
   } = useRealtimePortfolio();
 
@@ -236,6 +237,7 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
 
           <button
             onClick={() => {
+              requestImmediateRefresh();
               if (activeTab === 'positions') positionsQuery.refetch();
               else holdingsQuery.refetch();
             }}
@@ -721,8 +723,28 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
 
                         <td className="py-3.5 px-4 text-right font-mono">{formatINR(pos.averageprice)}</td>
 
+                        {/* Live LTP (with Realtime Flash) */}
                         <td className="py-3.5 px-4 text-right font-mono font-semibold">
-                          {formatINR(pos.lp || pos.ltp)}
+                          {(() => {
+                            const posLtp = parseNum(pos.lp || pos.ltp);
+                            const symbolKey = pos.tradingsymbol || pos.symbol || pos.symboltoken || '';
+                            const flash = flashes[symbolKey] || (pos.symboltoken ? flashes[pos.symboltoken] : undefined);
+                            const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
+
+                            return (
+                              <span
+                                className={`px-2 py-0.5 rounded transition-all duration-300 ${
+                                  isRecentFlash
+                                    ? flash.direction === 'up'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-extrabold ring-1 ring-emerald-500'
+                                      : 'bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-extrabold ring-1 ring-rose-500'
+                                    : 'text-gray-900 dark:text-white'
+                                }`}
+                              >
+                                {formatINR(posLtp)}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         <td

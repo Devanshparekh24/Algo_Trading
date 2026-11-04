@@ -15,7 +15,7 @@ interface CachedQuote {
   timestamp: number;
 }
 
-const QUOTE_TTL_MS = 4000; // 4 seconds TTL (keeps data live while avoiding rate limit spikes)
+const QUOTE_TTL_MS = 1000; // 1 seconds TTL (keeps quotes ultra fresh without rate limit spikes)
 const quoteCache = new Map<string, CachedQuote>();
 const unfetchedTokenCache = new Map<string, number>(); // Cache unfetched/invalid tokens for 15s to stop hammering
 
@@ -66,39 +66,45 @@ export async function getFullModeData(
   const neededTokens: Record<string, string[]> = {};
   let totalRequested = 0;
 
-  // 1. Check local cache first to avoid unnecessary broker API calls
-  for (const [exchange, tokens] of Object.entries(exTokens)) {
-    for (const t of tokens) {
-      totalRequested++;
-      // If token recently marked invalid/unfetched, skip hitting broker API
-      const unfetchedAt = unfetchedTokenCache.get(t);
-      if (unfetchedAt && Date.now() - unfetchedAt < 15000) {
-        continue;
-      }
+  // 1. Check local cache first to avoid unnecessary broker API calls (unless bypassCache is requested)
+  if (!request.bypassCache) {
+    for (const [exchange, tokens] of Object.entries(exTokens)) {
+      for (const t of tokens) {
+        totalRequested++;
+        const unfetchedAt = unfetchedTokenCache.get(t);
+        if (unfetchedAt && Date.now() - unfetchedAt < 15000) {
+          continue;
+        }
 
-      const cached = getCachedQuote(t) || getCachedQuote(`${exchange}_${t}`);
-      if (cached) {
-        cachedFetched.push(cached);
-      } else {
-        if (!neededTokens[exchange]) neededTokens[exchange] = [];
-        neededTokens[exchange].push(t);
+        const cached = getCachedQuote(t) || getCachedQuote(`${exchange}_${t}`);
+        if (cached) {
+          cachedFetched.push(cached);
+        } else {
+          if (!neededTokens[exchange]) neededTokens[exchange] = [];
+          neededTokens[exchange].push(t);
+        }
       }
+    }
+
+    const cachedCount = Object.values(neededTokens).reduce((sum, arr) => sum + arr.length, 0);
+    if (totalRequested > 0 && cachedCount === 0) {
+      return {
+        status: true,
+        message: "SUCCESS (from live cache)",
+        errorcode: "",
+        data: {
+          fetched: cachedFetched,
+          unfetched: [],
+        },
+      };
+    }
+  } else {
+    for (const [exchange, tokens] of Object.entries(exTokens)) {
+      neededTokens[exchange] = [...tokens];
     }
   }
 
-  // If all requested tokens were found in cache, return immediately!
   const neededCount = Object.values(neededTokens).reduce((sum, arr) => sum + arr.length, 0);
-  if (totalRequested > 0 && neededCount === 0) {
-    return {
-      status: true,
-      message: "SUCCESS (from live cache)",
-      errorcode: "",
-      data: {
-        fetched: cachedFetched,
-        unfetched: [],
-      },
-    };
-  }
 
   // 2. Dispatch network request through Central Rate Limiter Queue
   const prunedRequest: FullModeRequest = {
