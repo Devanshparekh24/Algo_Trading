@@ -1,20 +1,4 @@
 {
-  "name": "algo-trading-platform",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Enterprise Algorithmic Trading Platform with SmartAPI and AI Signals",
-  "workspaces": [
-    "frontend",
-    "Backend"
-  ],
-  "scripts": {
-    "dev:backend": "npm --prefix Backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "build": "npm --prefix Backend run build && npm --prefix frontend run build",
-    "build:backend": "npm --prefix Backend run build",
-    "build:frontend": "npm --prefix frontend run build",
-    "typecheck": "npm --prefix Backend run build && npm --prefix frontend run build"
-  },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.2",
     "lightweight-charts": "https://pkg.pr.new/lightweight-charts@master",

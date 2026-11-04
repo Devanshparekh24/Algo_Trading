@@ -8,27 +8,29 @@ import { BASE_URL } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { Position } from "../types.js";
-import { handleApiError } from "./errorHandler.js";
 import { executeSmartApiRequest } from "../rateLimiter.js";
 
-// In-Memory Positions Cache
+// In-Memory Positions Cache & Fallback
 let cachedPositions: Position[] = [];
 let lastPositionsFetchTime = 0;
+let hasPositionsFetchedOnce = false;
 const POSITIONS_CACHE_TTL_MS = 5000; // 5s cache
 
 /**
- * Retrieve the user's current open trading positions.
- * Requires a valid JWT token.
- * Uses 5s cache and central rate-limiter queue.
+ * Retrieve the user's current open trading positions from Angel One SmartAPI.
+ * Features:
+ * 1. 5s In-Memory cache to prevent rate limit spikes
+ * 2. Queued execution via SmartAPI Rate Limiter
+ * 3. Graceful fallback on network or broker rate limit errors
  */
 export async function getPositions(): Promise<Position[]> {
   const now = Date.now();
-  if (cachedPositions.length > 0 && now - lastPositionsFetchTime < POSITIONS_CACHE_TTL_MS) {
+  if (hasPositionsFetchedOnce && now - lastPositionsFetchTime < POSITIONS_CACHE_TTL_MS) {
     return cachedPositions;
   }
 
   return executeSmartApiRequest(async () => {
-    if (cachedPositions.length > 0 && Date.now() - lastPositionsFetchTime < POSITIONS_CACHE_TTL_MS) {
+    if (hasPositionsFetchedOnce && Date.now() - lastPositionsFetchTime < POSITIONS_CACHE_TTL_MS) {
       return cachedPositions;
     }
 
@@ -53,7 +55,8 @@ export async function getPositions(): Promise<Position[]> {
           message &&
           (message.toLowerCase().includes("exceeding access rate") ||
             message.toLowerCase().includes("rate limit") ||
-            message.toLowerCase().includes("access denied"))
+            message.toLowerCase().includes("access denied") ||
+            message.toLowerCase().includes("ag8001"))
         ) {
           throw { isRateLimitStatus: true, message };
         }
@@ -67,7 +70,8 @@ export async function getPositions(): Promise<Position[]> {
 
       cachedPositions = data || [];
       lastPositionsFetchTime = Date.now();
-      console.log("[SmartAPI] Positions fetched successfully.");
+      hasPositionsFetchedOnce = true;
+      console.log(`[SmartAPI] Positions fetched successfully (${cachedPositions.length} positions).`);
       return cachedPositions;
     } catch (error: any) {
       if (error?.isRateLimitStatus) {
@@ -79,11 +83,8 @@ export async function getPositions(): Promise<Position[]> {
       ) {
         throw error;
       }
-      if (cachedPositions) {
-        console.warn(`[SmartAPI] Positions fetch returning cached positions due to error: ${error?.message || error}`);
-        return cachedPositions;
-      }
-      handleApiError(error, "position fetch");
+      console.warn(`[SmartAPI] Positions fetch fallback: ${error?.message || error}`);
+      return cachedPositions;
     }
   }, "getPositions");
 }

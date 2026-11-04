@@ -28,11 +28,8 @@ import {
   Coins,
   ShieldCheck,
   Check,
-  ExternalLink,
 } from 'lucide-react';
-import TradingViewChart, {
-  resolveTradingViewSymbolInfo,
-} from '../components/tradingview/TradingViewChart';
+import TradingViewChart from '../components/tradingview/TradingViewChart';
 import {
   fetchAiSignals,
   analyzeScrip,
@@ -2241,7 +2238,6 @@ export const AiTradingScreen: React.FC = () => {
               (underlyingToken ? getLiveQuote(underlyingToken) : undefined) ||
               getLiveQuote(underlyingName);
 
-            const symbolInfo = resolveTradingViewSymbolInfo(selectedChartSymbol);
             const displayLtp = currentQuote?.ltp ?? matchingSignal?.currentPrice;
             const displayChange =
               currentQuote?.change ?? matchingSignal?.netChange;
@@ -2263,18 +2259,6 @@ export const AiTradingScreen: React.FC = () => {
                       <span className="px-2 py-0.5 rounded-md bg-gray-800 text-gray-400 text-[10px] font-mono">
                         {isOption ? 'DERIVATIVE CONTRACT' : 'CASH SHARE'}
                       </span>
-                      {symbolInfo.conversionBreakdown && (
-                        <a
-                          href={symbolInfo.conversionBreakdown.fullTradingViewUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2 py-0.5 rounded-md bg-purple-950/70 hover:bg-purple-900 border border-purple-500/50 text-purple-200 text-[10px] font-mono font-bold transition-all flex items-center gap-1 shadow-xs"
-                          title="Open converted TradingView option chart"
-                        >
-                          <span>TV: {symbolInfo.conversionBreakdown.tradingViewSymbol}</span>
-                          <ExternalLink className="w-2.5 h-2.5 text-purple-400" />
-                        </a>
-                      )}
                       <span className="flex items-center space-x-1 text-[11px] text-emerald-400 font-medium">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                         <span>Live Feed</span>
