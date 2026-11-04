@@ -65,4 +65,10 @@ export {
   syncInstruments,
   searchInstruments,
   startInstrumentScheduler,
-} from "./instrument.service.js";
+} from "./instrument.service.js";
+
+// Rate Limiting & Concurrency Queue
+export {
+  executeSmartApiRequest,
+  smartApiQueue,
+} from "./rateLimiter.js";

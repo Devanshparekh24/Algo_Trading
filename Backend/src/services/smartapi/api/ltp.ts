@@ -5,30 +5,38 @@ import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { LtpDataRequest, LtpDataResponse } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
-import { isRateLimitError } from "../helpers.js";
-
-/**
- * Simple sleep helper.
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import { executeSmartApiRequest } from "../rateLimiter.js";
+import { getCachedQuote } from "./FullMode.js";
 
 /**
  * Fetch last traded price (LTP) data for a scrip.
- * Requires a valid JWT token.
- * Retries with exponential backoff on rate limit errors.
+ * Checks quote cache first, then dispatches via rate limiter queue.
  *
  * @param request The parameters for fetching LTP data.
  */
 export async function getLtpData(
   request: LtpDataRequest
 ): Promise<LtpDataResponse> {
-  const maxRetries = 5;
-  let attempt = 0;
-  let delay = 500; // ms
+  // Check cached quote first
+  const cached =
+    getCachedQuote(request.symboltoken) ||
+    getCachedQuote(`${request.exchange}_${request.symboltoken}`) ||
+    getCachedQuote(request.tradingsymbol);
 
-  while (true) {
+  if (cached && cached.ltp) {
+    return {
+      exchange: cached.exchange || request.exchange,
+      tradingSymbol: cached.tradingSymbol || request.tradingsymbol,
+      symbolToken: cached.symbolToken || request.symboltoken,
+      open: cached.open || cached.ltp,
+      high: cached.high || cached.ltp,
+      low: cached.low || cached.ltp,
+      close: cached.close || cached.ltp,
+      ltp: cached.ltp,
+    };
+  }
+
+  return executeSmartApiRequest(async () => {
     try {
       const jwtToken = await getValidSession();
       const config = getConfig();
@@ -49,49 +57,31 @@ export async function getLtpData(
         if (
           message &&
           (message.toLowerCase().includes("exceeding access rate") ||
-            message.toLowerCase().includes("rate limit"))
+            message.toLowerCase().includes("rate limit") ||
+            message.toLowerCase().includes("access denied"))
         ) {
-          throw {
-            isRateLimitStatus: true,
-            message,
-          };
+          throw { isRateLimitStatus: true, message };
         }
 
         const errMsg = errorcode
           ? `[${errorcode}] ${message}`
-          : message ||
-            `LTP data fetch failed (status: ${status}, response: ${JSON.stringify(
-              response.data
-            )})`;
-        console.error(
-          `[SmartAPI] LTP data fetch failed details:`,
-          response.data
-        );
+          : message || `LTP data fetch failed`;
+        console.warn(`[SmartAPI] LTP fetch warning: ${errMsg}`);
         throw new Error(errMsg);
       }
 
-      console.log(
-        `[SmartAPI] LTP data fetched successfully for symbol: ${request.tradingsymbol}`
-      );
       return data;
     } catch (error: any) {
-      const isRateLimit = isRateLimitError(error) || error?.isRateLimitStatus;
-
-      if (isRateLimit && attempt < maxRetries) {
-        attempt++;
-        console.warn(
-          `[SmartAPI] Rate limit hit for LTP data. Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`
-        );
-        await sleep(delay);
-        delay *= 2;
-        continue;
-      }
-
       if (error?.isRateLimitStatus) {
-        throw new Error(`[SmartAPI] Rate limit exceeded: ${error.message}`);
+        throw error;
       }
-
+      if (
+        axios.isAxiosError(error) &&
+        (error.response?.status === 403 || error.response?.status === 429)
+      ) {
+        throw error;
+      }
       handleApiError(error, "LTP data fetch");
     }
-  }
+  }, `ltp_${request.symboltoken}`);
 }

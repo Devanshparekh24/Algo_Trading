@@ -17,6 +17,9 @@ import {
   removeUniverseScripController,
   resetUniverseController,
   budgetAdvisorController,
+  getDryRunSummaryController,
+  validatePreTradeController,
+  resetDryRunController,
 } from "../controllers/aiTrading.controller.js";
 
 const router = Router();
@@ -51,6 +54,11 @@ router.get("/orders", getOrderBookController);
 // Auto-Pilot Configuration & Controls
 router.get("/autopilot", getAutoPilotController);
 router.post("/autopilot", updateAutoPilotController);
+
+// Dry-Run Simulation & Pre-Trade Safety Check API
+router.get("/dry-run/summary", getDryRunSummaryController);
+router.post("/dry-run/validate", validatePreTradeController);
+router.post("/dry-run/reset", resetDryRunController);
 
 export default router;
 

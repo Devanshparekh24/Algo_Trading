@@ -21,6 +21,8 @@ import {
   type MarketSegment,
   type ScripCandidate,
 } from "../services/ai/aiTrading.service.js";
+import { dryRunEngine } from "../services/trading/dryRunEngine.js";
+import { validatePreTrade } from "../services/trading/orderRouter.js";
 
 /**
  * GET /api/v1/ai/signals
@@ -440,6 +442,68 @@ export async function budgetAdvisorController(req: Request, res: Response): Prom
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to generate budget suggestions",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/dry-run/summary
+ * Fetch Virtual Simulation Portfolio Summary & Performance
+ */
+export async function getDryRunSummaryController(_req: Request, res: Response): Promise<void> {
+  try {
+    const summary = dryRunEngine.getPortfolioSummary();
+    res.json({
+      status: true,
+      message: "Dry run portfolio summary fetched",
+      data: summary,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch dry run summary",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/dry-run/validate
+ * Run Pre-trade safety & dry run check without submitting
+ */
+export async function validatePreTradeController(req: Request, res: Response): Promise<void> {
+  try {
+    const { order, currentPrice } = req.body;
+    const check = validatePreTrade(order, Number(currentPrice) || 0);
+    res.json({
+      status: true,
+      message: check.allowed ? "Pre-trade validation passed" : check.reason || "Validation failed",
+      data: check,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Pre-trade check failed",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/dry-run/reset
+ * Reset Virtual simulation ledger to initial capital
+ */
+export async function resetDryRunController(req: Request, res: Response): Promise<void> {
+  try {
+    const { initialCapital } = req.body;
+    dryRunEngine.resetPortfolio(initialCapital ? Number(initialCapital) : undefined);
+    res.json({
+      status: true,
+      message: "Virtual dry-run portfolio reset to default balance",
+      data: dryRunEngine.getPortfolioSummary(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to reset dry-run portfolio",
     });
   }
 }

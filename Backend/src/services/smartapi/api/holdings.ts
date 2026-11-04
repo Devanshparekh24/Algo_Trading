@@ -10,6 +10,22 @@ import { getValidSession } from "../session.js";
 import type { Holding, TotalHolding, HoldingsPayload } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
 import { getFullModeData } from "./FullMode.js";
+import { executeSmartApiRequest } from "../rateLimiter.js";
+
+// In-Memory Holdings Cache & Fallback
+let cachedHoldings: HoldingsPayload | null = null;
+let lastHoldingsFetchTime = 0;
+const HOLDINGS_CACHE_TTL_MS = 10000; // 10s cache
+
+let lastKnownHoldings: HoldingsPayload = {
+  holdings: [],
+  totalholding: {
+    totalholdingvalue: 0,
+    totalinvvalue: 0,
+    totalprofitandloss: 0,
+    totalpnlpercentage: 0,
+  },
+};
 
 /**
  * Helper to compute totalholding metrics from live stock values
@@ -44,40 +60,29 @@ function computeTotalHolding(holdings: Holding[]): TotalHolding {
 /**
  * Retrieve the user's current equity holdings and enrich with REAL LIVE market quotes from Angel One.
  * Tries `getAllHolding` (with fallback to `getHolding`), and queries live LTP quotes.
+ * Uses rate limiter queue and 10s cache.
  */
 export async function getHoldings(): Promise<HoldingsPayload> {
-  const jwtToken = await getValidSession();
-  const config = getConfig();
-  const headers = buildHeaders(config.API_KEY, jwtToken);
-
-  let rawData: any = null;
-
-  // 1. Try modern 'getAllHolding' endpoint first
-  try {
-    const url = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getAllHolding`;
-    const response = await axios.get<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-      data?: {
-        holdings?: Holding[];
-        totalholding?: TotalHolding;
-      } | Holding[] | null;
-    }>(url, { headers });
-
-    if (response.data && response.data.status) {
-      rawData = response.data.data;
-      console.log("[SmartAPI] Successfully fetched from getAllHolding.");
-    }
-  } catch (err: any) {
-    console.warn(`[SmartAPI] getAllHolding failed (${err?.message || err}), falling back to getHolding...`);
+  const now = Date.now();
+  if (cachedHoldings && now - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
+    return cachedHoldings;
   }
 
-  // 2. Fallback to 'getHolding' endpoint if needed
-  if (!rawData) {
+  return executeSmartApiRequest(async () => {
+    if (cachedHoldings && Date.now() - lastHoldingsFetchTime < HOLDINGS_CACHE_TTL_MS) {
+      return cachedHoldings;
+    }
+
+    const jwtToken = await getValidSession();
+    const config = getConfig();
+    const headers = buildHeaders(config.API_KEY, jwtToken);
+
+    let rawData: any = null;
+
+    // 1. Try modern 'getAllHolding' endpoint first
     try {
-      const fallbackUrl = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`;
-      const fallbackRes = await axios.get<{
+      const url = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getAllHolding`;
+      const response = await axios.get<{
         status: boolean;
         message: string;
         errorcode?: string;
@@ -85,80 +90,117 @@ export async function getHoldings(): Promise<HoldingsPayload> {
           holdings?: Holding[];
           totalholding?: TotalHolding;
         } | Holding[] | null;
-      }>(fallbackUrl, { headers });
+      }>(url, { headers });
 
-      const { status, message, data, errorcode } = fallbackRes.data;
-
-      if (!status) {
-        const errMsg = errorcode
-          ? `[${errorcode}] ${message}`
-          : message || `Failed to fetch holdings`;
-        console.error(`[SmartAPI] Holding fetch failed details:`, fallbackRes.data);
-        throw new Error(errMsg);
+      if (response.data && response.data.status) {
+        rawData = response.data.data;
+        console.log("[SmartAPI] Successfully fetched from getAllHolding.");
       }
-
-      rawData = data;
-      console.log("[SmartAPI] Holdings fetched successfully via getHolding fallback.");
-    } catch (error) {
-      handleApiError(error, "holdings fetch");
-    }
-  }
-
-  // 3. Normalize into standard Holdings list
-  let holdings: Holding[] = [];
-  if (Array.isArray(rawData)) {
-    holdings = rawData;
-  } else if (Array.isArray(rawData?.holdings)) {
-    holdings = rawData.holdings;
-  }
-
-  // 4. Enrich with REAL LIVE MARKET DATA from Angel One Quote API
-  try {
-    const exchangeTokens: Record<string, string[]> = {};
-    for (const h of holdings) {
-      if (h.symboltoken) {
-        const ex = h.exchange || "NSE";
-        if (!exchangeTokens[ex]) exchangeTokens[ex] = [];
-        exchangeTokens[ex].push(h.symboltoken);
+    } catch (err: any) {
+      if (
+        axios.isAxiosError(err) &&
+        (err.response?.status === 403 || err.response?.status === 429)
+      ) {
+        console.warn(`[SmartAPI] getAllHolding hit 403 rate limit, backing off...`);
+      } else {
+        console.warn(`[SmartAPI] getAllHolding failed (${err?.message || err}), falling back to getHolding...`);
       }
     }
 
-    if (Object.keys(exchangeTokens).length > 0) {
-      const liveQuotesRes = await getFullModeData({
-        mode: "FULL",
-        exchangeTokens,
-      });
+    // 2. Fallback to 'getHolding' endpoint if needed
+    if (!rawData) {
+      try {
+        const fallbackUrl = `${BASE_URL}/rest/secure/angelbroking/portfolio/v1/getHolding`;
+        const fallbackRes = await axios.get<{
+          status: boolean;
+          message: string;
+          errorcode?: string;
+          data?: {
+            holdings?: Holding[];
+            totalholding?: TotalHolding;
+          } | Holding[] | null;
+        }>(fallbackUrl, { headers });
 
-      const fetchedQuotes = liveQuotesRes.data?.fetched || [];
-      const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
-      for (const q of fetchedQuotes) {
-        quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
+        const { status, message, data, errorcode } = fallbackRes.data;
+
+        if (status && data) {
+          rawData = data;
+          console.log("[SmartAPI] Holdings fetched successfully via getHolding fallback.");
+        } else {
+          console.warn(`[SmartAPI] getHolding response unsuccessful: ${message || errorcode}`);
+        }
+      } catch (error: any) {
+        console.warn(`[SmartAPI] Holdings fallback error: ${error?.message || error}`);
+        if (lastKnownHoldings) {
+          return lastKnownHoldings;
+        }
+        handleApiError(error, "holdings fetch");
       }
+    }
 
+    // 3. Normalize into standard Holdings list
+    let holdings: Holding[] = [];
+    if (Array.isArray(rawData)) {
+      holdings = rawData;
+    } else if (Array.isArray(rawData?.holdings)) {
+      holdings = rawData.holdings;
+    }
+
+    // 4. Enrich with REAL LIVE MARKET DATA from Angel One Quote API
+    try {
+      const exchangeTokens: Record<string, string[]> = {};
       for (const h of holdings) {
-        const quote = quoteMap.get(`${h.exchange || "NSE"}:${h.symboltoken}`);
-        if (quote && quote.ltp) {
-          const freshLtp = Number(quote.ltp);
-          const closePrice = Number(quote.close || freshLtp);
-          const qty = Number(h.quantity || 0);
-          const avgPrice = Number(h.averageprice || 0);
-
-          h.ltp = freshLtp;
-          h.close = closePrice;
-          h.profitandloss = Number(((freshLtp - avgPrice) * qty).toFixed(2));
-          h.pnlpercentage = avgPrice > 0 ? Number((((freshLtp - avgPrice) / avgPrice) * 100).toFixed(2)) : 0;
+        if (h.symboltoken) {
+          const ex = h.exchange || "NSE";
+          if (!exchangeTokens[ex]) exchangeTokens[ex] = [];
+          exchangeTokens[ex].push(h.symboltoken);
         }
       }
-      console.log(`[SmartAPI] Enriched ${holdings.length} holdings with Angel One live market quotes.`);
+
+      if (Object.keys(exchangeTokens).length > 0) {
+        const liveQuotesRes = await getFullModeData({
+          mode: "FULL",
+          exchangeTokens,
+        });
+
+        const fetchedQuotes = liveQuotesRes.data?.fetched || [];
+        const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
+        for (const q of fetchedQuotes) {
+          quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
+          quoteMap.set(`${q.symbolToken}`, q);
+        }
+
+        for (const h of holdings) {
+          const quote = quoteMap.get(`${h.exchange || "NSE"}:${h.symboltoken}`) || quoteMap.get(`${h.symboltoken}`);
+          if (quote && quote.ltp) {
+            h.ltp = quote.ltp;
+            h.close = quote.close;
+            const avg = Number(h.averageprice || 0);
+            const qty = Number(h.quantity || 0);
+            h.profitandloss = Number(((quote.ltp - avg) * qty).toFixed(2));
+            h.pnlpercentage = avg > 0 ? Number((((quote.ltp - avg) / avg) * 100).toFixed(2)) : 0;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[SmartAPI] Live quote enrichment warning for holdings:", err?.message || err);
     }
-  } catch (err: any) {
-    console.warn("[SmartAPI] Could not enrich holdings with live quote:", err?.message || err);
-  }
 
-  const liveTotalHolding = computeTotalHolding(holdings);
+    // 5. Compute summary metrics
+    let totalholding: TotalHolding;
+    if (rawData && !Array.isArray(rawData) && rawData.totalholding) {
+      totalholding = rawData.totalholding;
+      if (holdings.some((h) => h.ltp !== undefined)) {
+        totalholding = computeTotalHolding(holdings);
+      }
+    } else {
+      totalholding = computeTotalHolding(holdings);
+    }
 
-  return {
-    holdings,
-    totalholding: liveTotalHolding,
-  };
+    const result: HoldingsPayload = { holdings, totalholding };
+    cachedHoldings = result;
+    lastKnownHoldings = result;
+    lastHoldingsFetchTime = Date.now();
+    return result;
+  }, "getHoldings");
 }

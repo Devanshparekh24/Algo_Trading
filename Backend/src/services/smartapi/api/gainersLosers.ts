@@ -1,13 +1,10 @@
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
 import { BASE_URL } from "../constants.js";
-import { buildHeaders, isRateLimitError } from "../helpers.js";
+import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import { handleApiError } from "./errorHandler.js";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import { executeSmartApiRequest } from "../rateLimiter.js";
 
 export interface GainersLosersRequest {
   datatype: "PercPriceGainers" | "PercPriceLosers" | "PercOIGainers" | "PercOILosers";
@@ -30,14 +27,29 @@ export interface GainersLosersResponse {
   data: RawGainerLoserItem[];
 }
 
+// In-Memory Cache for Gainers / Losers (5s TTL)
+interface CachedGainersLosers {
+  data: GainersLosersResponse;
+  timestamp: number;
+}
+const cache = new Map<string, CachedGainersLosers>();
+const CACHE_TTL_MS = 5000;
+
 export async function getGainersLosersData(
   request: GainersLosersRequest
 ): Promise<GainersLosersResponse> {
-  const maxRetries = 3;
-  let attempt = 0;
-  let delay = 500;
+  const cacheKey = `${request.datatype}_${request.expirytype}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
 
-  while (true) {
+  return executeSmartApiRequest(async () => {
+    const cachedAgain = cache.get(cacheKey);
+    if (cachedAgain && Date.now() - cachedAgain.timestamp < CACHE_TTL_MS) {
+      return cachedAgain.data;
+    }
+
     try {
       const jwtToken = await getValidSession();
       const config = getConfig();
@@ -46,28 +58,43 @@ export async function getGainersLosersData(
       const headers = buildHeaders(config.API_KEY, jwtToken);
 
       const response = await axios.post<GainersLosersResponse>(url, request, { headers });
-
-      const { status, message, data, errorcode } = response.data;
+      const { status, message, errorcode } = response.data;
 
       if (!status) {
+        if (
+          message &&
+          (message.toLowerCase().includes("exceeding access rate") ||
+            message.toLowerCase().includes("rate limit") ||
+            message.toLowerCase().includes("access denied"))
+        ) {
+          throw { isRateLimitStatus: true, message };
+        }
+
         const errMsg = errorcode
           ? `[${errorcode}] ${message}`
           : message || "Gainers/Losers fetch failed";
-        console.error("[SmartAPI] Gainers/Losers failed:", response.data);
-        throw new Error(errMsg);
+        console.warn("[SmartAPI] Gainers/Losers warning:", errMsg);
+        return {
+          status: false,
+          message: errMsg,
+          errorcode: errorcode || "",
+          data: [],
+        };
       }
 
+      cache.set(cacheKey, { data: response.data, timestamp: Date.now() });
       return response.data;
     } catch (error: any) {
-      const isRateLimit = isRateLimitError(error);
-      if (isRateLimit && attempt < maxRetries) {
-        attempt++;
-        console.warn(`[SmartAPI] Rate limit hit for gainersLosers. Retrying in ${delay}ms...`);
-        await sleep(delay);
-        delay *= 2;
-        continue;
+      if (error?.isRateLimitStatus) {
+        throw error;
+      }
+      if (
+        axios.isAxiosError(error) &&
+        (error.response?.status === 403 || error.response?.status === 429)
+      ) {
+        throw error;
       }
       handleApiError(error, "gainers/losers fetch");
     }
-  }
+  }, `gainersLosers_${cacheKey}`);
 }

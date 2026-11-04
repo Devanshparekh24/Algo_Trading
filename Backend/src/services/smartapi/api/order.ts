@@ -9,6 +9,7 @@ import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import type { OrderPlacementRequest, OrderPlacementResponse, OrderBookItem } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
+import { executeSmartApiRequest } from "../rateLimiter.js";
 
 // In-memory paper trading order store for simulation mode
 const paperOrders: OrderBookItem[] = [];
@@ -67,81 +68,101 @@ export async function placeSmartApiOrder(
   }
 
   // Live Broker Order Placement via Angel One SmartAPI
-  const jwtToken = await getValidSession();
-  const config = getConfig();
+  return executeSmartApiRequest(async () => {
+    const jwtToken = await getValidSession();
+    const config = getConfig();
 
-  const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/placeOrder`;
-  const headers = buildHeaders(config.API_KEY, jwtToken);
+    const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/placeOrder`;
+    const headers = buildHeaders(config.API_KEY, jwtToken);
 
-  const payload = {
-    variety: request.variety || "NORMAL",
-    tradingsymbol: request.tradingsymbol,
-    symboltoken: String(request.symboltoken),
-    transactiontype: request.transactiontype,
-    exchange: request.exchange || "NSE",
-    ordertype: request.ordertype || "MARKET",
-    producttype: request.producttype || "INTRADAY",
-    duration: request.duration || "DAY",
-    price: priceStr,
-    squareoff: String(request.squareoff ?? "0"),
-    stoploss: String(request.stoploss ?? "0"),
-    quantity: quantityStr,
-    triggerprice: String(request.triggerprice ?? "0"),
-  };
+    const payload = {
+      variety: request.variety || "NORMAL",
+      tradingsymbol: request.tradingsymbol,
+      symboltoken: String(request.symboltoken),
+      transactiontype: request.transactiontype,
+      exchange: request.exchange || "NSE",
+      ordertype: request.ordertype || "MARKET",
+      producttype: request.producttype || "INTRADAY",
+      duration: request.duration || "DAY",
+      price: priceStr,
+      squareoff: String(request.squareoff ?? "0"),
+      stoploss: String(request.stoploss ?? "0"),
+      quantity: quantityStr,
+      triggerprice: String(request.triggerprice ?? "0"),
+    };
 
-  try {
-    const response = await axios.post<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-      data?: {
-        script: string;
-        orderid: string;
-        uniqueorderid?: string;
-      };
-    }>(url, payload, { headers });
+    try {
+      const response = await axios.post<{
+        status: boolean;
+        message: string;
+        errorcode?: string;
+        data?: {
+          script: string;
+          orderid: string;
+          uniqueorderid?: string;
+        };
+      }>(url, payload, { headers });
 
-    const { status, message, data, errorcode } = response.data;
+      const { status, message, data, errorcode } = response.data;
 
-    if (!status || !data) {
-      const errMsg = errorcode
-        ? `[${errorcode}] ${message}`
-        : message || `Failed to place order (status: ${status}, response: ${JSON.stringify(response.data)})`;
-      console.error(`[SmartAPI] Order placement failed:`, response.data);
-      throw new Error(errMsg);
+      if (!status || !data) {
+        if (
+          message &&
+          (message.toLowerCase().includes("exceeding access rate") ||
+            message.toLowerCase().includes("rate limit") ||
+            message.toLowerCase().includes("access denied"))
+        ) {
+          throw { isRateLimitStatus: true, message };
+        }
+
+        const errMsg = errorcode
+          ? `[${errorcode}] ${message}`
+          : message || `Failed to place order`;
+        console.error(`[SmartAPI] Order placement failed:`, response.data);
+        throw new Error(errMsg);
+      }
+
+      console.log(`[SmartAPI] Order placed successfully: OrderID ${data.orderid} for ${data.script}`);
+      return data;
+    } catch (error: any) {
+      if (error?.isRateLimitStatus) throw error;
+      if (
+        axios.isAxiosError(error) &&
+        (error.response?.status === 403 || error.response?.status === 429)
+      ) {
+        throw error;
+      }
+      handleApiError(error, "order placement");
     }
-
-    console.log(`[SmartAPI] Order placed successfully: OrderID ${data.orderid} for ${data.script}`);
-    return data;
-  } catch (error) {
-    handleApiError(error, "order placement");
-  }
+  }, `placeOrder_${request.tradingsymbol}`);
 }
 
 /**
  * Retrieve the current Order Book from Angel One SmartAPI + Paper orders
  */
 export async function getSmartApiOrderBook(): Promise<OrderBookItem[]> {
-  try {
-    const jwtToken = await getValidSession();
-    const config = getConfig();
+  return executeSmartApiRequest(async () => {
+    try {
+      const jwtToken = await getValidSession();
+      const config = getConfig();
 
-    const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/getOrderBook`;
-    const headers = buildHeaders(config.API_KEY, jwtToken);
+      const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/getOrderBook`;
+      const headers = buildHeaders(config.API_KEY, jwtToken);
 
-    const response = await axios.get<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-      data?: OrderBookItem[] | null;
-    }>(url, { headers });
+      const response = await axios.get<{
+        status: boolean;
+        message: string;
+        errorcode?: string;
+        data?: OrderBookItem[] | null;
+      }>(url, { headers });
 
-    const liveOrders = response.data?.data || [];
-    return [...paperOrders, ...liveOrders];
-  } catch (err: any) {
-    console.warn(`[SmartAPI] Live orderbook fetch error (${err?.message || err}), returning paper orders...`);
-    return paperOrders;
-  }
+      const liveOrders = response.data?.data || [];
+      return [...paperOrders, ...liveOrders];
+    } catch (err: any) {
+      console.warn(`[SmartAPI] Live orderbook fetch error (${err?.message || err}), returning paper orders...`);
+      return paperOrders;
+    }
+  }, "getOrderBook");
 }
 
 /**
@@ -158,22 +179,24 @@ export async function cancelSmartApiOrder(orderid: string, variety = "NORMAL"): 
     }
   }
 
-  const jwtToken = await getValidSession();
-  const config = getConfig();
+  return executeSmartApiRequest(async () => {
+    const jwtToken = await getValidSession();
+    const config = getConfig();
 
-  const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/cancelOrder`;
-  const headers = buildHeaders(config.API_KEY, jwtToken);
+    const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/cancelOrder`;
+    const headers = buildHeaders(config.API_KEY, jwtToken);
 
-  try {
-    const response = await axios.post<{
-      status: boolean;
-      message: string;
-      data?: unknown;
-    }>(url, { variety, orderid }, { headers });
+    try {
+      const response = await axios.post<{
+        status: boolean;
+        message: string;
+        data?: unknown;
+      }>(url, { variety, orderid }, { headers });
 
-    return response.data?.status ?? false;
-  } catch (error) {
-    handleApiError(error, "order cancellation");
-  }
+      return response.data?.status ?? false;
+    } catch (error) {
+      handleApiError(error, "order cancellation");
+    }
+  }, `cancelOrder_${orderid}`);
 }
 

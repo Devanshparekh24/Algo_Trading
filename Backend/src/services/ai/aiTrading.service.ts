@@ -3,7 +3,7 @@
 // Multi-factor technical analysis, AI reasoning, and automated order execution
 // ---------------------------------------------------------------------------
 
-import { getFullModeData } from "../smartapi/api/FullMode.js";
+import { getFullModeData, getCachedQuote } from "../smartapi/api/FullMode.js";
 import { getCandleData } from "../smartapi/api/historical.js";
 import { getHoldings } from "../smartapi/api/holdings.js";
 import { getGainersLosersData } from "../smartapi/api/gainersLosers.js";
@@ -668,7 +668,8 @@ export async function analyzeInstrument(
   token?: string,
   exchange = "NSE",
   prefetchedQuote?: FullMode,
-  fetchCandles = false
+  fetchCandles = false,
+  allowFallbackFetch = true
 ): Promise<TradeSignal> {
   let resolvedToken = token ? token.trim() : "";
   let resolvedExchange = exchange;
@@ -698,9 +699,13 @@ export async function analyzeInstrument(
     resolvedToken = "0";
   }
 
-  // 1. Fetch live quote data via getFullModeData or use prefetched quote
+  // 1. Fetch live quote data via getFullModeData or use prefetched/cached quote
   let liveQuote: FullMode | undefined = prefetchedQuote;
-  if (!liveQuote) {
+  if (!liveQuote && resolvedToken && resolvedToken !== "0") {
+    liveQuote = getCachedQuote(resolvedToken) || getCachedQuote(`${resolvedExchange}_${resolvedToken}`) || getCachedQuote(symbol);
+  }
+
+  if (!liveQuote && allowFallbackFetch && resolvedToken && resolvedToken !== "0") {
     try {
       const fullRes = await getFullModeData({
         mode: "FULL",
@@ -1106,6 +1111,10 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     });
     for (const q of quotesRes.data?.fetched || []) {
       quotesMap.set(`${q.exchange}_${q.symbolToken}`, q);
+      quotesMap.set(q.symbolToken, q);
+      if (q.tradingSymbol) {
+        quotesMap.set(q.tradingSymbol.toUpperCase(), q);
+      }
     }
   } catch (err: any) {
     console.warn(`[AI Engine] Batch quote fetch warning:`, err?.message || err);
@@ -1115,8 +1124,11 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
   const freshSignals: TradeSignal[] = [];
   for (const c of candidates) {
     try {
-      const prefetched = quotesMap.get(`${c.exchange}_${c.token}`);
-      const sig = await analyzeInstrument(c.symbol, c.token, c.exchange, prefetched, false);
+      const prefetched =
+        quotesMap.get(`${c.exchange}_${c.token}`) ||
+        quotesMap.get(c.token) ||
+        quotesMap.get(c.symbol.toUpperCase());
+      const sig = await analyzeInstrument(c.symbol, c.token, c.exchange, prefetched, false, false);
       sig.segment = segment;
       if (c.contractType) sig.contractType = c.contractType;
       if (c.strike) sig.strike = c.strike;
