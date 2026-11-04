@@ -1,6 +1,6 @@
 import axios from "axios";
 import { getConfig } from "../../../config/env.js";
-import { BASE_URL } from "../constants.js";
+import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
 import { handleApiError } from "./errorHandler.js";
@@ -57,7 +57,7 @@ export async function getGainersLosersData(
       const url = `${BASE_URL}/rest/secure/angelbroking/marketData/v1/gainersLosers`;
       const headers = buildHeaders(config.API_KEY, jwtToken);
 
-      const response = await axios.post<GainersLosersResponse>(url, request, { headers });
+      const response = await axios.post<GainersLosersResponse>(url, request, { headers, timeout: DEFAULT_TIMEOUT_MS });
       const { status, message, errorcode } = response.data;
 
       if (!status) {

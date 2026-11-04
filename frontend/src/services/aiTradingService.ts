@@ -59,11 +59,30 @@ export interface UniverseResponse {
 }
 
 export type RiskProfile = 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE';
+export type BudgetSegment = 'ALL' | 'EQUITY' | 'FNO' | 'VOLATILE_CALLS' | 'VOLATILE_PUTS' | 'VOLATILE_OPTIONS';
+
+export interface VolatileOptionItem {
+  symbolToken: string;
+  tradingSymbol: string;
+  name: string;
+  instrumentType: 'CE' | 'PE' | 'FUT';
+  strike: number | null;
+  expiry: string;
+  ltp: number;
+  netChange: number;
+  percentChange: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  tradeVolume?: number;
+  opnInterest?: number;
+}
 
 export interface BudgetAdvisorParams {
   budget: number;
   riskProfile?: RiskProfile;
-  segment?: 'ALL' | 'EQUITY' | 'FNO';
+  segment?: BudgetSegment;
   maxTrades?: number;
 }
 
@@ -87,7 +106,7 @@ export interface BudgetTradeSuggestion {
 export interface BudgetAnalysisResult {
   budget: number;
   riskProfile: RiskProfile;
-  segment: 'ALL' | 'EQUITY' | 'FNO';
+  segment: BudgetSegment;
   totalCapitalAllocated: number;
   remainingCashBuffer: number;
   bufferPercentage: number;
@@ -107,6 +126,9 @@ export interface BudgetAnalysisResult {
     requiredCapital: number;
     reason: string;
   }>;
+  volatileCalls?: VolatileOptionItem[];
+  volatilePuts?: VolatileOptionItem[];
+  mostVolatile?: VolatileOptionItem | null;
 }
 
 export interface TradeSignal {

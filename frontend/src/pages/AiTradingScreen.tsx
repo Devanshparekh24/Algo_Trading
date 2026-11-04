@@ -51,7 +51,10 @@ import {
   type UniverseScrip,
   type BudgetAnalysisResult,
   type RiskProfile,
+  type BudgetSegment,
+  type VolatileOptionItem,
 } from '../services/aiTradingService';
+import { useFnoMovers } from '../hooks/useMarket';
 import { getRMSLimit } from '../services/authService';
 import { getSocket, requestAiPricesRefresh, type RealtimeTickData } from '../services/socketService';
 import { formatINR } from '../utils/formatters';
@@ -112,13 +115,17 @@ export const AiTradingScreen: React.FC = () => {
   // Budget Advisor State
   const [budgetInput, setBudgetInput] = useState<string>('10000');
   const [budgetRiskProfile, setBudgetRiskProfile] = useState<RiskProfile>('MODERATE');
-  const [budgetSegment, setBudgetSegment] = useState<'ALL' | 'EQUITY' | 'FNO'>('ALL');
+  const [budgetSegment, setBudgetSegment] = useState<BudgetSegment>('ALL');
   const [budgetMaxTrades, setBudgetMaxTrades] = useState<number>(3);
   const [budgetAnalysis, setBudgetAnalysis] = useState<BudgetAnalysisResult | null>(null);
   const [isAnalyzingBudget, setIsAnalyzingBudget] = useState<boolean>(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [brokerFunds, setBrokerFunds] = useState<{ net: number; available: number } | null>(null);
   const [isLoadingFunds, setIsLoadingFunds] = useState<boolean>(false);
+  const [volatileRadarTab, setVolatileRadarTab] = useState<'calls' | 'puts'>('calls');
+
+  // Query live volatile F&O options
+  const fnoMoversQuery = useFnoMovers();
 
   // F&O Strike Quick Selector & Lookup State
   const [fnoUnderlying, setFnoUnderlying] = useState<string>('NIFTY');
@@ -343,19 +350,20 @@ export const AiTradingScreen: React.FC = () => {
     }
   }, []);
 
-  const handleRunBudgetAnalysis = useCallback(async (customBudget?: number) => {
+  const handleRunBudgetAnalysis = useCallback(async (customBudget?: number, overrideSegment?: BudgetSegment) => {
     const amount = customBudget !== undefined ? customBudget : parseFloat(budgetInput.replace(/,/g, ''));
     if (!amount || isNaN(amount) || amount < 500) {
       setBudgetError('Please enter a budget of at least ₹500');
       return;
     }
+    const targetSegment = overrideSegment || budgetSegment;
     setIsAnalyzingBudget(true);
     setBudgetError(null);
     try {
       const res = await fetchBudgetAdvice({
         budget: amount,
         riskProfile: budgetRiskProfile,
-        segment: budgetSegment,
+        segment: targetSegment,
         maxTrades: budgetMaxTrades,
       });
       setBudgetAnalysis(res);
@@ -365,6 +373,19 @@ export const AiTradingScreen: React.FC = () => {
       setIsAnalyzingBudget(false);
     }
   }, [budgetInput, budgetRiskProfile, budgetSegment, budgetMaxTrades]);
+
+  // Handler to 1-click allocate budget to a top volatile Call or Put option
+  const handleAllocateVolatileOption = useCallback((option: VolatileOptionItem) => {
+    const lotSize = option.tradingSymbol.startsWith('BANKNIFTY') ? 30 : 65;
+    const minCost = Math.round(option.ltp * lotSize);
+    const currentBudgetNum = parseFloat(budgetInput.replace(/,/g, '')) || 0;
+    const newBudget = currentBudgetNum >= minCost ? currentBudgetNum : Math.max(minCost, 5000);
+
+    setBudgetInput(String(newBudget));
+    const targetSeg: BudgetSegment = option.instrumentType === 'CE' ? 'VOLATILE_CALLS' : 'VOLATILE_PUTS';
+    setBudgetSegment(targetSeg);
+    handleRunBudgetAnalysis(newBudget, targetSeg);
+  }, [budgetInput, handleRunBudgetAnalysis]);
 
   useEffect(() => {
     loadSignals(false);
@@ -1688,11 +1709,14 @@ export const AiTradingScreen: React.FC = () => {
                     <Layers className="w-3.5 h-3.5 text-purple-400" />
                     <span>Target Market Universe</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
-                      { id: 'ALL' as const, label: 'All Markets', desc: 'Equity + F&O' },
-                      { id: 'EQUITY' as const, label: 'Equities Only', desc: 'Cash stocks' },
-                      { id: 'FNO' as const, label: 'F&O Only', desc: 'Options & Futures' },
+                      { id: 'ALL' as const, label: 'All Markets', desc: 'Equity + F&O', icon: '🌐' },
+                      { id: 'EQUITY' as const, label: 'Equities Only', desc: 'Cash stocks', icon: '📈' },
+                      { id: 'FNO' as const, label: 'F&O Standard', desc: 'Options & Futures', icon: '⚡' },
+                      { id: 'VOLATILE_CALLS' as const, label: 'Volatile Calls', desc: 'Top CE Movers', icon: '🚀' },
+                      { id: 'VOLATILE_PUTS' as const, label: 'Volatile Puts', desc: 'Top PE Movers', icon: '💥' },
+                      { id: 'VOLATILE_OPTIONS' as const, label: 'All Volatile F&O', desc: 'High Alpha CE & PE', icon: '🔥' },
                     ].map((seg) => (
                       <button
                         key={seg.id}
@@ -1700,7 +1724,7 @@ export const AiTradingScreen: React.FC = () => {
                         onClick={() => {
                           setBudgetSegment(seg.id);
                           if (budgetAnalysis) {
-                            setTimeout(() => handleRunBudgetAnalysis(), 50);
+                            setTimeout(() => handleRunBudgetAnalysis(undefined, seg.id), 50);
                           }
                         }}
                         className={`p-2.5 rounded-xl border text-center transition-all ${
@@ -1709,7 +1733,10 @@ export const AiTradingScreen: React.FC = () => {
                             : 'bg-gray-950/60 border-gray-800 text-gray-400 hover:text-white'
                         }`}
                       >
-                        <div className="text-xs font-bold">{seg.label}</div>
+                        <div className="text-xs font-bold flex items-center justify-center gap-1">
+                          <span>{seg.icon}</span>
+                          <span>{seg.label}</span>
+                        </div>
                         <div className="text-[10px] opacity-80">{seg.desc}</div>
                       </button>
                     ))}
@@ -1743,6 +1770,151 @@ export const AiTradingScreen: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Live Most Volatile Options Radar (Calls & Puts) */}
+            {(() => {
+              const liveCalls = budgetAnalysis?.volatileCalls || (fnoMoversQuery.data?.calls as any[]) || [];
+              const livePuts = budgetAnalysis?.volatilePuts || (fnoMoversQuery.data?.puts as any[]) || [];
+              const activeList = volatileRadarTab === 'calls' ? liveCalls : livePuts;
+
+              return (
+                <div className="pt-4 border-t border-gray-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
+                        <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                          <span>Most Volatile Call & Put Options</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 normal-case font-semibold">
+                            Live SmartAPI Stream
+                          </span>
+                        </h4>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Highest swing derivatives with explosive delta momentum. Tap <strong>Allocate</strong> to size lots for your capital.
+                      </p>
+                    </div>
+
+                    {/* CE / PE Tabs Switcher */}
+                    <div className="flex items-center space-x-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setVolatileRadarTab('calls')}
+                        className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
+                          volatileRadarTab === 'calls'
+                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>Volatile Calls (CE)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 font-mono">
+                          {liveCalls.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setVolatileRadarTab('puts')}
+                        className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
+                          volatileRadarTab === 'puts'
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <ArrowDownRight className="w-3.5 h-3.5 text-rose-300" />
+                        <span>Volatile Puts (PE)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 font-mono">
+                          {livePuts.length}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Options Cards Grid */}
+                  {activeList.length === 0 ? (
+                    <div className="p-4 rounded-xl bg-gray-950/50 border border-gray-800/80 text-center text-xs text-gray-400">
+                      Loading volatile {volatileRadarTab === 'calls' ? 'Call (CE)' : 'Put (PE)'} contracts from live market...
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {activeList.slice(0, 4).map((item) => {
+                        const isCall = item.instrumentType === 'CE';
+                        const lotSize = item.tradingSymbol.startsWith('BANKNIFTY') ? 30 : 65;
+                        const lotCost = Math.round(item.ltp * lotSize);
+                        const isUp = item.percentChange >= 0;
+
+                        return (
+                          <div
+                            key={item.symbolToken || item.tradingSymbol}
+                            className={`p-3.5 rounded-xl bg-gray-950/90 border transition-all flex flex-col justify-between hover:shadow-lg ${
+                              isCall
+                                ? 'border-emerald-500/25 hover:border-emerald-500/60'
+                                : 'border-rose-500/25 hover:border-rose-500/60'
+                            }`}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="font-bold text-white text-xs truncate font-mono" title={item.tradingSymbol}>
+                                  {item.tradingSymbol}
+                                </span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
+                                    isCall
+                                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                                      : 'bg-rose-950 text-rose-300 border border-rose-500/40'
+                                  }`}
+                                >
+                                  {item.instrumentType}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-gray-400">
+                                Strike: <strong>₹{item.strike?.toLocaleString('en-IN') || '-'}</strong> • Exp: {item.expiry}
+                              </div>
+                            </div>
+
+                            <div className="mt-3 pt-2 border-t border-gray-800/80 flex items-end justify-between">
+                              <div>
+                                <div className="text-[10px] text-gray-400">Live LTP</div>
+                                <div className="text-sm font-bold text-white font-mono flex items-center gap-1.5">
+                                  {formatINR(item.ltp)}
+                                  <span
+                                    className={`text-[10px] font-bold px-1 py-0.2 rounded ${
+                                      isUp
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-rose-500/20 text-rose-400'
+                                    }`}
+                                  >
+                                    {isUp ? '+' : ''}{item.percentChange.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-gray-400 font-mono mt-0.5">
+                                  1 Lot ({lotSize}u) = ₹{lotCost.toLocaleString('en-IN')}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleAllocateVolatileOption(item)}
+                                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-sm shrink-0 ${
+                                  isCall
+                                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
+                                    : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/20'
+                                }`}
+                                title="Size lots and allocate capital to this option"
+                              >
+                                <Zap className="w-3 h-3 fill-current" />
+                                <span>Allocate</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Error Message */}
             {budgetError && (

@@ -137,34 +137,15 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
 
   // 2. Query PostgreSQL for active Call (CE) and Put (PE) options across NIFTY, BANKNIFTY, FINNIFTY and Top Stock options
   try {
-    // Select near-expiry ATM/near-money options from DB
-    // We target active NIFTY (19OCT26/27OCT26), BANKNIFTY (27OCT26), FINNIFTY (20OCT26/27OCT26), and top stock options
+    // Select near-expiry options from DB across NIFTY, BANKNIFTY, FINNIFTY and major stocks
     const optionInstruments = await prisma.instrument.findMany({
       where: {
         exch_seg: "NFO",
         instrumenttype: { in: ["OPTIDX", "OPTSTK"] },
-        OR: [
-          // NIFTY active strikes
-          {
-            name: "NIFTY",
-            expiry: { in: ["19OCT2026", "27OCT2026"] },
-            strike: { in: ["2280000.000000", "2290000.000000", "2300000.000000", "2305000.000000", "2310000.000000", "2315000.000000", "2320000.000000", "2325000.000000", "2330000.000000", "2335000.000000", "2340000.000000", "2350000.000000"] },
-          },
-          // BANKNIFTY active strikes
-          {
-            name: "BANKNIFTY",
-            expiry: { in: ["27OCT2026"] },
-            strike: { in: ["5150000.000000", "5180000.000000", "5200000.000000", "5220000.000000", "5250000.000000", "5280000.000000", "5300000.000000", "5320000.000000"] },
-          },
-          // FINNIFTY active strikes
-          {
-            name: "FINNIFTY",
-            expiry: { in: ["20OCT2026", "27OCT2026"] },
-            strike: { in: ["2300000.000000", "2310000.000000", "2320000.000000", "2330000.000000", "2340000.000000", "2350000.000000"] },
-          },
-        ],
+        name: { in: ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE"] },
       },
-      take: 45,
+      take: 40,
+      orderBy: { expiry: "asc" },
     });
 
     if (optionInstruments.length > 0) {
