@@ -111,11 +111,15 @@ export const AiTradingScreen: React.FC = () => {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Auto-Pilot State
+  // Auto-Pilot State: Greek Momentum Sniper
   const [autoPilot, setAutoPilot] = useState<AutoPilotConfig>({
     enabled: false,
     mode: 'PAPER',
-    minConfidence: 75,
+    strategy: 'GREEK_SNIPER',
+    enforceGoldenHours: true,
+    profitTargetPct: 50,
+    stopLossPct: 22,
+    thetaTimeoutMinutes: 45,
     maxDailyTrades: 5,
     defaultQuantity: 1,
     productType: 'INTRADAY',
@@ -497,6 +501,14 @@ export const AiTradingScreen: React.FC = () => {
       loadOrders();
     };
 
+    const handleAiAutoExitExecuted = (payload: any) => {
+      setExecutionToast({
+        type: (payload.pnl || 0) >= 0 ? 'success' : 'error',
+        message: `Auto-Exit [${payload.reason}]: ${payload.position?.symbol} closed (${(payload.pnl || 0) >= 0 ? '+' : ''}₹${payload.pnl || 0})`,
+      });
+      loadOrders();
+    };
+
     const handleSignalExecuted = () => {
       loadOrders();
     };
@@ -505,6 +517,7 @@ export const AiTradingScreen: React.FC = () => {
     socket.on('disconnect', handleDisconnect);
     socket.on('ai_signals_update', handleAiSignalsUpdate);
     socket.on('ai_auto_trade_executed', handleAiAutoTradeExecuted);
+    socket.on('ai_auto_exit_executed', handleAiAutoExitExecuted);
     socket.on('ai_signal_executed', handleSignalExecuted);
     socket.on('ai_price_tick', handlePriceTick);
     socket.on('market_tick', handlePriceTick);
@@ -520,6 +533,7 @@ export const AiTradingScreen: React.FC = () => {
       socket.off('disconnect', handleDisconnect);
       socket.off('ai_signals_update', handleAiSignalsUpdate);
       socket.off('ai_auto_trade_executed', handleAiAutoTradeExecuted);
+      socket.off('ai_auto_exit_executed', handleAiAutoExitExecuted);
       socket.off('ai_signal_executed', handleSignalExecuted);
       socket.off('ai_price_tick', handlePriceTick);
       socket.off('market_tick', handlePriceTick);

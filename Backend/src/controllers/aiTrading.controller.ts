@@ -18,9 +18,14 @@ import {
   removeCustomUniverseScrip,
   resetCustomUniverse,
   analyzeBudgetAndSuggestTrades,
+  getActiveAiPositions,
+  closeAiPositionManual,
+  getAiTradeLogs,
+  getAiErrorLogs,
   type MarketSegment,
   type ScripCandidate,
 } from "../services/ai/aiTrading.service.js";
+import { checkGoldenHours } from "../services/smartapi/greeks.service.js";
 
 /**
  * GET /api/v1/ai/signals
@@ -440,6 +445,120 @@ export async function budgetAdvisorController(req: Request, res: Response): Prom
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to generate budget suggestions",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/positions
+ * Retrieve all currently active AI sniper and auto-pilot positions with real-time P&L
+ */
+export function getActivePositionsController(_req: Request, res: Response): void {
+  try {
+    const positions = getActiveAiPositions();
+    res.json({
+      status: true,
+      message: "Active AI positions fetched successfully",
+      data: positions,
+      totalPositions: positions.length,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching active positions:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch active positions",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/positions/:id/close
+ * Manual 1-click exit for an active AI position
+ */
+export async function closePositionController(req: Request, res: Response): Promise<void> {
+  try {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ status: false, message: "Position ID is required" });
+      return;
+    }
+    const result = await closeAiPositionManual(id);
+    res.json({
+      status: true,
+      message: result.message,
+      data: result.position,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error closing position:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to close position",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/trade-logs
+ * Retrieve permanent historical database logs of executed AI trades, Greeks & PnL
+ */
+export async function getAiTradeLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const logs = await getAiTradeLogs(limit);
+    res.json({
+      status: true,
+      message: "AI trade logs retrieved from database",
+      data: logs,
+      totalLogs: logs.length,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching trade logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch AI trade logs",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/error-logs
+ * Retrieve database error logs for system, broker, or AI execution issues
+ */
+export async function getAiErrorLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const errors = await getAiErrorLogs(limit);
+    res.json({
+      status: true,
+      message: "AI error logs retrieved from database",
+      data: errors,
+      totalErrors: errors.length,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching error logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch AI error logs",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/golden-hours
+ * Get current Indian market Golden Hours status and timing window
+ */
+export function getGoldenHoursController(_req: Request, res: Response): void {
+  try {
+    const status = checkGoldenHours();
+    res.json({
+      status: true,
+      data: status,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to check golden hours",
     });
   }
 }

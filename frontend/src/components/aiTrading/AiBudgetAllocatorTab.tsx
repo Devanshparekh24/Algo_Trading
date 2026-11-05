@@ -93,6 +93,7 @@ const TARGET_SEGMENTS: Array<{
   desc: string;
   icon: string;
 }> = [
+  { id: 'GREEK_SNIPER', label: '⚡ Greek Sniper', desc: 'Δ 0.3-0.5, Top Γ, 45m exit', icon: '🎯' },
   { id: 'ALL', label: 'All Markets', desc: 'Equity + F&O', icon: '🌐' },
   { id: 'EQUITY', label: 'Equities Only', desc: 'Cash stocks', icon: '📈' },
   { id: 'FNO', label: 'F&O Standard', desc: 'Options & Futures', icon: '⚡' },
@@ -787,6 +788,28 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                         </div>
                       </div>
 
+                      {/* Greek Metrics Badge (if Option) */}
+                      {sig.greeks && (
+                        <div className="grid grid-cols-4 gap-1.5 p-2 rounded-xl bg-gray-950/90 border border-emerald-500/20 text-center text-[10px]">
+                          <div>
+                            <span className="text-gray-500 block text-[9px]">Delta Δ</span>
+                            <span className="font-bold text-emerald-400 font-mono">{sig.greeks.delta.toFixed(2)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block text-[9px]">Gamma Γ</span>
+                            <span className="font-bold text-blue-400 font-mono">{sig.greeks.gamma.toFixed(4)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block text-[9px]">Theta Θ/d</span>
+                            <span className="font-bold text-rose-400 font-mono">-₹{sig.greeks.theta.toFixed(1)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block text-[9px]">Θ/Prem</span>
+                            <span className="font-bold text-amber-400 font-mono">{(sig.greeks.thetaPremiumRatio * 100).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Allocation Rationale */}
                       <div className="p-2.5 rounded-xl bg-blue-950/20 border border-blue-500/20 text-[11px] text-gray-300 leading-relaxed">
                         {item.allocationReason}
@@ -842,3 +865,4 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
     </div>
   );
 };
+

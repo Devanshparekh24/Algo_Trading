@@ -28,3 +28,61 @@ model Instrument {
   @@index([exch_seg])
   @@index([name])
 }
+
+model AiTradeLog {
+  id              String    @id @default(uuid())
+  orderId         String    @unique
+  symbol          String
+  token           String
+  exchange        String
+  strategy        String    @default("GREEK_SNIPER")
+  action          String    // BUY, SELL
+  segment         String    @default("FNO") // FNO, EQUITY
+  contractType    String?   // CE, PE, FUT, EQ
+  strike          Float?
+  expiry          String?
+  lotSize         Int       @default(1)
+  lots            Int       @default(1)
+  quantity        Int       @default(1)
+  entryPrice      Float
+  exitPrice       Float?
+  targetPrice     Float?
+  stopLossPrice   Float?
+  mode            String    @default("PAPER") // PAPER, LIVE
+  status          String    @default("OPEN")  // OPEN, EXITED, CANCELLED
+  exitReason      String?   // TARGET, STOP_LOSS, THETA_TIMEOUT, MANUAL
+  pnl             Float?    @default(0)
+  pnlPercent      Float?    @default(0)
+  holdingMinutes  Float?    @default(0)
+  delta           Float?
+  gamma           Float?
+  theta           Float?
+  iv              Float?
+  aiThesis        Json?     // AI Rationale, catalyst, technical summary
+  indicators      Json?     // Technical indicators snapshot (EMA, VWAP, RSI)
+  enteredAt       DateTime  @default(now())
+  exitedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([symbol])
+  @@index([strategy])
+  @@index([status])
+  @@index([enteredAt])
+}
+
+model AiErrorLog {
+  id        String   @id @default(uuid())
+  source    String   // AUTO_PILOT, ORDER_EXECUTION, AUTO_EXIT, SCANNER, BUDGET_ADVISOR, SMART_API
+  action    String?  // BUY_ORDER, SELL_EXIT, THETA_TIMEOUT, SIGNAL_SCAN
+  symbol    String?
+  token     String?
+  message   String
+  stack     String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([source])
+  @@index([createdAt])
+  @@index([symbol])
+}

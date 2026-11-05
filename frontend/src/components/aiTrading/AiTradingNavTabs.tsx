@@ -145,3 +145,4 @@ export const AiTradingNavTabs: React.FC<AiTradingNavTabsProps> = ({
     </div>
   );
 };
+

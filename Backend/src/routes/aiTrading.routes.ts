@@ -17,6 +17,11 @@ import {
   removeUniverseScripController,
   resetUniverseController,
   budgetAdvisorController,
+  getActivePositionsController,
+  closePositionController,
+  getAiTradeLogsController,
+  getAiErrorLogsController,
+  getGoldenHoursController,
 } from "../controllers/aiTrading.controller.js";
 
 const router = Router();
@@ -51,6 +56,17 @@ router.get("/orders", getOrderBookController);
 // Auto-Pilot Configuration & Controls
 router.get("/autopilot", getAutoPilotController);
 router.post("/autopilot", updateAutoPilotController);
+
+// Active AI Positions & Auto-Exit Management
+router.get("/positions", getActivePositionsController);
+router.post("/positions/:id/close", closePositionController);
+
+// Database Trade Logs & Error Logs
+router.get("/trade-logs", getAiTradeLogsController);
+router.get("/error-logs", getAiErrorLogsController);
+
+// Golden Hours Status Indicator
+router.get("/golden-hours", getGoldenHoursController);
 
 export default router;
 

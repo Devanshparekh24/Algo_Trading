@@ -622,3 +622,4 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
     </div>
   );
 };
+

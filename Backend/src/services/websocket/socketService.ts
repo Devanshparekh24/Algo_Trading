@@ -20,6 +20,7 @@ import {
   getKnownFnoMoverTokens,
   updateFnoMoverQuoteInCache,
   getTopFnoMovers,
+  getCachedFnoMovers,
 } from "../smartapi/fnoMovers.service.js";
 
 let io: SocketIOServer | null = null;
@@ -395,7 +396,11 @@ export function startRealtimeBroadcaster(): void {
 
       // Add active F&O Movers tokens (Futures & Options)
       try {
-        const fnoTokens = getKnownFnoMoverTokens();
+        let fnoTokens = getKnownFnoMoverTokens();
+        if (fnoTokens.length === 0) {
+          await getTopFnoMovers().catch(() => null);
+          fnoTokens = getKnownFnoMoverTokens();
+        }
         for (const f of fnoTokens) {
           if (f.token) {
             const ex = f.exchange || "NFO";
@@ -420,6 +425,7 @@ export function startRealtimeBroadcaster(): void {
       const fetchedQuotes = quotesRes.data?.fetched || [];
       let updatedHoldingsPayload: HoldingsPayload | null = null;
       let updatedPositionsList: Position[] | null = null;
+      let fnoUpdatedCount = 0;
 
       for (const quote of fetchedQuotes) {
         const freshLtp = Number(quote.ltp);
@@ -477,6 +483,7 @@ export function startRealtimeBroadcaster(): void {
           tickData.tradeVolume
         );
         if (updatedFno) {
+          fnoUpdatedCount++;
           broadcastSocketEvent("fno_tick", tickData);
         }
       }
@@ -488,6 +495,18 @@ export function startRealtimeBroadcaster(): void {
           totalholding: updatedHoldingsPayload?.totalholding,
           positions: updatedPositionsList ?? getKnownPositions(),
         });
+      }
+
+      // 4. Broadcast updated F&O Movers payload if any F&O contract changed
+      if (fnoUpdatedCount > 0) {
+        const cachedMovers = getCachedFnoMovers();
+        if (cachedMovers) {
+          broadcastSocketEvent("fno_update", {
+            type: "REALTIME_UPDATE",
+            data: cachedMovers,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
     } catch (err: any) {
       console.warn("[SmartAPI Streamer] Live quote polling:", err?.message || err);

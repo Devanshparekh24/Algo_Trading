@@ -336,3 +336,4 @@ export const AiUniverseModal: React.FC<AiUniverseModalProps> = ({
     </div>
   );
 };
+

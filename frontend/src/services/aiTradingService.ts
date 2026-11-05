@@ -59,7 +59,7 @@ export interface UniverseResponse {
 }
 
 export type RiskProfile = 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE';
-export type BudgetSegment = 'ALL' | 'EQUITY' | 'FNO' | 'VOLATILE_CALLS' | 'VOLATILE_PUTS' | 'VOLATILE_OPTIONS';
+export type BudgetSegment = 'ALL' | 'EQUITY' | 'FNO' | 'VOLATILE_CALLS' | 'VOLATILE_PUTS' | 'VOLATILE_OPTIONS' | 'GREEK_SNIPER';
 
 export interface VolatileOptionItem {
   symbolToken: string;
@@ -131,6 +131,16 @@ export interface BudgetAnalysisResult {
   mostVolatile?: VolatileOptionItem | null;
 }
 
+export interface OptionGreeks {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  iv: number;
+  thetaPremiumRatio: number;
+  isGreekEligible: boolean;
+}
+
 export interface TradeSignal {
   id: string;
   symbol: string;
@@ -156,6 +166,7 @@ export interface TradeSignal {
   netChange: number;
   percentChange: number;
   indicators: TechnicalIndicators;
+  greeks?: OptionGreeks;
   aiThesis: {
     summary: string;
     rationale: string[];
@@ -169,11 +180,105 @@ export interface TradeSignal {
 export interface AutoPilotConfig {
   enabled: boolean;
   mode: 'PAPER' | 'LIVE';
-  minConfidence: number;
+  strategy: 'GREEK_SNIPER' | 'STANDARD';
+  enforceGoldenHours?: boolean;
+  profitTargetPct: number;
+  stopLossPct: number;
+  thetaTimeoutMinutes: number;
   defaultQuantity: number;
   productType: 'INTRADAY' | 'DELIVERY';
   maxDailyTrades: number;
   executedToday: number;
+  minConfidence?: number;
+}
+
+export interface ActiveAiPosition {
+  id: string;
+  orderId: string;
+  symbol: string;
+  token: string;
+  exchange: string;
+  strategy: 'GREEK_SNIPER' | 'STANDARD';
+  entryPrice: number;
+  currentPrice: number;
+  highestPrice: number;
+  quantity: number;
+  lots: number;
+  action: 'BUY' | 'SELL';
+  targetPrice: number;
+  stopLossPrice: number;
+  enteredAt: number;
+  holdingMinutes: number;
+  timeoutMinutes: number;
+  mode: 'PAPER' | 'LIVE';
+  status: 'OPEN' | 'EXITED';
+  pnl: number;
+  pnlPercent: number;
+  exitReason?: 'TARGET' | 'STOP_LOSS' | 'THETA_TIMEOUT' | 'MANUAL';
+  greeks?: OptionGreeks;
+}
+
+export interface AiTradeLogItem {
+  id: string;
+  orderId: string;
+  symbol: string;
+  token: string;
+  exchange: string;
+  strategy: string;
+  action: 'BUY' | 'SELL';
+  segment: string;
+  contractType?: string;
+  strike?: number;
+  expiry?: string;
+  lotSize: number;
+  lots: number;
+  quantity: number;
+  entryPrice: number;
+  exitPrice?: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  mode: 'PAPER' | 'LIVE';
+  status: 'OPEN' | 'EXITED' | 'CANCELLED';
+  exitReason?: string;
+  pnl?: number;
+  pnlPercent?: number;
+  holdingMinutes?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  iv?: number;
+  aiThesis?: {
+    summary: string;
+    action?: string;
+    rationale?: string[];
+    riskFactor?: string;
+    catalyst?: string;
+  };
+  indicators?: TechnicalIndicators;
+  enteredAt: string;
+  exitedAt?: string;
+}
+
+export interface AiErrorLogItem {
+  id: string;
+  source: string;
+  action?: string;
+  symbol?: string;
+  token?: string;
+  message: string;
+  stack?: string;
+  details?: any;
+  createdAt: string;
+}
+
+export interface GoldenHoursStatus {
+  isMorningWindow: boolean;
+  isAfternoonWindow: boolean;
+  isLunchChop: boolean;
+  currentIstTime: string;
+  activeWindow: string;
+  message: string;
+  canTrade: boolean;
 }
 
 export interface OrderBookItem {
@@ -380,6 +485,58 @@ export async function fetchBudgetAdvice(params: BudgetAdvisorParams): Promise<Bu
   });
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to generate budget trade suggestions');
+  return json.data;
+}
+
+/**
+ * Fetch all live active AI positions with live P&L and 45-min theta timeout countdown
+ */
+export async function fetchActivePositions(): Promise<ActiveAiPosition[]> {
+  const res = await fetch(`${API_BASE}/positions`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch active positions');
+  return json.data || [];
+}
+
+/**
+ * 1-Click manual exit for an open AI position
+ */
+export async function closeActivePosition(id: string): Promise<ActiveAiPosition> {
+  const res = await fetch(`${API_BASE}/positions/${encodeURIComponent(id)}/close`, {
+    method: 'POST',
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to close position');
+  return json.data;
+}
+
+/**
+ * Retrieve permanent historical database logs of executed AI trades
+ */
+export async function fetchAiTradeLogs(limit = 100): Promise<AiTradeLogItem[]> {
+  const res = await fetch(`${API_BASE}/trade-logs?limit=${limit}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch trade logs');
+  return json.data || [];
+}
+
+/**
+ * Retrieve database error logs for system, broker, or AI execution issues
+ */
+export async function fetchAiErrorLogs(limit = 100): Promise<AiErrorLogItem[]> {
+  const res = await fetch(`${API_BASE}/error-logs?limit=${limit}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch error logs');
+  return json.data || [];
+}
+
+/**
+ * Get current Indian market Golden Hours status and timing window
+ */
+export async function fetchGoldenHoursStatus(): Promise<GoldenHoursStatus> {
+  const res = await fetch(`${API_BASE}/golden-hours`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch golden hours status');
   return json.data;
 }
 

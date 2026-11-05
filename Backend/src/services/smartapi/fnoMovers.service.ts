@@ -294,6 +294,13 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
 }
 
 /**
+ * Retrieve current cached F&O Movers response
+ */
+export function getCachedFnoMovers(): FnoMoversResponse | null {
+  return cachedData;
+}
+
+/**
  * Return all active tokens currently tracked in F&O Movers
  */
 export function getKnownFnoMoverTokens(): Array<{ token: string; exchange: string; symbol: string }> {
@@ -322,10 +329,11 @@ export function updateFnoMoverQuoteInCache(
 ): FnoMoverItem | null {
   if (!cachedData || !Array.isArray(cachedData.all)) return null;
 
+  const cleanKey = String(tokenOrSymbol).trim().toUpperCase();
   const item = cachedData.all.find(
     (x) =>
-      x.symbolToken === tokenOrSymbol ||
-      x.tradingSymbol.toUpperCase() === tokenOrSymbol.toUpperCase()
+      String(x.symbolToken).trim().toUpperCase() === cleanKey ||
+      x.tradingSymbol.trim().toUpperCase() === cleanKey
   );
 
   if (!item) return null;

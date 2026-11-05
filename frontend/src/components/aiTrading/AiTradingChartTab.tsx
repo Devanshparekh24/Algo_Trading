@@ -360,3 +360,4 @@ export const AiTradingChartTab: React.FC<AiTradingChartTabProps> = ({
     </div>
   );
 };
+

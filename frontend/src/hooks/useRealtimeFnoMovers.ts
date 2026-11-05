@@ -14,24 +14,47 @@ export interface PriceTickFlash {
   timestamp: number;
 }
 
-export const useRealtimeFnoMovers = () => {
+export const useRealtimeFnoMovers = (initialData?: FnoMoversResponse | null) => {
   const queryClient = useQueryClient();
+  const [liveData, setLiveData] = useState<FnoMoversResponse | null>(initialData || null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [lastTickTime, setLastTickTime] = useState<string | null>(null);
+  const [tickCount, setTickCount] = useState<number>(0);
   const [flashes, setFlashes] = useState<Record<string, 'up' | 'down'>>({});
   const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastKnownPrices = useRef<Record<string, number>>({});
 
+  // Sync initialData when query loads or updates
+  useEffect(() => {
+    if (initialData) {
+      setLiveData((prev) => {
+        if (!prev) return initialData;
+        // Merge with fresh scan if query refetched
+        return {
+          ...initialData,
+          all: initialData.all.map((item) => {
+            const knownPrice = lastKnownPrices.current[item.symbolToken] || lastKnownPrices.current[item.tradingSymbol];
+            if (knownPrice && knownPrice > 0) {
+              return { ...item, ltp: knownPrice };
+            }
+            return item;
+          }),
+        };
+      });
+    }
+  }, [initialData]);
+
   const handlePriceTick = useCallback(
     (tick: RealtimeTickData) => {
-      const token = tick.symbolToken;
-      const symbol = tick.tradingSymbol;
+      const token = tick.symbolToken ? String(tick.symbolToken).trim() : '';
+      const symbol = tick.tradingSymbol ? String(tick.tradingSymbol).trim().toUpperCase() : '';
       const key = token || symbol;
       if (!key) return;
 
       const freshLtp = Number(tick.ltp);
       if (!freshLtp || isNaN(freshLtp)) return;
 
+      setTickCount((c) => c + 1);
       setLastTickTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
       // 1. Determine tick direction (up/down flash)
@@ -48,7 +71,7 @@ export const useRealtimeFnoMovers = () => {
         return updated;
       });
 
-      // Clear flash after 1200ms
+      // Clear flash after 1000ms
       const flashKey = token || symbol || '';
       if (flashTimers.current[flashKey]) {
         clearTimeout(flashTimers.current[flashKey]);
@@ -60,13 +83,16 @@ export const useRealtimeFnoMovers = () => {
           if (symbol) delete next[symbol];
           return next;
         });
-      }, 1200);
+      }, 1000);
 
-      // 2. Optimistically update React Query F&O Movers cache in real-time
+      // 2. Helper to update a contract with live tick data
       const updateMoverItem = (item: FnoMoverItem): FnoMoverItem => {
+        const itemToken = String(item.symbolToken || '').trim();
+        const itemSymbol = String(item.tradingSymbol || '').trim().toUpperCase();
+
         const matches =
-          (token && item.symbolToken === token) ||
-          (symbol && item.tradingSymbol.toUpperCase() === symbol.toUpperCase());
+          (token && itemToken === token) ||
+          (symbol && itemSymbol === symbol);
 
         if (!matches) return item;
 
@@ -95,8 +121,8 @@ export const useRealtimeFnoMovers = () => {
         };
       };
 
-      const updateCache = (oldData?: FnoMoversResponse): FnoMoversResponse | undefined => {
-        if (!oldData || !Array.isArray(oldData.all)) return oldData;
+      const updateDataSet = (oldData?: FnoMoversResponse | null): FnoMoversResponse | undefined => {
+        if (!oldData || !Array.isArray(oldData.all)) return oldData || undefined;
 
         const updatedAll = oldData.all.map(updateMoverItem);
         const updatedGainers = oldData.gainers.map(updateMoverItem);
@@ -126,8 +152,16 @@ export const useRealtimeFnoMovers = () => {
         };
       };
 
-      queryClient.setQueryData<FnoMoversResponse>(queryKeys.market.fnoMovers(false), updateCache);
-      queryClient.setQueryData<FnoMoversResponse>(queryKeys.market.fnoMovers(true), updateCache);
+      // 3. Immediately update local state for zero-latency screen re-renders
+      setLiveData((prev) => {
+        if (!prev) return prev;
+        const next = updateDataSet(prev);
+        return next || prev;
+      });
+
+      // 4. Also keep React Query cache in sync
+      queryClient.setQueryData<FnoMoversResponse>(queryKeys.market.fnoMovers(false), updateDataSet);
+      queryClient.setQueryData<FnoMoversResponse>(queryKeys.market.fnoMovers(true), updateDataSet);
     },
     [queryClient]
   );
@@ -149,12 +183,13 @@ export const useRealtimeFnoMovers = () => {
     };
 
     const onAiPriceTick = (tick: RealtimeTickData) => {
-      // Also apply ticks from ai_price_tick if they match F&O symbols
       handlePriceTick(tick);
     };
 
     const onFnoUpdate = (payload: { type: string; data: FnoMoversResponse }) => {
       if (payload && payload.data) {
+        setLiveData(payload.data);
+        setTickCount((c) => c + 1);
         queryClient.setQueryData(queryKeys.market.fnoMovers(false), payload.data);
         queryClient.setQueryData(queryKeys.market.fnoMovers(true), payload.data);
         setLastTickTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -170,6 +205,7 @@ export const useRealtimeFnoMovers = () => {
     socket.on('disconnect', onDisconnect);
     socket.on('fno_tick', onFnoTick);
     socket.on('ai_price_tick', onAiPriceTick);
+    socket.on('market_tick', onAiPriceTick);
     socket.on('fno_update', onFnoUpdate);
 
     return () => {
@@ -177,6 +213,7 @@ export const useRealtimeFnoMovers = () => {
       socket.off('disconnect', onDisconnect);
       socket.off('fno_tick', onFnoTick);
       socket.off('ai_price_tick', onAiPriceTick);
+      socket.off('market_tick', onAiPriceTick);
       socket.off('fno_update', onFnoUpdate);
 
       // Clean up timers
@@ -189,8 +226,10 @@ export const useRealtimeFnoMovers = () => {
   }, []);
 
   return {
+    liveData,
     isConnected,
     lastTickTime,
+    tickCount,
     flashes,
     requestImmediateRefresh,
   };
