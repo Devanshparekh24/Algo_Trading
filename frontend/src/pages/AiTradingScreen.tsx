@@ -2588,7 +2588,6 @@ export const AiTradingScreen: React.FC = () => {
                 underlyingPrice={underlyingQuote?.ltp}
                 underlyingPercentChange={underlyingQuote?.percentChange}
                 onSymbolChange={setSelectedChartSymbol}
-                onIntervalChange={(tf) => setChartInterval(tf as any)}
               />
             );
           })()}
