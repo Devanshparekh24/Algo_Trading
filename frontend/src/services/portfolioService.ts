@@ -9,12 +9,11 @@ export const getPositions = async (useRootEndpoint = false, refresh = false): Pr
   const base = useRootEndpoint ? '/positions' : '/api/v1/portfolio/positions';
   const endpoint = refresh ? `${base}?refresh=true` : base;
   try {
-    const response = await api.get<ApiResponse<Position[]>>(endpoint);
-    return response.data.data || [];
-  } catch {
-    const fallbackEndpoint = refresh ? '/positions?refresh=true' : '/positions';
-    const fallback = await api.get<ApiResponse<Position[]>>(fallbackEndpoint);
-    return fallback.data.data || [];
+    const response = await api.get<ApiResponse<Position[]>>(endpoint, { timeout: 7000 });
+    return response.data?.data || [];
+  } catch (err: any) {
+    console.warn('[portfolioService] Positions fetch warning:', err?.message || err);
+    return [];
   }
 };
 
@@ -26,8 +25,8 @@ export const getHoldings = async (useRootEndpoint = false, refresh = false): Pro
   const base = useRootEndpoint ? '/holdings' : '/api/v1/portfolio/holdings';
   const endpoint = refresh ? `${base}?refresh=true` : base;
   try {
-    const response = await api.get<ApiResponse<HoldingsResponseData | Holding[]>>(endpoint);
-    const data = response.data.data;
+    const response = await api.get<ApiResponse<HoldingsResponseData | Holding[]>>(endpoint, { timeout: 7000 });
+    const data = response.data?.data;
     if (Array.isArray(data)) {
       return { holdings: data };
     }
@@ -35,16 +34,16 @@ export const getHoldings = async (useRootEndpoint = false, refresh = false): Pro
       holdings: data?.holdings || [],
       totalholding: data?.totalholding,
     };
-  } catch {
-    const fallbackEndpoint = refresh ? '/holdings?refresh=true' : '/holdings';
-    const fallback = await api.get<ApiResponse<HoldingsResponseData | Holding[]>>(fallbackEndpoint);
-    const data = fallback.data.data;
-    if (Array.isArray(data)) {
-      return { holdings: data };
-    }
+  } catch (err: any) {
+    console.warn('[portfolioService] Holdings fetch warning:', err?.message || err);
     return {
-      holdings: data?.holdings || [],
-      totalholding: data?.totalholding,
+      holdings: [],
+      totalholding: {
+        totalholdingvalue: 0,
+        totalinvvalue: 0,
+        totalprofitandloss: 0,
+        totalpnlpercentage: 0,
+      },
     };
   }
 };

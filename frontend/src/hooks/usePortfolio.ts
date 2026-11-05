@@ -11,6 +11,8 @@ export const usePositions = (useRootEndpoint = false) => {
     queryFn: () => getPositions(useRootEndpoint),
     staleTime: 1000 * 30, // 30s stale time (real-time ticks handled via WebSocket)
     refetchInterval: 1000 * 30, // 30s background sync fallback
+    retry: 1,
+    retryDelay: 1000,
   });
 };
 
@@ -23,5 +25,7 @@ export const useHoldings = (useRootEndpoint = false) => {
     queryFn: () => getHoldings(useRootEndpoint),
     staleTime: 1000 * 30, // 30s stale time (real-time ticks handled via WebSocket)
     refetchInterval: 1000 * 30, // 30s background sync fallback
+    retry: 1,
+    retryDelay: 1000,
   });
 };

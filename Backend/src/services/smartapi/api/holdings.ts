@@ -75,6 +75,20 @@ export function getKnownHoldings(): Holding[] {
 }
 
 /**
+ * Retrieve full cached HoldingsPayload snapshot from memory
+ */
+export function getKnownHoldingsPayload(): HoldingsPayload {
+  if (cachedHoldings && cachedHoldings.holdings.length > 0) {
+    return cachedHoldings;
+  }
+  if (rawDematHoldings.length > 0) {
+    const totalholding = computeTotalHolding(rawDematHoldings);
+    return { holdings: rawDematHoldings, totalholding };
+  }
+  return lastKnownHoldings;
+}
+
+/**
  * Instantly update a holding's LTP and PnL in memory on incoming WebSocket tick
  */
 export function updateHoldingQuoteInCache(
@@ -163,7 +177,7 @@ export async function getHoldings(forceRefresh = false): Promise<HoldingsPayload
               holdings?: Holding[];
               totalholding?: TotalHolding;
             } | Holding[] | null;
-          }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
+          }>(url, { headers, timeout: 4000 });
 
           if (response.data && response.data.status && response.data.data) {
             rawData = response.data.data;
@@ -192,7 +206,7 @@ export async function getHoldings(forceRefresh = false): Promise<HoldingsPayload
                 holdings?: Holding[];
                 totalholding?: TotalHolding;
               } | Holding[] | null;
-            }>(fallbackUrl, { headers, timeout: DEFAULT_TIMEOUT_MS });
+            }>(fallbackUrl, { headers, timeout: 4000 });
 
             const { status, data } = fallbackRes.data;
 
@@ -220,52 +234,60 @@ export async function getHoldings(forceRefresh = false): Promise<HoldingsPayload
         }
       }
 
-      // If holdings are present, enrich with real-time market quotes
+      // If holdings are present, enrich with real-time market quotes (non-blocking race)
       if (holdings.length > 0) {
-        try {
-          const exchangeTokens: Record<string, string[]> = {};
-          for (const h of holdings) {
-            if (h.symboltoken) {
-              const ex = h.exchange || "NSE";
-              if (!exchangeTokens[ex]) exchangeTokens[ex] = [];
-              exchangeTokens[ex].push(h.symboltoken);
-            }
-          }
+        const needsQuote = holdings.some((h) => !h.ltp || Number(h.ltp) <= 0);
 
-          if (Object.keys(exchangeTokens).length > 0) {
-            const liveQuotesRes = await getFullModeData({
-              mode: "FULL",
-              exchangeTokens,
-              bypassCache: forceRefresh,
-            });
-
-            const fetchedQuotes = liveQuotesRes.data?.fetched || [];
-            const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
-            for (const q of fetchedQuotes) {
-              quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
-              quoteMap.set(`${q.symbolToken}`, q);
-              if (q.tradingSymbol) quoteMap.set(q.tradingSymbol.toUpperCase(), q);
-            }
-
+        if (needsQuote) {
+          try {
+            const exchangeTokens: Record<string, string[]> = {};
             for (const h of holdings) {
-              const quote =
-                quoteMap.get(`${h.exchange || "NSE"}:${h.symboltoken}`) ||
-                quoteMap.get(`${h.symboltoken}`) ||
-                (h.tradingsymbol ? quoteMap.get(h.tradingsymbol.toUpperCase()) : undefined);
-
-              if (quote && quote.ltp) {
-                h.ltp = quote.ltp;
-                h.close = quote.close;
-                const avg = Number(h.averageprice || 0);
-                const qty = Number(h.quantity || 0);
-                h.profitandloss = Number(((quote.ltp - avg) * qty).toFixed(2));
-                h.pnlpercentage =
-                  avg > 0 ? Number((((quote.ltp - avg) / avg) * 100).toFixed(2)) : 0;
+              if (h.symboltoken) {
+                const ex = h.exchange || "NSE";
+                if (!exchangeTokens[ex]) exchangeTokens[ex] = [];
+                exchangeTokens[ex].push(h.symboltoken);
               }
             }
+
+            if (Object.keys(exchangeTokens).length > 0) {
+              const quoteTask = getFullModeData({
+                mode: "FULL",
+                exchangeTokens,
+                bypassCache: false,
+              });
+              const timeoutTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+              const liveQuotesRes = await Promise.race([quoteTask, timeoutTask]);
+
+              if (liveQuotesRes && liveQuotesRes.data?.fetched) {
+                const fetchedQuotes = liveQuotesRes.data.fetched;
+                const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
+                for (const q of fetchedQuotes) {
+                  quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
+                  quoteMap.set(`${q.symbolToken}`, q);
+                  if (q.tradingSymbol) quoteMap.set(q.tradingSymbol.toUpperCase(), q);
+                }
+
+                for (const h of holdings) {
+                  const quote =
+                    quoteMap.get(`${h.exchange || "NSE"}:${h.symboltoken}`) ||
+                    quoteMap.get(`${h.symboltoken}`) ||
+                    (h.tradingsymbol ? quoteMap.get(h.tradingsymbol.toUpperCase()) : undefined);
+
+                  if (quote && quote.ltp) {
+                    h.ltp = quote.ltp;
+                    h.close = quote.close;
+                    const avg = Number(h.averageprice || 0);
+                    const qty = Number(h.quantity || 0);
+                    h.profitandloss = Number(((quote.ltp - avg) * qty).toFixed(2));
+                    h.pnlpercentage =
+                      avg > 0 ? Number((((quote.ltp - avg) / avg) * 100).toFixed(2)) : 0;
+                  }
+                }
+              }
+            }
+          } catch (err: any) {
+            console.warn("[SmartAPI] Live quote enrichment notice for holdings:", err?.message || err);
           }
-        } catch (err: any) {
-          console.warn("[SmartAPI] Live quote enrichment warning for holdings:", err?.message || err);
         }
 
         const totalholding = computeTotalHolding(holdings);

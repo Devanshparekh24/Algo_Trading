@@ -23,7 +23,8 @@ import {
 } from "../smartapi/fnoMovers.service.js";
 
 let io: SocketIOServer | null = null;
-let streamInterval: NodeJS.Timeout | null = null;
+let streamTimeout: ReturnType<typeof setTimeout> | null = null;
+let isBroadcasting = false;
 
 // Dynamic in-memory set of actively monitored tokens (e.g. from user chart views or strike queries)
 const dynamicWatchedTokens = new Map<string, string>(); // token -> exchange
@@ -304,13 +305,36 @@ export function broadcastPortfolioUpdate(payload: unknown): void {
  * Queries Angel One's live quotes API every 1500ms for portfolio holdings, open positions & benchmark indices.
  * Paces requests safely and updates all connected clients with zero price delay.
  */
-export function startRealtimeBroadcaster(): void {
-  if (streamInterval) clearInterval(streamInterval);
+/**
+ * Stop background ticker
+ */
+export function stopRealtimeBroadcaster(): void {
+  if (streamTimeout) {
+    clearTimeout(streamTimeout);
+    streamTimeout = null;
+  }
+  isBroadcasting = false;
+}
 
-  streamInterval = setInterval(async () => {
+/**
+ * Real-time background ticker:
+ * Queries Angel One's live quotes API every 2000ms for portfolio holdings, open positions & benchmark indices.
+ * Uses recursive setTimeout with a strict single-flight guard (isBroadcasting) to prevent overlapping cycles,
+ * pacer queue congestion, and API rate limiting.
+ */
+export function startRealtimeBroadcaster(): void {
+  stopRealtimeBroadcaster();
+
+  const runTick = async () => {
+    if (isBroadcasting) return;
+
     if (!io || io.engine.clientsCount === 0) {
-      return; // Only query when frontend clients are actively connected
+      // Recheck in 2000ms if no frontend clients are connected
+      streamTimeout = setTimeout(runTick, 2000);
+      return;
     }
+
+    isBroadcasting = true;
 
     try {
       // 1. Gather active tokens from holdings & open positions
@@ -467,6 +491,13 @@ export function startRealtimeBroadcaster(): void {
       }
     } catch (err: any) {
       console.warn("[SmartAPI Streamer] Live quote polling:", err?.message || err);
+    } finally {
+      isBroadcasting = false;
+      // Schedule the next cycle only AFTER the current one is completely finished
+      streamTimeout = setTimeout(runTick, 2000);
     }
-  }, 1500);
+  };
+
+  // Kick off first cycle after 600ms
+  streamTimeout = setTimeout(runTick, 600);
 }

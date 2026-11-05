@@ -42,6 +42,7 @@ export {
   updatePositionQuoteInCache,
   getHoldings,
   getKnownHoldings,
+  getKnownHoldingsPayload,
   updateHoldingQuoteInCache,
   getCandleData,
   getLtpData,

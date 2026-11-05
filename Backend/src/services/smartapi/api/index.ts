@@ -7,7 +7,7 @@ export { getUserProfile } from "./profile.js";
 export { getRMS } from "./rms.js";
 
 export { getPositions, getKnownPositions, updatePositionQuoteInCache } from "./positions.js";
-export { getHoldings, getKnownHoldings, updateHoldingQuoteInCache } from "./holdings.js";
+export { getHoldings, getKnownHoldings, getKnownHoldingsPayload, updateHoldingQuoteInCache } from "./holdings.js";
 export { getCandleData } from "./historical.js";
 export { getLtpData } from "./ltp.js";
 export { getFullModeData, cacheQuote, getCachedQuote } from "./FullMode.js";

@@ -100,7 +100,7 @@ export async function getPositions(forceRefresh = false): Promise<Position[]> {
         message: string;
         errorcode?: string;
         data?: Position[] | null;
-      }>(url, { headers, timeout: DEFAULT_TIMEOUT_MS });
+      }>(url, { headers, timeout: 4000 });
 
       const { status, message, data, errorcode } = response.data;
 
@@ -124,8 +124,17 @@ export async function getPositions(forceRefresh = false): Promise<Position[]> {
 
       let positions: Position[] = data || [];
 
-      // Enrich positions with live market LTP quotes if available
-      if (positions.length > 0) {
+      // If empty or null, return immediately
+      if (positions.length === 0) {
+        cachedPositions = [];
+        lastPositionsFetchTime = Date.now();
+        hasPositionsFetchedOnce = true;
+        return [];
+      }
+
+      // Enrich positions with live market LTP quotes if needed (non-blocking race)
+      const needsQuote = positions.some((p) => !p.ltp || Number(p.ltp) <= 0);
+      if (needsQuote) {
         try {
           const exchangeTokens: Record<string, string[]> = {};
           for (const pos of positions) {
@@ -139,55 +148,59 @@ export async function getPositions(forceRefresh = false): Promise<Position[]> {
           }
 
           if (Object.keys(exchangeTokens).length > 0) {
-            const liveQuotesRes = await getFullModeData({
+            const quoteTask = getFullModeData({
               mode: "FULL",
               exchangeTokens,
-              bypassCache: forceRefresh,
+              bypassCache: false,
             });
+            const timeoutTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+            const liveQuotesRes = await Promise.race([quoteTask, timeoutTask]);
 
-            const fetchedQuotes = liveQuotesRes.data?.fetched || [];
-            const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
-            for (const q of fetchedQuotes) {
-              quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
-              quoteMap.set(`${q.symbolToken}`, q);
-              if (q.tradingSymbol) quoteMap.set(q.tradingSymbol.toUpperCase(), q);
-            }
-
-            positions = positions.map((pos) => {
-              const quote =
-                quoteMap.get(`${pos.exchange || "NSE"}:${pos.symboltoken}`) ||
-                quoteMap.get(`${pos.symboltoken || ""}`) ||
-                (pos.tradingsymbol ? quoteMap.get(pos.tradingsymbol.toUpperCase()) : undefined);
-
-              if (quote && quote.ltp) {
-                const freshLtp = Number(quote.ltp);
-                const ltpStr = String(freshLtp);
-                const netQty = Number(pos.netqty || pos.quantity || 0);
-                const avgPrice = Number(pos.averageprice || 0);
-
-                let m2mStr = pos.m2m || "0";
-                let pnlStr = pos.pnl || "0";
-
-                if (netQty !== 0 && avgPrice > 0) {
-                  const m2m = (freshLtp - avgPrice) * netQty;
-                  m2mStr = String(Number(m2m.toFixed(2)));
-                  const realized = Number(pos.realised || (pos as any).realisedpnl || 0);
-                  pnlStr = String(Number((realized + m2m).toFixed(2)));
-                }
-
-                return {
-                  ...pos,
-                  ltp: ltpStr,
-                  lp: ltpStr,
-                  m2m: m2mStr,
-                  pnl: pnlStr,
-                };
+            if (liveQuotesRes && liveQuotesRes.data?.fetched) {
+              const fetchedQuotes = liveQuotesRes.data.fetched;
+              const quoteMap = new Map<string, typeof fetchedQuotes[0]>();
+              for (const q of fetchedQuotes) {
+                quoteMap.set(`${q.exchange}:${q.symbolToken}`, q);
+                quoteMap.set(`${q.symbolToken}`, q);
+                if (q.tradingSymbol) quoteMap.set(q.tradingSymbol.toUpperCase(), q);
               }
-              return pos;
-            });
+
+              positions = positions.map((pos) => {
+                const quote =
+                  quoteMap.get(`${pos.exchange || "NSE"}:${pos.symboltoken}`) ||
+                  quoteMap.get(`${pos.symboltoken || ""}`) ||
+                  (pos.tradingsymbol ? quoteMap.get(pos.tradingsymbol.toUpperCase()) : undefined);
+
+                if (quote && quote.ltp) {
+                  const freshLtp = Number(quote.ltp);
+                  const ltpStr = String(freshLtp);
+                  const netQty = Number(pos.netqty || pos.quantity || 0);
+                  const avgPrice = Number(pos.averageprice || 0);
+
+                  let m2mStr = pos.m2m || "0";
+                  let pnlStr = pos.pnl || "0";
+
+                  if (netQty !== 0 && avgPrice > 0) {
+                    const m2m = (freshLtp - avgPrice) * netQty;
+                    m2mStr = String(Number(m2m.toFixed(2)));
+                    const realized = Number(pos.realised || (pos as any).realisedpnl || 0);
+                    pnlStr = String(Number((realized + m2m).toFixed(2)));
+                  }
+
+                  return {
+                    ...pos,
+                    ltp: ltpStr,
+                    lp: ltpStr,
+                    m2m: m2mStr,
+                    pnl: pnlStr,
+                  };
+                }
+                return pos;
+              });
+            }
           }
         } catch (err: any) {
-          console.warn("[SmartAPI] Live quote enrichment warning for positions:", err?.message || err);
+          console.warn("[SmartAPI] Live quote enrichment notice for positions:", err?.message || err);
         }
       }
 
