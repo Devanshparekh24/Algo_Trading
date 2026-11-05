@@ -292,3 +292,110 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
 
   return inFlightPromise;
 }
+
+/**
+ * Return all active tokens currently tracked in F&O Movers
+ */
+export function getKnownFnoMoverTokens(): Array<{ token: string; exchange: string; symbol: string }> {
+  if (!cachedData || !Array.isArray(cachedData.all)) return [];
+  return cachedData.all
+    .filter((item) => item.symbolToken)
+    .map((item) => ({
+      token: item.symbolToken,
+      exchange: item.exchange || "NFO",
+      symbol: item.tradingSymbol,
+    }));
+}
+
+/**
+ * Live tick update for F&O Movers: updates LTP, Change, % Change, Volume, High, Low
+ * in memory without waiting for full scan reload.
+ */
+export function updateFnoMoverQuoteInCache(
+  tokenOrSymbol: string,
+  freshLtp: number,
+  change?: number,
+  percentChange?: number,
+  high?: number,
+  low?: number,
+  volume?: number
+): FnoMoverItem | null {
+  if (!cachedData || !Array.isArray(cachedData.all)) return null;
+
+  const item = cachedData.all.find(
+    (x) =>
+      x.symbolToken === tokenOrSymbol ||
+      x.tradingSymbol.toUpperCase() === tokenOrSymbol.toUpperCase()
+  );
+
+  if (!item) return null;
+
+  item.ltp = freshLtp;
+  if (change !== undefined) item.netChange = change;
+  if (percentChange !== undefined) item.percentChange = percentChange;
+  if (high !== undefined && (item.high === undefined || high > item.high)) item.high = high;
+  if (low !== undefined && (item.low === undefined || low < item.low)) item.low = low;
+  if (volume !== undefined) item.tradeVolume = volume;
+
+  // Re-sort / re-rank in cachedData
+  recomputeFnoMoversSummary();
+  return item;
+}
+
+function recomputeFnoMoversSummary(): void {
+  if (!cachedData) return;
+  const allItems = cachedData.all;
+
+  // Sort by highest absolute percentage swing (Top Volatile)
+  const allVolatile = [...allItems].sort(
+    (a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange)
+  );
+
+  const gainers = allItems
+    .filter((x) => x.percentChange > 0)
+    .sort((a, b) => b.percentChange - a.percentChange);
+
+  const losers = allItems
+    .filter((x) => x.percentChange < 0)
+    .sort((a, b) => a.percentChange - b.percentChange);
+
+  const calls = allItems
+    .filter((x) => x.instrumentType === "CE")
+    .sort((a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange));
+
+  const puts = allItems
+    .filter((x) => x.instrumentType === "PE")
+    .sort((a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange));
+
+  const futures = allItems
+    .filter((x) => x.instrumentType === "FUT")
+    .sort((a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange));
+
+  const gainersCount = gainers.length;
+  const losersCount = losers.length;
+
+  let marketSentiment: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (gainersCount > losersCount * 1.3) marketSentiment = "BULLISH";
+  else if (losersCount > gainersCount * 1.3) marketSentiment = "BEARISH";
+
+  cachedData.all = allVolatile;
+  cachedData.gainers = gainers;
+  cachedData.losers = losers;
+  cachedData.calls = calls;
+  cachedData.puts = puts;
+  cachedData.futures = futures;
+
+  cachedData.summary = {
+    totalCount: allItems.length,
+    gainersCount,
+    losersCount,
+    callsCount: calls.length,
+    putsCount: puts.length,
+    futuresCount: futures.length,
+    topGainer: gainers[0] || null,
+    topLoser: losers[0] || null,
+    mostVolatile: allVolatile[0] || null,
+    marketSentiment,
+    lastUpdated: new Date().toISOString(),
+  };
+}

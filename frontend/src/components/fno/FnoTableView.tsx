@@ -13,9 +13,10 @@ export type SortOrder = 'asc' | 'desc';
 export interface FnoTableViewProps {
   items: FnoMoverItem[];
   onSelectContract: (item: FnoMoverItem) => void;
+  flashes?: Record<string, 'up' | 'down'>;
 }
 
-export const FnoTableView: React.FC<FnoTableViewProps> = ({ items, onSelectContract }) => {
+export const FnoTableView: React.FC<FnoTableViewProps> = ({ items, onSelectContract, flashes }) => {
   const { togglePin, isPinned } = useWatchlistStore();
   const [sortField, setSortField] = useState<SortField>('percentChange');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -99,6 +100,7 @@ export const FnoTableView: React.FC<FnoTableViewProps> = ({ items, onSelectContr
             ) : (
               sortedItems.map((item) => {
                 const isUp = item.percentChange >= 0;
+                const flash = flashes?.[item.symbolToken] || flashes?.[item.tradingSymbol];
 
                 return (
                   <tr
@@ -149,7 +151,15 @@ export const FnoTableView: React.FC<FnoTableViewProps> = ({ items, onSelectContr
 
                     {/* LTP */}
                     <td className="py-3.5 px-3 text-right">
-                      <span className="font-extrabold font-mono text-sm text-gray-900 dark:text-white">
+                      <span
+                        className={`inline-block font-extrabold font-mono text-sm px-2 py-0.5 rounded-lg transition-all duration-300 ${
+                          flash === 'up'
+                            ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 scale-105 shadow-xs font-black'
+                            : flash === 'down'
+                            ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 scale-105 shadow-xs font-black'
+                            : 'text-gray-900 dark:text-white'
+                        }`}
+                      >
                         {formatINR(item.ltp)}
                       </span>
                     </td>

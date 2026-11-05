@@ -16,6 +16,11 @@ import {
 } from "../smartapi/index.js";
 import { getFullModeData } from "../smartapi/api/FullMode.js";
 import { getUniverseScrips, updateLiveSignalPrice } from "../ai/aiTrading.service.js";
+import {
+  getKnownFnoMoverTokens,
+  updateFnoMoverQuoteInCache,
+  getTopFnoMovers,
+} from "../smartapi/fnoMovers.service.js";
 
 let io: SocketIOServer | null = null;
 let streamInterval: NodeJS.Timeout | null = null;
@@ -201,6 +206,20 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
       }
     });
 
+    // Client requests immediate live refresh for F&O Movers
+    socket.on("request_fno_refresh", async () => {
+      try {
+        const movers = await getTopFnoMovers(false);
+        socket.emit("fno_update", {
+          type: "REFRESH",
+          data: movers,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        socket.emit("stream_error", { message: err?.message || "Failed to fetch F&O movers" });
+      }
+    });
+
     socket.on("disconnect", (reason) => {
       console.log(`[Socket.IO] Client disconnected: ${socket.id} (Reason: ${reason})`);
     });
@@ -350,6 +369,23 @@ export function startRealtimeBroadcaster(): void {
         exchangeTokens[ex] = list;
       }
 
+      // Add active F&O Movers tokens (Futures & Options)
+      try {
+        const fnoTokens = getKnownFnoMoverTokens();
+        for (const f of fnoTokens) {
+          if (f.token) {
+            const ex = f.exchange || "NFO";
+            const list = exchangeTokens[ex] ?? [];
+            if (!list.includes(f.token)) {
+              list.push(f.token);
+            }
+            exchangeTokens[ex] = list;
+          }
+        }
+      } catch {
+        // Continue gracefully
+      }
+
       // 2. Fetch true live market quotes from Angel One
       const quotesRes = await getFullModeData({
         mode: "FULL",
@@ -404,6 +440,20 @@ export function startRealtimeBroadcaster(): void {
         if (pList && pList.length > 0) {
           updatedPositionsList = pList;
           broadcastPositionTick(tickData);
+        }
+
+        // Check if token matches F&O Mover and update live price in memory
+        const updatedFno = updateFnoMoverQuoteInCache(
+          quote.symbolToken,
+          freshLtp,
+          tickData.change,
+          tickData.percentChange,
+          tickData.high,
+          tickData.low,
+          tickData.tradeVolume
+        );
+        if (updatedFno) {
+          broadcastSocketEvent("fno_tick", tickData);
         }
       }
 

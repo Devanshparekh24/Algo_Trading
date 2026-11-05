@@ -2,6 +2,7 @@ import http from "http";
 import app from "./src/app.js";
 import prisma from "./src/config/prisma.js";
 import { startSessionScheduler, startInstrumentScheduler } from "./src/services/smartapi/index.js";
+import { getTopFnoMovers } from "./src/services/smartapi/fnoMovers.service.js";
 import { initSocketServer } from "./src/services/websocket/socketService.js";
 
 const PORT = process.env.PORT || 5000;
@@ -60,5 +61,12 @@ server.listen(PORT, async () => {
         await startInstrumentScheduler();
     } catch (error) {
         console.error("[SmartAPI] Failed to start instrument scheduler:", error);
+    }
+
+    try {
+        // Pre-warm F&O Movers in background for instant live streaming
+        getTopFnoMovers().catch((e) => console.warn("[FnoMovers] Warmup notice:", e?.message || e));
+    } catch {
+        // Continue gracefully
     }
 });

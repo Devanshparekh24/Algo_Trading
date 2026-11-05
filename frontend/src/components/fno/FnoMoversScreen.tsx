@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { RefreshCw, Table as TableIcon, LayoutGrid } from 'lucide-react';
 import { useFnoMovers } from '../../hooks/useMarket';
+import { useRealtimeFnoMovers } from '../../hooks/useRealtimeFnoMovers';
 import type { FnoMoverItem } from '../../types';
 import MarketStatusBadge from '../common/MarketStatusBadge';
 import MarketClosedBanner from '../common/MarketClosedBanner';
@@ -13,6 +14,7 @@ import { useFnoFilterStore, useWatchlistStore } from '../../store';
 
 export const FnoMoversScreen: React.FC = () => {
   const { data, isLoading, isError, error, refetch, isFetching } = useFnoMovers();
+  const { isConnected, lastTickTime, flashes, requestImmediateRefresh } = useRealtimeFnoMovers();
 
   // Screen presentation and filter state backed by Zustand
   const {
@@ -31,6 +33,18 @@ export const FnoMoversScreen: React.FC = () => {
   } = useFnoFilterStore();
 
   const isPinned = useWatchlistStore((state) => state.isPinned);
+
+  // Keep modal contract updated with live real-time price ticks
+  const liveSelectedContract = useMemo(() => {
+    if (!selectedContract || !data?.all) return selectedContract;
+    return (
+      data.all.find(
+        (item) =>
+          item.symbolToken === selectedContract.symbolToken ||
+          item.tradingSymbol.toUpperCase() === selectedContract.tradingSymbol.toUpperCase()
+      ) || selectedContract
+    );
+  }, [selectedContract, data?.all]);
 
   // Filter list based on segment, direction, underlying, search, and watchlist
   const filteredItems = useMemo(() => {
@@ -125,6 +139,19 @@ export const FnoMoversScreen: React.FC = () => {
             <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
               Derivatives Feed
             </span>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 shadow-2xs">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>Live Feed (1.5s)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-700 text-gray-500">
+                Connecting...
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Real-time highest swings, ups & downs across Futures, Call (CE) & Put (PE) options
@@ -133,7 +160,9 @@ export const FnoMoversScreen: React.FC = () => {
 
         <div className="flex items-center gap-2.5 self-stretch sm:self-auto justify-between sm:justify-start">
           <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono hidden md:block">
-            {data?.summary?.lastUpdated
+            {lastTickTime
+              ? `Live Tick: ${lastTickTime}`
+              : data?.summary?.lastUpdated
               ? `Updated ${new Date(data.summary.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
               : ''}
           </div>
@@ -168,7 +197,10 @@ export const FnoMoversScreen: React.FC = () => {
 
           {/* Refresh Action */}
           <button
-            onClick={() => refetch()}
+            onClick={() => {
+              refetch();
+              requestImmediateRefresh();
+            }}
             disabled={isFetching}
             type="button"
             className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-50"
@@ -187,6 +219,7 @@ export const FnoMoversScreen: React.FC = () => {
       <FnoSummaryCards
         summary={data?.summary}
         onSelectContract={(contract) => setSelectedContract(contract)}
+        flashes={flashes}
       />
 
       {/* Segment, Direction, Underlying & Search Filters */}
@@ -218,17 +251,19 @@ export const FnoMoversScreen: React.FC = () => {
         <FnoTableView
           items={filteredItems}
           onSelectContract={(contract) => setSelectedContract(contract)}
+          flashes={flashes}
         />
       ) : (
         <FnoCardGrid
           items={filteredItems}
           onSelectContract={(contract) => setSelectedContract(contract)}
+          flashes={flashes}
         />
       )}
 
       {/* Contract Detail Modal */}
       <ContractDetailModal
-        contract={selectedContract}
+        contract={liveSelectedContract}
         onClose={() => setSelectedContract(null)}
       />
     </div>

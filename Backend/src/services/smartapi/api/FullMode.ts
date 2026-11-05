@@ -50,11 +50,45 @@ export function getCachedQuote(key: string): FullMode | undefined {
 }
 
 /**
+ * Helper to split a record of exchange tokens into chunks of max 45 tokens
+ * to stay safely within Angel One's 50-token-per-request cap.
+ */
+function chunkExchangeTokens(
+  record: Record<string, string[]>,
+  maxPerChunk = 45
+): Record<string, string[]>[] {
+  const entries: Array<{ exchange: string; token: string }> = [];
+  for (const [ex, tokens] of Object.entries(record)) {
+    for (const t of tokens) {
+      entries.push({ exchange: ex, token: t });
+    }
+  }
+
+  if (entries.length <= maxPerChunk) {
+    return [record];
+  }
+
+  const chunks: Record<string, string[]>[] = [];
+  for (let i = 0; i < entries.length; i += maxPerChunk) {
+    const slice = entries.slice(i, i + maxPerChunk);
+    const chunkRecord: Record<string, string[]> = {};
+    for (const item of slice) {
+      const list = chunkRecord[item.exchange] ?? [];
+      list.push(item.token);
+      chunkRecord[item.exchange] = list;
+    }
+    chunks.push(chunkRecord);
+  }
+  return chunks;
+}
+
+/**
  * Fetch Full Mode / Quote data for scrips.
  * Uses:
  * 1. 4-second TTL In-Memory Cache (prevents duplicate API calls)
  * 2. SmartAPI Central Request Rate Limiter Queue (prevents HTTP 403 access rate errors)
  * 3. Graceful handling for unfetched or expired tokens
+ * 4. Automatic request chunking for large watchlists (>45 tokens)
  *
  * @param request The parameters for fetching Full Mode data.
  */
@@ -105,87 +139,110 @@ export async function getFullModeData(
   }
 
   const neededCount = Object.values(neededTokens).reduce((sum, arr) => sum + arr.length, 0);
+  const targetTokens = neededCount > 0 ? neededTokens : exTokens;
+  const tokenChunks = chunkExchangeTokens(targetTokens, 45);
 
-  // 2. Dispatch network request through Central Rate Limiter Queue
-  const prunedRequest: FullModeRequest = {
-    mode: request.mode || "FULL",
-    exchangeTokens: neededCount > 0 ? neededTokens : exTokens,
-  };
+  const newlyFetchedAccumulator: FullMode[] = [];
+  const unfetchedAccumulator: any[] = [];
 
-  return executeSmartApiRequest(async () => {
-    const jwtToken = await getValidSession();
-    const config = getConfig();
+  for (const chunk of tokenChunks) {
+    const prunedRequest: FullModeRequest = {
+      mode: request.mode || "FULL",
+      exchangeTokens: chunk,
+    };
 
-    const url = `${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`;
-    const headers = buildHeaders(config.API_KEY, jwtToken);
+    const chunkResult = await executeSmartApiRequest(async () => {
+      const jwtToken = await getValidSession();
+      const config = getConfig();
 
-    try {
-      const response = await axios.post<FullModeResponse>(url, prunedRequest, { headers, timeout: DEFAULT_TIMEOUT_MS });
-      const { status, message, data, errorcode } = response.data;
+      const url = `${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`;
+      const headers = buildHeaders(config.API_KEY, jwtToken);
 
-      if (!status || !data) {
-        if (
-          message &&
-          (message.toLowerCase().includes("exceeding access rate") ||
-            message.toLowerCase().includes("rate limit") ||
-            message.toLowerCase().includes("access denied"))
-        ) {
-          throw { isRateLimitStatus: true, message };
+      try {
+        const response = await axios.post<FullModeResponse>(url, prunedRequest, { headers, timeout: DEFAULT_TIMEOUT_MS });
+        const { status, message, data, errorcode } = response.data;
+
+        if (!status || !data) {
+          if (
+            message &&
+            (message.toLowerCase().includes("exceeding access rate") ||
+              message.toLowerCase().includes("rate limit") ||
+              message.toLowerCase().includes("access denied"))
+          ) {
+            throw { isRateLimitStatus: true, message };
+          }
+
+          const errMsg = errorcode
+            ? `[${errorcode}] ${message}`
+            : message || "Full Mode data fetch failed";
+          console.warn(`[SmartAPI] Quote fetch warning: ${errMsg}`);
+          return {
+            status: false,
+            message: errMsg,
+            errorcode: errorcode || "",
+            data: { fetched: [], unfetched: [] },
+          };
         }
 
-        const errMsg = errorcode
-          ? `[${errorcode}] ${message}`
-          : message || "Full Mode data fetch failed";
-        console.warn(`[SmartAPI] Quote fetch warning: ${errMsg}`);
+        // Populate Cache with newly fetched quotes
+        const chunkFetched = data.fetched || [];
+        for (const q of chunkFetched) {
+          cacheQuote(q);
+        }
+
+        // Cache unfetched tokens so we don't repeat calls for dead contracts
+        for (const u of data.unfetched || []) {
+          if (u.symbolToken) {
+            unfetchedTokenCache.set(u.symbolToken, Date.now());
+          }
+        }
+
+        return {
+          status: true,
+          message: "SUCCESS",
+          errorcode: "",
+          data: {
+            fetched: chunkFetched,
+            unfetched: data.unfetched || [],
+          },
+        };
+      } catch (error: any) {
+        if (error?.isRateLimitStatus) {
+          throw error;
+        }
+        if (
+          axios.isAxiosError(error) &&
+          (error.response?.status === 403 || error.response?.status === 429)
+        ) {
+          throw error;
+        }
+        handleApiError(error, "Full Mode quote fetch");
         return {
           status: false,
-          message: errMsg,
-          errorcode: errorcode || "",
-          data: { fetched: cachedFetched, unfetched: [] },
+          message: error?.message || "Quote fetch error",
+          errorcode: "",
+          data: { fetched: [], unfetched: [] },
         };
       }
+    }, "getFullModeData");
 
-      // Populate Cache with newly fetched quotes
-      const newlyFetched = data.fetched || [];
-      for (const q of newlyFetched) {
-        cacheQuote(q);
-      }
-
-      // Cache unfetched tokens so we don't repeat calls for dead contracts
-      for (const u of data.unfetched || []) {
-        if (u.symbolToken) {
-          unfetchedTokenCache.set(u.symbolToken, Date.now());
-        }
-      }
-
-      const combinedFetched = [...cachedFetched, ...newlyFetched];
-
-      return {
-        status: true,
-        message: "SUCCESS",
-        errorcode: "",
-        data: {
-          fetched: combinedFetched,
-          unfetched: data.unfetched || [],
-        },
-      };
-    } catch (error: any) {
-      if (error?.isRateLimitStatus) {
-        throw error; // Let rate limiter queue pause & backoff
-      }
-      if (
-        axios.isAxiosError(error) &&
-        (error.response?.status === 403 || error.response?.status === 429)
-      ) {
-        throw error;
-      }
-      handleApiError(error, "Full Mode quote fetch");
-      return {
-        status: false,
-        message: error?.message || "Quote fetch error",
-        errorcode: "",
-        data: { fetched: cachedFetched, unfetched: [] },
-      };
+    if (chunkResult.data?.fetched) {
+      newlyFetchedAccumulator.push(...chunkResult.data.fetched);
     }
-  }, "getFullModeData");
+    if (chunkResult.data?.unfetched) {
+      unfetchedAccumulator.push(...chunkResult.data.unfetched);
+    }
+  }
+
+  const combinedFetched = [...cachedFetched, ...newlyFetchedAccumulator];
+
+  return {
+    status: true,
+    message: "SUCCESS",
+    errorcode: "",
+    data: {
+      fetched: combinedFetched,
+      unfetched: unfetchedAccumulator,
+    },
+  };
 }

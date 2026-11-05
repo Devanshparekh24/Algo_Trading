@@ -93,3 +93,13 @@ export const requestAiPricesRefresh = (
   }
 };
 
+/**
+ * Request immediate live price refresh for F&O Movers
+ */
+export const requestFnoRefresh = (): void => {
+  const s = getSocket();
+  if (s.connected) {
+    s.emit('request_fno_refresh');
+  }
+};
+

@@ -10,9 +10,10 @@ import { useWatchlistStore } from '../../store';
 export interface FnoCardGridProps {
   items: FnoMoverItem[];
   onSelectContract: (item: FnoMoverItem) => void;
+  flashes?: Record<string, 'up' | 'down'>;
 }
 
-export const FnoCardGrid: React.FC<FnoCardGridProps> = ({ items, onSelectContract }) => {
+export const FnoCardGrid: React.FC<FnoCardGridProps> = ({ items, onSelectContract, flashes }) => {
   const { togglePin, isPinned } = useWatchlistStore();
 
   if (items.length === 0) {
@@ -70,9 +71,22 @@ export const FnoCardGrid: React.FC<FnoCardGridProps> = ({ items, onSelectContrac
             <div className="flex items-baseline justify-between pt-1">
               <div>
                 <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">LTP</div>
-                <div className="text-2xl font-extrabold font-mono text-gray-900 dark:text-white">
-                  {formatINR(item.ltp)}
-                </div>
+                {(() => {
+                  const flash = flashes?.[item.symbolToken] || flashes?.[item.tradingSymbol];
+                  return (
+                    <div
+                      className={`text-2xl font-extrabold font-mono rounded-lg px-1.5 py-0.5 -ml-1.5 transition-all duration-300 inline-block ${
+                        flash === 'up'
+                          ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 scale-105 shadow-xs font-black'
+                          : flash === 'down'
+                          ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 scale-105 shadow-xs font-black'
+                          : 'text-gray-900 dark:text-white'
+                      }`}
+                    >
+                      {formatINR(item.ltp)}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="text-right flex flex-col items-end">
                 <ChangePill value={item.percentChange} size="sm" />

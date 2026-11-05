@@ -8,13 +8,27 @@ import { formatINR } from '../../utils/formatters';
 export interface FnoSummaryCardsProps {
   summary?: FnoMoversSummary;
   onSelectContract?: (contract: FnoMoverItem) => void;
+  flashes?: Record<string, 'up' | 'down'>;
 }
 
 export const FnoSummaryCards: React.FC<FnoSummaryCardsProps> = ({
   summary,
   onSelectContract,
+  flashes,
 }) => {
   if (!summary) return null;
+
+  const mvFlash = summary.mostVolatile
+    ? flashes?.[summary.mostVolatile.symbolToken] || flashes?.[summary.mostVolatile.tradingSymbol]
+    : undefined;
+
+  const tgFlash = summary.topGainer
+    ? flashes?.[summary.topGainer.symbolToken] || flashes?.[summary.topGainer.tradingSymbol]
+    : undefined;
+
+  const tlFlash = summary.topLoser
+    ? flashes?.[summary.topLoser.symbolToken] || flashes?.[summary.topLoser.tradingSymbol]
+    : undefined;
 
   const totalBreadth = summary.gainersCount + summary.losersCount;
   const gainersRatio = totalBreadth > 0 ? (summary.gainersCount / totalBreadth) * 100 : 50;
@@ -40,7 +54,15 @@ export const FnoSummaryCards: React.FC<FnoSummaryCardsProps> = ({
               <InstrumentBadge type={summary.mostVolatile.instrumentType} />
             </div>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-xl font-extrabold font-mono text-gray-900 dark:text-white">
+              <span
+                className={`text-xl font-extrabold font-mono rounded px-1 -ml-1 transition-all duration-300 ${
+                  mvFlash === 'up'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 scale-105'
+                    : mvFlash === 'down'
+                    ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 scale-105'
+                    : 'text-gray-900 dark:text-white'
+                }`}
+              >
                 {formatINR(summary.mostVolatile.ltp)}
               </span>
               <ChangePill value={summary.mostVolatile.percentChange} size="xs" />
@@ -69,7 +91,15 @@ export const FnoSummaryCards: React.FC<FnoSummaryCardsProps> = ({
               <InstrumentBadge type={summary.topGainer.instrumentType} />
             </div>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-xl font-extrabold font-mono text-gray-900 dark:text-white">
+              <span
+                className={`text-xl font-extrabold font-mono rounded px-1 -ml-1 transition-all duration-300 ${
+                  tgFlash === 'up'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 scale-105'
+                    : tgFlash === 'down'
+                    ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 scale-105'
+                    : 'text-gray-900 dark:text-white'
+                }`}
+              >
                 {formatINR(summary.topGainer.ltp)}
               </span>
               <ChangePill value={summary.topGainer.percentChange} size="xs" />
@@ -98,7 +128,15 @@ export const FnoSummaryCards: React.FC<FnoSummaryCardsProps> = ({
               <InstrumentBadge type={summary.topLoser.instrumentType} />
             </div>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-xl font-extrabold font-mono text-gray-900 dark:text-white">
+              <span
+                className={`text-xl font-extrabold font-mono rounded px-1 -ml-1 transition-all duration-300 ${
+                  tlFlash === 'up'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 scale-105'
+                    : tlFlash === 'down'
+                    ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 scale-105'
+                    : 'text-gray-900 dark:text-white'
+                }`}
+              >
                 {formatINR(summary.topLoser.ltp)}
               </span>
               <ChangePill value={summary.topLoser.percentChange} size="xs" />
