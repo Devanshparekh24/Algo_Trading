@@ -130,3 +130,4 @@ export const PositionsTableView: React.FC<PositionsTableViewProps> = ({
 };
 
 export default PositionsTableView;
+

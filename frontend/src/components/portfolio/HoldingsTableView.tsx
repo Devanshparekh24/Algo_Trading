@@ -178,3 +178,4 @@ export const HoldingsTableView: React.FC<HoldingsTableViewProps> = ({
 };
 
 export default HoldingsTableView;
+
