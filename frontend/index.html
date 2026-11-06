@@ -4,13 +4,25 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>frontend</title>
-  <link href="/dist/styles.css" rel="stylesheet">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Algo Trading | Greek Momentum Sniper</title>
+  <script>
+    (function () {
+      try {
+        const stored = localStorage.getItem('algo_theme');
+        if (stored === 'light') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.style.colorScheme = 'light';
+        } else {
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 
-<body>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased selection:bg-blue-500 selection:text-white">
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getFullMode, getHistoricalData, getLtp, getNiftyQuote, getMajorIndices, getGainersLosers, getFnoMovers, getMarketStatusController } from "../controllers/market.controller.js";
+import { getFullMode, getHistoricalData, getLtp, getNiftyQuote, getMajorIndices, getGainersLosers, getFnoMovers, getMarketStatusController, getRateLimitsController } from "../controllers/market.controller.js";
 
 const router = Router();
 
@@ -68,5 +68,8 @@ router.get("/top-volatile", getFnoMovers);
 
 // GET /status -> Live Indian market open/closed status
 router.get("/status", getMarketStatusController);
+
+// GET /rate-limits -> Institutional SmartAPI rate limit metrics partitioned by client code
+router.get("/rate-limits", getRateLimitsController);
 
 export default router;

@@ -133,31 +133,31 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
   return (
     <div className="space-y-6">
       {/* Interactive Budget Configuration Panel */}
-      <div className="p-5 md:p-6 rounded-2xl bg-gray-900/90 border border-gray-800 backdrop-blur-xl shadow-xl space-y-6">
+      <div className="p-5 md:p-6 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800 backdrop-blur-xl shadow-xs dark:shadow-xl space-y-6 transition-colors">
         {/* Panel Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start space-x-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-500/20 dark:to-teal-500/20 border border-emerald-300 dark:border-emerald-500/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
               <Wallet className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <span>AI Capital Allocator & Trade Advisor</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/40">
                   Live Position Sizing
                 </span>
               </h2>
-              <p className="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-2xl leading-relaxed">
                 Enter your trading capital or auto-sync your live broker cash. The AI scans active market setups across Equities and F&O, calculates exact share and lot quantities, and constructs a risk-disciplined portfolio tailored to your budget.
               </p>
             </div>
           </div>
 
           {/* Angel One Broker Live Cash Auto-Sync */}
-          <div className="flex items-center space-x-2 bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs shrink-0 self-start md:self-auto">
+          <div className="flex items-center space-x-2 bg-gray-50 dark:bg-gray-950 p-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-xs shrink-0 self-start md:self-auto transition-colors">
             <div className="flex flex-col">
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Angel One Margin:</span>
-              <span className="font-bold text-emerald-400 font-mono">
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">Angel One Margin:</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
                 {brokerFunds ? `₹${brokerFunds.available.toLocaleString('en-IN')}` : 'Connecting...'}
               </span>
             </div>
@@ -168,7 +168,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                   setBudgetInput(String(brokerFunds.available));
                   onRunBudgetAnalysis(brokerFunds.available);
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 font-semibold transition-all text-[11px]"
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 hover:bg-emerald-600 text-emerald-700 hover:text-white dark:bg-emerald-600/30 dark:hover:bg-emerald-600 dark:text-emerald-300 dark:hover:text-white border border-emerald-300 dark:border-emerald-500/40 font-semibold transition-all text-[11px]"
               >
                 Use Funds
               </button>
@@ -177,7 +177,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
               type="button"
               onClick={onLoadBrokerFunds}
               disabled={isLoadingFunds}
-              className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-all"
+              className="p-1.5 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 transition-all shadow-2xs"
               title="Refresh Broker Funds"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFunds ? 'animate-spin' : ''}`} />
@@ -186,9 +186,9 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
         </div>
 
         {/* Budget Input & Preset Chips */}
-        <div className="space-y-3 pt-2 border-t border-gray-800">
-          <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Coins className="w-3.5 h-3.5 text-emerald-400" />
+        <div className="space-y-3 pt-2 border-t border-gray-200 dark:border-gray-800">
+          <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+            <Coins className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
             <span>Trading Capital / Budget (₹ INR)</span>
           </label>
 
@@ -207,7 +207,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                   if (e.key === 'Enter') onRunBudgetAnalysis();
                 }}
                 placeholder="e.g. 10000"
-                className="w-full pl-9 pr-4 py-3 rounded-xl bg-gray-950 border border-gray-700 text-white font-bold text-lg font-mono focus:border-emerald-500 focus:outline-none transition-all"
+                className="w-full pl-9 pr-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-bold text-lg font-mono focus:border-emerald-500 focus:outline-none transition-all shadow-2xs"
               />
             </div>
 
@@ -215,7 +215,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
               type="button"
               onClick={() => onRunBudgetAnalysis()}
               disabled={isAnalyzingBudget}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-md shadow-emerald-600/20 flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
             >
               {isAnalyzingBudget ? (
                 <>
@@ -233,7 +233,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
           {/* Quick Preset Budget Chips */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <span className="text-[11px] text-gray-400 font-medium">Quick Presets:</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">Quick Presets:</span>
             {PRESET_BUDGETS.map((preset) => (
               <button
                 key={preset.val}
@@ -244,8 +244,8 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                 }}
                 className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all border ${
                   budgetInput === String(preset.val)
-                    ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50 shadow-sm'
-                    : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:bg-gray-700'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-400 dark:bg-emerald-600/30 dark:text-emerald-300 dark:border-emerald-500/50 shadow-2xs'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200 dark:bg-gray-800/80 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700'
                 }`}
               >
                 {preset.label}
@@ -258,8 +258,8 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
           {/* Risk Profile Selection Cards */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+            <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
               <span>Risk Profile Strategy</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -275,17 +275,17 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                   }}
                   className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
                     budgetRiskProfile === p.id
-                      ? 'bg-emerald-950/40 border-emerald-500 shadow-md shadow-emerald-500/10'
-                      : 'bg-gray-950/60 border-gray-800 hover:border-gray-700 text-gray-400'
+                      ? 'bg-emerald-50 border-emerald-500 text-gray-900 dark:bg-emerald-950/40 dark:border-emerald-500 dark:text-white shadow-2xs'
+                      : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-950/60 dark:border-gray-800 dark:hover:border-gray-700 dark:text-gray-400'
                   }`}
                 >
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider block text-emerald-400">
+                    <span className="text-[10px] font-bold uppercase tracking-wider block text-emerald-600 dark:text-emerald-400">
                       {p.badge}
                     </span>
-                    <div className="font-bold text-white text-xs mt-0.5">{p.title}</div>
+                    <div className="font-bold text-gray-900 dark:text-white text-xs mt-0.5">{p.title}</div>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1 leading-tight">{p.desc}</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-tight">{p.desc}</p>
                 </button>
               ))}
             </div>
@@ -294,8 +294,8 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
           {/* Asset Segment & Max Trades */}
           <div className="space-y-3">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-purple-400" />
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-purple-500 dark:text-purple-400" />
                 <span>Target Market Universe</span>
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -311,8 +311,8 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                     }}
                     className={`p-2.5 rounded-xl border text-center transition-all ${
                       budgetSegment === seg.id
-                        ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
-                        : 'bg-gray-950/60 border-gray-800 text-gray-400 hover:text-white'
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-2xs'
+                        : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-950/60 dark:border-gray-800 dark:text-gray-400 dark:hover:text-white'
                     }`}
                   >
                     <div className="text-xs font-bold flex items-center justify-center gap-1">
@@ -327,7 +327,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
             {/* Max Concurrent Trades */}
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-gray-400 font-medium">Max Concurrent Trades:</span>
+              <span className="text-gray-500 dark:text-gray-400 font-medium">Max Concurrent Trades:</span>
               <div className="flex items-center space-x-1.5">
                 {[1, 2, 3, 4].map((n) => (
                   <button
@@ -341,8 +341,8 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                     }}
                     className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
                       budgetMaxTrades === n
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-gray-800 text-gray-400 hover:text-white'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:text-white'
                     }`}
                   >
                     {n}
@@ -354,37 +354,37 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
         </div>
 
         {/* Live Most Volatile Options Radar (Calls & Puts) */}
-        <div className="pt-4 border-t border-gray-800 space-y-3">
+        <div className="pt-4 border-t border-gray-200 dark:border-gray-800 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center space-x-2">
-                <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Flame className="w-4 h-4 text-amber-500 dark:text-amber-400 animate-pulse" />
+                <h4 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                   <span>Most Volatile Call & Put Options</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 normal-case font-semibold">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30 normal-case font-semibold">
                     Live SmartAPI Stream
                   </span>
                 </h4>
               </div>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 Highest swing derivatives with explosive delta momentum. Tap <strong>Allocate</strong> to size lots for your capital.
               </p>
             </div>
 
             {/* CE / PE Tabs Switcher */}
-            <div className="flex items-center space-x-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs shrink-0">
+            <div className="flex items-center space-x-1.5 bg-gray-100 dark:bg-gray-950 p-1 rounded-xl border border-gray-200 dark:border-gray-800 text-xs shrink-0">
               <button
                 type="button"
                 onClick={() => setVolatileRadarTab('calls')}
                 className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
                   volatileRadarTab === 'calls'
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <ArrowUpRight className="w-3.5 h-3.5 text-emerald-300" />
+                <ArrowUpRight className="w-3.5 h-3.5" />
                 <span>Volatile Calls (CE)</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 font-mono">
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/10 dark:bg-black/40 font-mono">
                   {liveCalls.length}
                 </span>
               </button>
@@ -394,13 +394,13 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                 onClick={() => setVolatileRadarTab('puts')}
                 className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
                   volatileRadarTab === 'puts'
-                    ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <ArrowDownRight className="w-3.5 h-3.5 text-rose-300" />
+                <ArrowDownRight className="w-3.5 h-3.5" />
                 <span>Volatile Puts (PE)</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 font-mono">
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/10 dark:bg-black/40 font-mono">
                   {livePuts.length}
                 </span>
               </button>
@@ -409,7 +409,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
           {/* Options Cards Grid */}
           {activeVolatileList.length === 0 ? (
-            <div className="p-4 rounded-xl bg-gray-950/50 border border-gray-800/80 text-center text-xs text-gray-400">
+            <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-950/50 border border-gray-200 dark:border-gray-800/80 text-center text-xs text-gray-500 dark:text-gray-400">
               Loading volatile {volatileRadarTab === 'calls' ? 'Call (CE)' : 'Put (PE)'} contracts from live market...
             </div>
           ) : (
@@ -423,48 +423,48 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                 return (
                   <div
                     key={item.symbolToken || item.tradingSymbol}
-                    className={`p-3.5 rounded-xl bg-gray-950/90 border transition-all flex flex-col justify-between hover:shadow-lg ${
+                    className={`p-3.5 rounded-xl bg-white dark:bg-gray-950/90 border transition-all flex flex-col justify-between hover:shadow-md ${
                       isCall
-                        ? 'border-emerald-500/25 hover:border-emerald-500/60'
-                        : 'border-rose-500/25 hover:border-rose-500/60'
+                        ? 'border-emerald-200 hover:border-emerald-400 dark:border-emerald-500/25 dark:hover:border-emerald-500/60'
+                        : 'border-rose-200 hover:border-rose-400 dark:border-rose-500/25 dark:hover:border-rose-500/60'
                     }`}
                   >
                     <div className="space-y-1.5">
                       <div className="flex items-start justify-between gap-1">
-                        <span className="font-bold text-white text-xs truncate font-mono" title={item.tradingSymbol}>
+                        <span className="font-bold text-gray-900 dark:text-white text-xs truncate font-mono" title={item.tradingSymbol}>
                           {item.tradingSymbol}
                         </span>
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
                             isCall
-                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-rose-950 text-rose-300 border border-rose-500/40'
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-500/40'
+                              : 'bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-500/40'
                           }`}
                         >
                           {item.instrumentType}
                         </span>
                       </div>
-                      <div className="text-[10px] text-gray-400">
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400">
                         Strike: <strong>₹{item.strike?.toLocaleString('en-IN') || '-'}</strong> • Exp: {item.expiry}
                       </div>
                     </div>
 
-                    <div className="mt-3 pt-2 border-t border-gray-800/80 flex items-end justify-between">
+                    <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-800/80 flex items-end justify-between">
                       <div>
-                        <div className="text-[10px] text-gray-400">Live LTP</div>
-                        <div className="text-sm font-bold text-white font-mono flex items-center gap-1.5">
+                        <div className="text-[10px] text-gray-500 dark:text-gray-400">Live LTP</div>
+                        <div className="text-sm font-bold text-gray-900 dark:text-white font-mono flex items-center gap-1.5">
                           {formatINR(item.ltp)}
                           <span
                             className={`text-[10px] font-bold px-1 py-0.2 rounded ${
                               isUp
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-rose-500/20 text-rose-400'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
                             }`}
                           >
                             {isUp ? '+' : ''}{item.percentChange.toFixed(1)}%
                           </span>
                         </div>
-                        <div className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        <div className="text-[9px] text-gray-500 dark:text-gray-400 font-mono mt-0.5">
                           1 Lot ({lotSize}u) = ₹{lotCost.toLocaleString('en-IN')}
                         </div>
                       </div>
@@ -472,7 +472,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                       <button
                         type="button"
                         onClick={() => onAllocateVolatileOption(item)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-sm shrink-0 ${
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs shrink-0 ${
                           isCall
                             ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
                             : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-500/20'
@@ -492,15 +492,15 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
         {/* Error Message */}
         {budgetError && (
-          <div className="p-3.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between">
+          <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-500/40 text-rose-700 dark:text-rose-300 text-xs flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
               <span>{budgetError}</span>
             </div>
             <button
               type="button"
               onClick={() => onRunBudgetAnalysis()}
-              className="px-3 py-1 rounded-lg bg-rose-600/30 hover:bg-rose-600 text-white font-semibold text-xs"
+              className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs transition-colors"
             >
               Retry
             </button>
@@ -510,15 +510,15 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
       {/* Loading State Animation */}
       {isAnalyzingBudget && (
-        <div className="p-12 rounded-2xl bg-gray-900/60 border border-gray-800 flex flex-col items-center justify-center space-y-3 shadow-lg">
+        <div className="p-12 rounded-2xl bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-800 flex flex-col items-center justify-center space-y-3 shadow-sm dark:shadow-lg transition-colors">
           <div className="relative">
             <div className="w-14 h-14 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin" />
-            <Bot className="w-6 h-6 text-emerald-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <Bot className="w-6 h-6 text-emerald-500 dark:text-emerald-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
           </div>
-          <p className="text-white font-semibold text-sm">
+          <p className="text-gray-900 dark:text-white font-semibold text-sm">
             AI scanning market opportunities for ₹{parseFloat(budgetInput || '0').toLocaleString('en-IN')}...
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Evaluating {budgetRiskProfile} risk parameters, computing affordable share quantities & option lots.
           </p>
         </div>
@@ -528,21 +528,21 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
       {!isAnalyzingBudget && budgetAnalysis && (
         <div className="space-y-6">
           {/* Capital Allocation & Health Overview Card */}
-          <div className="p-5 md:p-6 rounded-2xl bg-gray-900/90 border border-gray-800 backdrop-blur-xl shadow-xl space-y-5">
+          <div className="p-5 md:p-6 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800 backdrop-blur-xl shadow-xs dark:shadow-xl space-y-5 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                   Portfolio Construction Complete
                 </span>
-                <h3 className="text-lg font-bold text-white mt-0.5">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">
                   Capital Deployment for ₹{budgetAnalysis.budget.toLocaleString('en-IN')} ({budgetAnalysis.riskProfile} Profile)
                 </h3>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-gray-400">Health Score:</span>
-                <span className="px-3 py-1 rounded-xl bg-emerald-950/60 text-emerald-300 font-bold border border-emerald-500/40 text-xs flex items-center gap-1 font-mono">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs text-gray-500 dark:text-gray-400">Health Score:</span>
+                <span className="px-3 py-1 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/40 text-xs flex items-center gap-1 font-mono">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   {budgetAnalysis.portfolioHealthScore}/100
                 </span>
               </div>
@@ -551,18 +551,18 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
             {/* Capital Allocation Progress Bar */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs flex-wrap gap-2">
-                <span className="text-gray-300 font-semibold flex items-center gap-1.5">
+                <span className="text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  Deployed: <strong className="font-mono">₹{budgetAnalysis.totalCapitalAllocated.toLocaleString('en-IN')}</strong> (
+                  Deployed: <strong className="font-mono text-gray-900 dark:text-white">₹{budgetAnalysis.totalCapitalAllocated.toLocaleString('en-IN')}</strong> (
                   {(100 - budgetAnalysis.bufferPercentage).toFixed(1)}%)
                 </span>
-                <span className="text-gray-300 font-semibold flex items-center gap-1.5">
+                <span className="text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                  Liquid Cash Buffer: <strong className="font-mono">₹{budgetAnalysis.remainingCashBuffer.toLocaleString('en-IN')}</strong> (
+                  Liquid Cash Buffer: <strong className="font-mono text-gray-900 dark:text-white">₹{budgetAnalysis.remainingCashBuffer.toLocaleString('en-IN')}</strong> (
                   {budgetAnalysis.bufferPercentage}%)
                 </span>
               </div>
-              <div className="w-full h-3 bg-gray-950 rounded-full overflow-hidden flex border border-gray-800 p-0.5">
+              <div className="w-full h-3 bg-gray-100 dark:bg-gray-950 rounded-full overflow-hidden flex border border-gray-200 dark:border-gray-800 p-0.5">
                 <div
                   className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
                   style={{ width: `${Math.min(100, Math.max(5, 100 - budgetAnalysis.bufferPercentage))}%` }}
@@ -576,74 +576,74 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
             {/* Key Portfolio Metric Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-gray-800">
-                <div className="text-[10px] text-gray-400 uppercase font-semibold">Total Capital</div>
-                <div className="text-base font-bold text-white mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/80 border border-gray-200 dark:border-gray-800">
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-semibold">Total Capital</div>
+                <div className="text-base font-bold text-gray-900 dark:text-white mt-1 font-mono">
                   ₹{budgetAnalysis.budget.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-gray-400 mt-0.5">100% Base Budget</div>
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">100% Base Budget</div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-gray-800">
-                <div className="text-[10px] text-gray-400 uppercase font-semibold">Deployed</div>
-                <div className="text-base font-bold text-emerald-400 mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/80 border border-gray-200 dark:border-gray-800">
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-semibold">Deployed</div>
+                <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
                   ₹{budgetAnalysis.totalCapitalAllocated.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-emerald-400/80 mt-0.5">
+                <div className="text-[10px] text-emerald-600 dark:text-emerald-400/80 mt-0.5">
                   {budgetAnalysis.suggestions.length} Positions Sized
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-gray-800">
-                <div className="text-[10px] text-gray-400 uppercase font-semibold">Cash Buffer</div>
-                <div className="text-base font-bold text-blue-400 mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/80 border border-gray-200 dark:border-gray-800">
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-semibold">Cash Buffer</div>
+                <div className="text-base font-bold text-blue-600 dark:text-blue-400 mt-1 font-mono">
                   ₹{budgetAnalysis.remainingCashBuffer.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-blue-400/80 mt-0.5">{budgetAnalysis.bufferPercentage}% Liquid Cushion</div>
+                <div className="text-[10px] text-blue-600 dark:text-blue-400/80 mt-0.5">{budgetAnalysis.bufferPercentage}% Liquid Cushion</div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-rose-500/20 bg-rose-950/10">
-                <div className="text-[10px] text-rose-300 uppercase font-semibold">Max Combined Risk</div>
-                <div className="text-base font-bold text-rose-400 mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-gray-950/80 border border-rose-200 dark:border-rose-500/20">
+                <div className="text-[10px] text-rose-700 dark:text-rose-300 uppercase font-semibold">Max Combined Risk</div>
+                <div className="text-base font-bold text-rose-600 dark:text-rose-400 mt-1 font-mono">
                   ₹{budgetAnalysis.totalMaxRisk.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-rose-400/80 mt-0.5">
+                <div className="text-[10px] text-rose-600 dark:text-rose-400/80 mt-0.5">
                   {budgetAnalysis.totalMaxRiskPercentage}% Total Drawdown
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-emerald-500/20 bg-emerald-950/10">
-                <div className="text-[10px] text-emerald-300 uppercase font-semibold">Target 1 Upside</div>
-                <div className="text-base font-bold text-emerald-400 mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-gray-950/80 border border-emerald-200 dark:border-emerald-500/20">
+                <div className="text-[10px] text-emerald-700 dark:text-emerald-300 uppercase font-semibold">Target 1 Upside</div>
+                <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
                   +₹{budgetAnalysis.totalExpectedProfitT1.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-emerald-400/80 mt-0.5">
+                <div className="text-[10px] text-emerald-600 dark:text-emerald-400/80 mt-0.5">
                   +{((budgetAnalysis.totalExpectedProfitT1 / budgetAnalysis.budget) * 100).toFixed(1)}% Return
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-gray-950/80 border border-purple-500/20 bg-purple-950/10">
-                <div className="text-[10px] text-purple-300 uppercase font-semibold">Target 2 Upside</div>
-                <div className="text-base font-bold text-purple-400 mt-1 font-mono">
+              <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-gray-950/80 border border-purple-200 dark:border-purple-500/20">
+                <div className="text-[10px] text-purple-700 dark:text-purple-300 uppercase font-semibold">Target 2 Upside</div>
+                <div className="text-base font-bold text-purple-600 dark:text-purple-400 mt-1 font-mono">
                   +₹{budgetAnalysis.totalExpectedProfitT2.toLocaleString('en-IN')}
                 </div>
-                <div className="text-[10px] text-purple-400/80 mt-0.5">R:R {budgetAnalysis.overallRiskReward}</div>
+                <div className="text-[10px] text-purple-600 dark:text-purple-400/80 mt-0.5">R:R {budgetAnalysis.overallRiskReward}</div>
               </div>
             </div>
 
             {/* AI Strategic Portfolio Thesis */}
-            <div className="p-4 rounded-xl bg-gradient-to-r from-blue-950/30 to-purple-950/20 border border-blue-500/20 text-xs space-y-2">
-              <div className="flex items-center space-x-2 text-blue-400 font-bold">
+            <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-gradient-to-r dark:from-blue-950/30 dark:to-purple-950/20 border border-blue-200 dark:border-blue-500/20 text-xs space-y-2 transition-colors">
+              <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 font-bold">
                 <Sparkles className="w-4 h-4" />
                 <span>AI Strategic Portfolio Thesis</span>
               </div>
-              <p className="text-gray-200 leading-relaxed font-medium">
+              <p className="text-gray-800 dark:text-gray-200 leading-relaxed font-medium">
                 {budgetAnalysis.aiSummary}
               </p>
-              <ul className="space-y-1.5 pt-1 text-gray-300">
+              <ul className="space-y-1.5 pt-1 text-gray-700 dark:text-gray-300">
                 {budgetAnalysis.strategicAdvice.map((rule, idx) => (
                   <li key={idx} className="flex items-start space-x-2 text-[11px]">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                     <span>{rule}</span>
                   </li>
                 ))}
@@ -652,15 +652,15 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
             {/* Unaffordable Highlights Warning (If any) */}
             {budgetAnalysis.unaffordableHighlights && budgetAnalysis.unaffordableHighlights.length > 0 && (
-              <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/30 text-xs space-y-1">
-                <div className="flex items-center space-x-2 text-amber-400 font-bold">
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-500/30 text-xs space-y-1 transition-colors">
+                <div className="flex items-center space-x-2 text-amber-800 dark:text-amber-400 font-bold">
                   <AlertCircle className="w-3.5 h-3.5" />
                   <span>Capital Filter Notice (Intelligent Risk Filtering):</span>
                 </div>
-                <p className="text-gray-300 text-[11px]">
+                <p className="text-gray-700 dark:text-gray-300 text-[11px]">
                   The AI automatically filtered out the following setups because minimum lot costs exceeded your budget:
                 </p>
-                <ul className="pl-4 list-disc space-y-0.5 text-amber-200/80 text-[11px]">
+                <ul className="pl-4 list-disc space-y-0.5 text-amber-800 dark:text-amber-200/80 text-[11px]">
                   {budgetAnalysis.unaffordableHighlights.map((u, i) => (
                     <li key={i}>
                       <strong>{u.symbol}</strong> ({u.action}): {u.reason}
@@ -674,11 +674,11 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
           {/* Recommended Trade Allocation Cards Grid */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Target className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Target className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Suggested Position Allocations ({budgetAnalysis.suggestions.length})</span>
               </h3>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 1-Click Execute with Pre-Calculated Quantities
               </span>
             </div>
@@ -693,12 +693,12 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                 return (
                   <div
                     key={idx}
-                    className={`p-5 rounded-2xl bg-gray-900/80 border transition-all flex flex-col justify-between hover:shadow-xl ${
+                    className={`p-5 rounded-2xl bg-white dark:bg-gray-900/80 border transition-all flex flex-col justify-between hover:shadow-md ${
                       isBuy
-                        ? 'border-emerald-500/30 hover:border-emerald-500/60'
+                        ? 'border-emerald-200 hover:border-emerald-400 dark:border-emerald-500/30 dark:hover:border-emerald-500/60'
                         : isSell
-                        ? 'border-rose-500/30 hover:border-rose-500/60'
-                        : 'border-gray-800'
+                        ? 'border-rose-200 hover:border-rose-400 dark:border-rose-500/30 dark:hover:border-rose-500/60'
+                        : 'border-gray-200 dark:border-gray-800'
                     }`}
                   >
                     <div className="space-y-3.5">
@@ -706,23 +706,23 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-white text-base">{sig.symbol}</span>
+                            <span className="font-bold text-gray-900 dark:text-white text-base">{sig.symbol}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
                               isFno 
-                                ? 'bg-purple-950/60 text-purple-300 border-purple-500/40' 
-                                : 'bg-blue-950/60 text-blue-300 border-blue-500/40'
+                                ? 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-500/40' 
+                                : 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-500/40'
                             }`}>
                               {isFno ? 'F&O OPTION' : 'EQUITY'}
                             </span>
                           </div>
-                          <div className="text-xs text-gray-400 mt-0.5">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                             Underlying: <strong>{sig.underlying || sig.symbol}</strong>
                           </div>
                         </div>
 
                         <div className="flex flex-col items-end">
                           <span
-                            className={`px-2.5 py-1 rounded-xl text-xs font-bold shadow-sm ${
+                            className={`px-2.5 py-1 rounded-xl text-xs font-bold shadow-2xs ${
                               isBuy
                                 ? 'bg-emerald-600 text-white'
                                 : isSell
@@ -732,27 +732,27 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                           >
                             {sig.action}
                           </span>
-                          <span className="text-[10px] text-gray-400 mt-1 font-semibold">
+                          <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 font-semibold">
                             {sig.confidence}% Confidence
                           </span>
                         </div>
                       </div>
 
                       {/* Position Sizing Box */}
-                      <div className="p-3 rounded-xl bg-gray-950 border border-gray-800 space-y-1.5">
+                      <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-400 font-medium">Recommended Size:</span>
-                          <span className="font-bold text-emerald-400 text-sm font-mono">
+                          <span className="text-gray-500 dark:text-gray-400 font-medium">Recommended Size:</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm font-mono">
                             {isFno
                               ? `${item.recommendedLots} Lot${item.recommendedLots > 1 ? 's' : ''} (${item.recommendedQuantity} units)`
                               : `${item.recommendedQuantity} Shares`}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-400 font-medium">Capital Required:</span>
-                          <span className="font-bold text-white font-mono">
+                          <span className="text-gray-500 dark:text-gray-400 font-medium">Capital Required:</span>
+                          <span className="font-bold text-gray-900 dark:text-white font-mono">
                             ₹{item.capitalRequired.toLocaleString('en-IN')}{' '}
-                            <span className="text-xs text-emerald-400 font-normal">
+                            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-normal">
                               ({item.allocationPercentage}% of budget)
                             </span>
                           </span>
@@ -761,27 +761,27 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
                       {/* Trade Target & Stop Levels */}
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="p-2 rounded-lg bg-gray-950/60 border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block">Entry Price</span>
-                          <span className="font-bold text-white font-mono">₹{sig.entryPrice}</span>
+                        <div className="p-2 rounded-lg bg-gray-50 dark:bg-gray-950/60 border border-gray-200 dark:border-gray-800">
+                          <span className="text-[10px] text-gray-500 dark:text-gray-400 block">Entry Price</span>
+                          <span className="font-bold text-gray-900 dark:text-white font-mono">₹{sig.entryPrice}</span>
                         </div>
-                        <div className="p-2 rounded-lg bg-gray-950/60 border border-rose-500/20 bg-rose-950/10">
-                          <span className="text-[10px] text-rose-300 block">Stop Loss (Max Risk)</span>
-                          <span className="font-bold text-rose-400 font-mono">
+                        <div className="p-2 rounded-lg bg-rose-50 dark:bg-gray-950/60 border border-rose-200 dark:border-rose-500/20">
+                          <span className="text-[10px] text-rose-700 dark:text-rose-300 block">Stop Loss (Max Risk)</span>
+                          <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">
                             ₹{sig.stopLoss}{' '}
                             <span className="text-[10px] font-normal">(-₹{item.maxLoss})</span>
                           </span>
                         </div>
-                        <div className="p-2 rounded-lg bg-gray-950/60 border border-emerald-500/20 bg-emerald-950/10">
-                          <span className="text-[10px] text-emerald-300 block">Target 1</span>
-                          <span className="font-bold text-emerald-400 font-mono">
+                        <div className="p-2 rounded-lg bg-emerald-50 dark:bg-gray-950/60 border border-emerald-200 dark:border-emerald-500/20">
+                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block">Target 1</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
                             ₹{sig.target1}{' '}
                             <span className="text-[10px] font-normal">(+₹{item.target1Profit})</span>
                           </span>
                         </div>
-                        <div className="p-2 rounded-lg bg-gray-950/60 border border-purple-500/20 bg-purple-950/10">
-                          <span className="text-[10px] text-purple-300 block">Target 2 (Runner)</span>
-                          <span className="font-bold text-purple-400 font-mono">
+                        <div className="p-2 rounded-lg bg-purple-50 dark:bg-gray-950/60 border border-purple-200 dark:border-purple-500/20">
+                          <span className="text-[10px] text-purple-700 dark:text-purple-300 block">Target 2 (Runner)</span>
+                          <span className="font-bold text-purple-600 dark:text-purple-400 font-mono">
                             ₹{sig.target2}{' '}
                             <span className="text-[10px] font-normal">(+₹{item.target2Profit})</span>
                           </span>
@@ -790,41 +790,41 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
 
                       {/* Greek Metrics Badge (if Option) */}
                       {sig.greeks && (
-                        <div className="grid grid-cols-4 gap-1.5 p-2 rounded-xl bg-gray-950/90 border border-emerald-500/20 text-center text-[10px]">
+                        <div className="grid grid-cols-4 gap-1.5 p-2 rounded-xl bg-gray-50 dark:bg-gray-950/90 border border-emerald-200 dark:border-emerald-500/20 text-center text-[10px]">
                           <div>
                             <span className="text-gray-500 block text-[9px]">Delta Δ</span>
-                            <span className="font-bold text-emerald-400 font-mono">{sig.greeks.delta.toFixed(2)}</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">{sig.greeks.delta.toFixed(2)}</span>
                           </div>
                           <div>
                             <span className="text-gray-500 block text-[9px]">Gamma Γ</span>
-                            <span className="font-bold text-blue-400 font-mono">{sig.greeks.gamma.toFixed(4)}</span>
+                            <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">{sig.greeks.gamma.toFixed(4)}</span>
                           </div>
                           <div>
                             <span className="text-gray-500 block text-[9px]">Theta Θ/d</span>
-                            <span className="font-bold text-rose-400 font-mono">-₹{sig.greeks.theta.toFixed(1)}</span>
+                            <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">-₹{sig.greeks.theta.toFixed(1)}</span>
                           </div>
                           <div>
                             <span className="text-gray-500 block text-[9px]">Θ/Prem</span>
-                            <span className="font-bold text-amber-400 font-mono">{(sig.greeks.thetaPremiumRatio * 100).toFixed(1)}%</span>
+                            <span className="font-bold text-amber-600 dark:text-amber-400 font-mono">{(sig.greeks.thetaPremiumRatio * 100).toFixed(1)}%</span>
                           </div>
                         </div>
                       )}
 
                       {/* Allocation Rationale */}
-                      <div className="p-2.5 rounded-xl bg-blue-950/20 border border-blue-500/20 text-[11px] text-gray-300 leading-relaxed">
+                      <div className="p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/20 text-[11px] text-gray-700 dark:text-gray-300 leading-relaxed">
                         {item.allocationReason}
                       </div>
                     </div>
 
                     {/* Card Actions: 1-Click Execute & Chart */}
-                    <div className="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between gap-2">
+                    <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() => onOpenChart(sig.symbol)}
-                        className="flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-all border border-gray-700"
+                        className="flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 border border-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300 dark:hover:text-white dark:border-gray-700 transition-all"
                         title="Inspect on TradingView"
                       >
-                        <BarChart2 className="w-3.5 h-3.5 text-blue-400" />
+                        <BarChart2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                         <span>Chart</span>
                       </button>
 
@@ -866,3 +866,4 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
   );
 };
 
+export default AiBudgetAllocatorTab;

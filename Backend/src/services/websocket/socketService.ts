@@ -482,7 +482,7 @@ export function startRealtimeBroadcaster(): void {
           tickData.low,
           tickData.tradeVolume
         );
-        if (updatedFno) {
+        if (updatedFno || quote.exchange === "NFO") {
           fnoUpdatedCount++;
           broadcastSocketEvent("fno_tick", tickData);
         }

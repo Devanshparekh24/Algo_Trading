@@ -42,3 +42,36 @@ export const getMarketStatus = async (): Promise<MarketStatusInfo> => {
     return fallback.data.data;
   }
 };
+
+export type GainersLosersDataType = 'PercPriceGainers' | 'PercPriceLosers' | 'PercOIGainers' | 'PercOILosers';
+export type GainersLosersExpiryType = 'NEAR' | 'NEXT' | 'FAR';
+
+export interface GainerLoserItem {
+  tradingSymbol: string;
+  symbolToken: string | number;
+  percentChange: number;
+  ltp?: number;
+  netChange?: number;
+  opnInterest?: number;
+  netChangeOpnInterest?: number;
+  [key: string]: unknown;
+}
+
+export interface GainersLosersParams {
+  datatype: GainersLosersDataType;
+  expirytype: GainersLosersExpiryType;
+}
+
+/**
+ * Official Angel One SmartAPI Top Gainers / Losers API (Derivatives Segment)
+ * Supports PercPriceGainers, PercPriceLosers, PercOIGainers, PercOILosers across NEAR, NEXT, FAR expiry cycles.
+ */
+export const getGainersLosers = async (params: GainersLosersParams): Promise<GainerLoserItem[]> => {
+  try {
+    const response = await api.post<ApiResponse<GainerLoserItem[]>>('/api/v1/market/gainers-losers', params);
+    return response.data.data || [];
+  } catch {
+    const fallback = await api.post<ApiResponse<GainerLoserItem[]>>('/gainers-losers', params);
+    return fallback.data.data || [];
+  }
+};

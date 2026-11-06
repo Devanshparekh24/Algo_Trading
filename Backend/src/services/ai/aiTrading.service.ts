@@ -557,6 +557,7 @@ let autoPilotConfig: AutoPilotConfig = {
   productType: "INTRADAY",
   maxDailyTrades: 5,
   executedToday: 0,
+  minConfidence: 65,
 };
 
 // Map of open and recent active positions managed by AI Auto-Pilot & Execution
@@ -1811,6 +1812,7 @@ async function logTradeEntryToDb(
       },
     });
     console.log(`[Database] Logged AI trade entry for ${position.symbol} (${position.orderId})`);
+    broadcastSocketEvent("ai_trade_logged", { orderId: position.orderId, symbol: position.symbol, status: "OPEN" });
   } catch (err: any) {
     console.error(`[Database] Failed to log AI trade entry:`, err?.message || err);
     logAiErrorToDb({
@@ -1846,6 +1848,7 @@ async function logTradeExitToDb(
       },
     });
     console.log(`[Database] Updated AI trade exit for ${position.symbol} (${position.orderId}, Reason: ${reason}, PnL: ${position.pnl})`);
+    broadcastSocketEvent("ai_trade_logged", { orderId: position.orderId, symbol: position.symbol, status: "EXITED", reason });
   } catch (err: any) {
     console.error(`[Database] Failed to update AI trade exit in DB:`, err?.message || err);
     logAiErrorToDb({
@@ -1865,10 +1868,14 @@ async function logTradeExitToDb(
  */
 export async function getAiTradeLogs(limit = 100): Promise<any[]> {
   try {
-    return await prisma.aiTradeLog.findMany({
+    const logs = await prisma.aiTradeLog.findMany({
       orderBy: { enteredAt: "desc" },
       take: limit,
     });
+    return logs.map((log) => ({
+      ...log,
+      id: String(log.id),
+    }));
   } catch (err: any) {
     console.error("[Database] Error fetching AI trade logs:", err?.message || err);
     return [];
@@ -1900,6 +1907,10 @@ export async function logAiErrorToDb(params: {
       },
     });
     console.log(`[Error Logged to DB] [${params.source}] ${params.message}`);
+    broadcastSocketEvent("ai_error_logged", {
+      ...params,
+      createdAt: new Date().toISOString(),
+    });
   } catch (err: any) {
     console.error(`[Database] Failed to write AiErrorLog:`, err?.message || err);
   }
@@ -1910,13 +1921,31 @@ export async function logAiErrorToDb(params: {
  */
 export async function getAiErrorLogs(limit = 100): Promise<any[]> {
   try {
-    return await prisma.aiErrorLog.findMany({
+    const errs = await prisma.aiErrorLog.findMany({
       orderBy: { createdAt: "desc" },
       take: limit,
     });
+    return errs.map((e) => ({
+      ...e,
+      id: String(e.id),
+    }));
   } catch (err: any) {
     console.error("[Database] Error fetching AI error logs:", err?.message || err);
     return [];
+  }
+}
+
+/**
+ * Clear all historical Error Logs from PostgreSQL
+ */
+export async function clearAiErrorLogs(): Promise<number> {
+  try {
+    const res = await prisma.aiErrorLog.deleteMany({});
+    broadcastSocketEvent("ai_error_logs_cleared", { timestamp: new Date().toISOString() });
+    return res.count;
+  } catch (err: any) {
+    console.error("[Database] Error clearing AI error logs:", err?.message || err);
+    throw err;
   }
 }
 

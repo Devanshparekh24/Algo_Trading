@@ -22,6 +22,7 @@ import {
   closeAiPositionManual,
   getAiTradeLogs,
   getAiErrorLogs,
+  clearAiErrorLogs,
   type MarketSegment,
   type ScripCandidate,
 } from "../services/ai/aiTrading.service.js";
@@ -540,6 +541,27 @@ export async function getAiErrorLogsController(req: Request, res: Response): Pro
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to fetch AI error logs",
+    });
+  }
+}
+
+/**
+ * DELETE /api/v1/ai/error-logs
+ * Clear all historical error logs from database
+ */
+export async function clearAiErrorLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const deletedCount = await clearAiErrorLogs();
+    res.json({
+      status: true,
+      message: `Cleared ${deletedCount} error logs from database`,
+      deletedCount,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error clearing error logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to clear AI error logs",
     });
   }
 }

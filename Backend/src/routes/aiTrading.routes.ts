@@ -21,6 +21,7 @@ import {
   closePositionController,
   getAiTradeLogsController,
   getAiErrorLogsController,
+  clearAiErrorLogsController,
   getGoldenHoursController,
 } from "../controllers/aiTrading.controller.js";
 
@@ -64,6 +65,7 @@ router.post("/positions/:id/close", closePositionController);
 // Database Trade Logs & Error Logs
 router.get("/trade-logs", getAiTradeLogsController);
 router.get("/error-logs", getAiErrorLogsController);
+router.delete("/error-logs", clearAiErrorLogsController);
 
 // Golden Hours Status Indicator
 router.get("/golden-hours", getGoldenHoursController);

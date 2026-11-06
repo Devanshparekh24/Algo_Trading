@@ -4,6 +4,11 @@ import { Pool } from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Enable clean JSON serialization for BigInt database primary keys
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+
 const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:admin123@localhost:5432/Algo_Trading';
 
 const pool = new Pool({ connectionString });

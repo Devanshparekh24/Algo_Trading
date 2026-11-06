@@ -1,5 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { getNiftyQuote, getMajorIndices, getFnoMovers, getMarketStatus } from '../services/marketService';
+import {
+  getNiftyQuote,
+  getMajorIndices,
+  getFnoMovers,
+  getMarketStatus,
+  getGainersLosers,
+  type GainersLosersParams,
+} from '../services/marketService';
 import { queryKeys } from '../constants/queryKeys';
 
 /**
@@ -49,6 +56,19 @@ export const useMarketStatus = () => {
     queryKey: queryKeys.market.status(),
     queryFn: () => getMarketStatus(),
     staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
+  });
+};
+
+/**
+ * Hook to fetch official Angel One SmartAPI Top Gainers / Losers (Derivatives)
+ * Supports PercPriceGainers, PercPriceLosers, PercOIGainers, PercOILosers across NEAR, NEXT, FAR expiry cycles.
+ */
+export const useGainersLosers = (params: GainersLosersParams) => {
+  return useQuery({
+    queryKey: ['market', 'gainersLosers', params.datatype, params.expirytype],
+    queryFn: () => getGainersLosers(params),
+    staleTime: 1000 * 20,
     refetchInterval: 1000 * 30,
   });
 };

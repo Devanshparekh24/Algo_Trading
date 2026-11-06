@@ -30,7 +30,7 @@ model Instrument {
 }
 
 model AiTradeLog {
-  id              String    @id @default(uuid())
+  id              BigInt    @id @default(autoincrement())
   orderId         String    @unique
   symbol          String
   token           String
@@ -72,7 +72,7 @@ model AiTradeLog {
 }
 
 model AiErrorLog {
-  id        String   @id @default(uuid())
+  id        BigInt   @id @default(autoincrement())
   source    String   // AUTO_PILOT, ORDER_EXECUTION, AUTO_EXIT, SCANNER, BUDGET_ADVISOR, SMART_API
   action    String?  // BUY_ORDER, SELL_EXIT, THETA_TIMEOUT, SIGNAL_SCAN
   symbol    String?

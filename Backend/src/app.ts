@@ -23,6 +23,7 @@ import {
   getNiftyQuote,
   getMajorIndices,
   getFnoMovers,
+  getGainersLosers,
   getMarketStatusController,
 } from "./controllers/market.controller.js";
 
@@ -114,6 +115,8 @@ app.get("/indices", getMajorIndices);
 
 // Root-level F&O top volatile movers endpoint
 app.get("/fno-movers", getFnoMovers);
+app.get("/gainers-losers", getGainersLosers);
+app.post("/gainers-losers", getGainersLosers);
 
 // Register Swagger documentation UI endpoint
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));

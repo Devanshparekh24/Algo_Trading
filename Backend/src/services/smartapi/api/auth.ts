@@ -9,6 +9,7 @@ import { generateTOTP, buildHeaders } from "../helpers.js";
 import { getStore, setStore, clearStore } from "../store.js";
 import type { LoginResponse } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
+import { executeSmartApiRequest } from "../rateLimiter.js";
 
 /**
  * Log in to Angel One SmartAPI using client code, password, and TOTP.
@@ -29,48 +30,54 @@ export async function loginSmartAPI(): Promise<LoginResponse> {
 
   console.log("[SmartAPI] Attempting login...");
 
-  try {
-    const response = await axios.post<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-      data?: {
-        jwtToken: string;
-        refreshToken: string;
-        feedToken: string;
-      };
-    }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
+  return executeSmartApiRequest(
+    async () => {
+      try {
+        const response = await axios.post<{
+          status: boolean;
+          message: string;
+          errorcode?: string;
+          data?: {
+            jwtToken: string;
+            refreshToken: string;
+            feedToken: string;
+          };
+        }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
-    const { status, message, data, errorcode } = response.data;
+        const { status, message, data, errorcode } = response.data;
 
-    if (!status || !data) {
-      const errMsg = errorcode
-        ? `[${errorcode}] ${message}`
-        : message || "Login failed with no error message";
-      throw new Error(errMsg);
-    }
+        if (!status || !data) {
+          const errMsg = errorcode
+            ? `[${errorcode}] ${message}`
+            : message || "Login failed with no error message";
+          throw new Error(errMsg);
+        }
 
-    // Store tokens in memory
-    setStore(data);
+        // Store tokens in memory
+        setStore(data);
 
-    console.log("[SmartAPI] Login successful. Tokens stored in memory.");
+        console.log("[SmartAPI] Login successful. Tokens stored in memory.");
 
-    return {
-      jwtToken: data.jwtToken,
-      refreshToken: data.refreshToken,
-      feedToken: data.feedToken,
-      message,
-    };
-  } catch (error) {
-    handleApiError(error, "login", {
-      401: (body) => ({
-        handled: true,
-        error: new Error(
-          body?.message || "Unauthorized – check credentials, TOTP, or IP whitelist",
-        ),
-      }),
-    });
-  }
+        return {
+          jwtToken: data.jwtToken,
+          refreshToken: data.refreshToken,
+          feedToken: data.feedToken,
+          message,
+        };
+      } catch (error) {
+        handleApiError(error, "login", {
+          401: (body) => ({
+            handled: true,
+            error: new Error(
+              body?.message || "Unauthorized – check credentials, TOTP, or IP whitelist",
+            ),
+          }),
+        });
+      }
+    },
+    "loginByPassword",
+    config.CLIENT_CODE
+  );
 }
 
 /**
@@ -78,50 +85,59 @@ export async function loginSmartAPI(): Promise<LoginResponse> {
  */
 export async function refreshSmartAPISession(
   refreshToken: string,
+  jwtToken?: string,
 ): Promise<LoginResponse> {
   const config = getConfig();
+  const activeJwt = jwtToken || getStore().jwtToken || undefined;
 
-  const url = `${BASE_URL}/rest/auth/angelbroking/user/v1/refresh`;
-  const headers = buildHeaders(config.API_KEY);
+  const url = `${BASE_URL}/rest/auth/angelbroking/jwt/v1/generateTokens`;
+  const headers = buildHeaders(config.API_KEY, activeJwt);
   const body = { refreshToken };
 
-  console.log("[SmartAPI] Refreshing session...");
+  console.log("[SmartAPI] Refreshing session with generateTokens endpoint...");
 
-  try {
-    const response = await axios.post<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-      data?: {
-        jwtToken: string;
-        refreshToken: string;
-        feedToken: string;
-      };
-    }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
+  return executeSmartApiRequest(
+    async () => {
+      try {
+        const response = await axios.post<{
+          status: boolean;
+          message: string;
+          errorcode?: string;
+          data?: {
+            jwtToken: string;
+            refreshToken: string;
+            feedToken: string;
+          };
+        }>(url, body, { headers, timeout: DEFAULT_TIMEOUT_MS });
 
-    const { status, message, data, errorcode } = response.data;
+        const { status, message, data, errorcode } = response.data;
 
-    if (!status || !data) {
-      const errMsg = errorcode
-        ? `[${errorcode}] ${message}`
-        : message || "Refresh failed with no error message";
-      throw new Error(errMsg);
-    }
+        if (!status || !data) {
+          const errMsg = errorcode
+            ? `[${errorcode}] ${message}`
+            : message || "Refresh failed with no error message";
+          throw new Error(errMsg);
+        }
 
-    // Update in-memory store
-    setStore(data);
+        // Update in-memory store
+        setStore(data);
 
-    console.log("[SmartAPI] Session refreshed successfully.");
+        console.log("[SmartAPI] Session refreshed successfully.");
 
-    return {
-      jwtToken: data.jwtToken,
-      refreshToken: data.refreshToken,
-      feedToken: data.feedToken,
-      message,
-    };
-  } catch (error) {
-    handleApiError(error, "session refresh");
-  }
+        return {
+          jwtToken: data.jwtToken,
+          refreshToken: data.refreshToken,
+          feedToken: data.feedToken,
+          message,
+        };
+      } catch (error) {
+        // Re-throw so caller (session manager) can fall back to full login without prematurely writing an AB2000 alarm
+        throw error;
+      }
+    },
+    "generateTokens",
+    config.CLIENT_CODE
+  );
 }
 
 /**
@@ -148,39 +164,45 @@ export async function logoutSmartAPI(): Promise<boolean> {
 
   console.log("[SmartAPI] Attempting logout...");
 
-  try {
-    const response = await axios.post<{
-      status: boolean;
-      message: string;
-      errorcode?: string;
-    }>(url, body, { headers });
+  return executeSmartApiRequest(
+    async () => {
+      try {
+        const response = await axios.post<{
+          status: boolean;
+          message: string;
+          errorcode?: string;
+        }>(url, body, { headers });
 
-    const { status, message, errorcode } = response.data;
+        const { status, message, errorcode } = response.data;
 
-    if (!status) {
-      const errMsg = errorcode
-        ? `[${errorcode}] ${message}`
-        : message || "Logout failed with no error message";
-      console.error(`[SmartAPI] Logout failed: ${errMsg}`);
-    } else {
-      console.log("[SmartAPI] Logout successful on server.");
-    }
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
-      const bodyData = error.response?.data;
-      console.error(
-        `[SmartAPI] Logout API call error (HTTP ${status}):`,
-        JSON.stringify(bodyData || error.message),
-      );
-    } else {
-      console.error("[SmartAPI] Unexpected error during logout call:", String(error));
-    }
-  } finally {
-    // Always clear the local token store on logout
-    clearStore();
-    console.log("[SmartAPI] Local session tokens cleared.");
-  }
+        if (!status) {
+          const errMsg = errorcode
+            ? `[${errorcode}] ${message}`
+            : message || "Logout failed with no error message";
+          console.error(`[SmartAPI] Logout failed: ${errMsg}`);
+        } else {
+          console.log("[SmartAPI] Logout successful on server.");
+        }
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          const status = error.response?.status;
+          const bodyData = error.response?.data;
+          console.error(
+            `[SmartAPI] Logout API call error (HTTP ${status}):`,
+            JSON.stringify(bodyData || error.message),
+          );
+        } else {
+          console.error("[SmartAPI] Unexpected error during logout call:", String(error));
+        }
+      } finally {
+        // Always clear the local token store on logout
+        clearStore();
+        console.log("[SmartAPI] Local session tokens cleared.");
+      }
 
-  return true;
+      return true;
+    },
+    "logout",
+    config.CLIENT_CODE
+  );
 }

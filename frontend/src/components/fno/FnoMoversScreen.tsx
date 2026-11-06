@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { RefreshCw, Table as TableIcon, LayoutGrid, Zap, Activity } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { RefreshCw, Table as TableIcon, LayoutGrid, Zap, Activity, BarChart3, Flame } from 'lucide-react';
 import { useFnoMovers } from '../../hooks/useMarket';
 import { useRealtimeFnoMovers } from '../../hooks/useRealtimeFnoMovers';
 import type { FnoMoverItem } from '../../types';
@@ -10,9 +10,11 @@ import FnoFilterBar from './FnoFilterBar';
 import FnoTableView from './FnoTableView';
 import FnoCardGrid from './FnoCardGrid';
 import ContractDetailModal from './ContractDetailModal';
+import SmartApiGainersLosersView from './SmartApiGainersLosersView';
 import { useFnoFilterStore, useWatchlistStore } from '../../store';
 
 export const FnoMoversScreen: React.FC = () => {
+  const [fnoActiveView, setFnoActiveView] = useState<'SMARTAPI_GAINERS' | 'VOLATILE_STREAM'>('SMARTAPI_GAINERS');
   const { data, isLoading, isError, error, refetch, isFetching } = useFnoMovers();
   const {
     liveData,
@@ -43,6 +45,35 @@ export const FnoMoversScreen: React.FC = () => {
   } = useFnoFilterStore();
 
   const isPinned = useWatchlistStore((state) => state.isPinned);
+
+  const handleSelectGainersContract = (symbol: string, token?: string, contractData?: any) => {
+    const found = activeData?.all?.find((c) => c.tradingSymbol === symbol || c.symbolToken === token);
+    if (found) {
+      setSelectedContract({
+        ...found,
+        ...(contractData?.ltp ? { ltp: contractData.ltp, netChange: contractData.netChange, percentChange: contractData.percentChange } : {}),
+      });
+    } else {
+      setSelectedContract({
+        tradingSymbol: symbol,
+        symbolToken: token || '',
+        name: symbol.replace(/(FUT|CE|PE).*$/, ''),
+        instrumentType: symbol.endsWith('CE') ? 'CE' : symbol.endsWith('PE') ? 'PE' : 'FUT',
+        strike: contractData?.strike ?? null,
+        expiry: contractData?.expiry || 'NEAR',
+        ltp: contractData?.ltp ?? 0,
+        netChange: contractData?.netChange ?? 0,
+        percentChange: contractData?.percentChange ?? 0,
+        open: contractData?.open,
+        high: contractData?.high,
+        low: contractData?.low,
+        close: contractData?.close,
+        tradeVolume: contractData?.tradeVolume,
+        opnInterest: contractData?.opnInterest,
+        exchange: 'NFO',
+      });
+    }
+  };
 
   // Keep modal contract updated with live real-time price ticks
   const liveSelectedContract = useMemo(() => {
@@ -237,53 +268,99 @@ export const FnoMoversScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Market Closed Notification Banner with Reason */}
-      <MarketClosedBanner segmentName="Derivatives (F&O) Market" />
+      {/* Primary Navigation Tabs: Official SmartAPI Gainers/Losers vs High-Volatility Radar */}
+      <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700/80 pb-3 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setFnoActiveView('SMARTAPI_GAINERS')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 ${
+            fnoActiveView === 'SMARTAPI_GAINERS'
+              ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25 ring-2 ring-purple-400/40'
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-amber-300" />
+          <span>Official SmartAPI Gainers / Losers</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 dark:bg-black/30 font-mono">
+            marketData/v1
+          </span>
+        </button>
 
-      {/* Top Metric Cards */}
-      <FnoSummaryCards
-        summary={activeData?.summary}
-        onSelectContract={(contract) => setSelectedContract(contract)}
-        flashes={flashes}
-      />
-
-      {/* Segment, Direction, Underlying & Search Filters */}
-      <FnoFilterBar
-        segment={segment}
-        onSegmentChange={setSegment}
-        direction={direction}
-        onDirectionChange={setDirection}
-        underlying={underlying}
-        onUnderlyingChange={setUnderlying}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        summary={activeData?.summary}
-      />
-
-      {/* Results Sub-header */}
-      <div className="flex justify-between items-center px-1 text-xs text-gray-500 dark:text-gray-400">
-        <div>
-          Showing <span className="font-bold text-gray-900 dark:text-white">{filteredItems.length}</span> contracts
-          {searchQuery ? ` matching "${searchQuery}"` : ''}
-        </div>
-        <div className="text-[11px] hidden sm:block">
-          Click any contract row or card to inspect complete market depth
-        </div>
+        <button
+          type="button"
+          onClick={() => setFnoActiveView('VOLATILE_STREAM')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 ${
+            fnoActiveView === 'VOLATILE_STREAM'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 ring-2 ring-blue-400/40'
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+        >
+          <Flame className="w-4 h-4 text-amber-400" />
+          <span>High-Volatility Call & Put Stream</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 dark:bg-black/30 font-mono">
+            WebSocket
+          </span>
+        </button>
       </div>
 
-      {/* Main View: Table or Cards */}
-      {viewMode === 'table' ? (
-        <FnoTableView
-          items={filteredItems}
-          onSelectContract={(contract) => setSelectedContract(contract)}
-          flashes={flashes}
+      {/* VIEW 1: Official SmartAPI Top Gainers / Losers (Derivatives Segment) */}
+      {fnoActiveView === 'SMARTAPI_GAINERS' ? (
+        <SmartApiGainersLosersView
+          viewMode={viewMode}
+          onSelectContract={handleSelectGainersContract}
         />
       ) : (
-        <FnoCardGrid
-          items={filteredItems}
-          onSelectContract={(contract) => setSelectedContract(contract)}
-          flashes={flashes}
-        />
+        /* VIEW 2: High Volatility Derivatives Movers & Live Stream */
+        <div className="space-y-6">
+          {/* Market Closed Notification Banner with Reason */}
+          <MarketClosedBanner segmentName="Derivatives (F&O) Market" />
+
+          {/* Top Metric Cards */}
+          <FnoSummaryCards
+            summary={activeData?.summary}
+            onSelectContract={(contract) => setSelectedContract(contract)}
+            flashes={flashes}
+          />
+
+          {/* Segment, Direction, Underlying & Search Filters */}
+          <FnoFilterBar
+            segment={segment}
+            onSegmentChange={setSegment}
+            direction={direction}
+            onDirectionChange={setDirection}
+            underlying={underlying}
+            onUnderlyingChange={setUnderlying}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            summary={activeData?.summary}
+          />
+
+          {/* Results Sub-header */}
+          <div className="flex justify-between items-center px-1 text-xs text-gray-500 dark:text-gray-400">
+            <div>
+              Showing <span className="font-bold text-gray-900 dark:text-white">{filteredItems.length}</span> contracts
+              {searchQuery ? ` matching "${searchQuery}"` : ''}
+            </div>
+            <div className="text-[11px] hidden sm:block">
+              Click any contract row or card to inspect complete market depth
+            </div>
+          </div>
+
+          {/* Main View: Table or Cards */}
+          {viewMode === 'table' ? (
+            <FnoTableView
+              items={filteredItems}
+              onSelectContract={(contract) => setSelectedContract(contract)}
+              flashes={flashes}
+            />
+          ) : (
+            <FnoCardGrid
+              items={filteredItems}
+              onSelectContract={(contract) => setSelectedContract(contract)}
+              flashes={flashes}
+            />
+          )}
+        </div>
       )}
 
       {/* Contract Detail Modal */}

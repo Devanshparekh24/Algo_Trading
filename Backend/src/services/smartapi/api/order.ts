@@ -75,20 +75,29 @@ export async function placeSmartApiOrder(
     const url = `${BASE_URL}/rest/secure/angelbroking/order/v1/placeOrder`;
     const headers = buildHeaders(config.API_KEY, jwtToken);
 
+    const ordertype = request.ordertype || "MARKET";
+    const isMarket = ordertype === "MARKET";
+    const exchange = request.exchange || (request.tradingsymbol?.endsWith("CE") || request.tradingsymbol?.endsWith("PE") || request.tradingsymbol?.endsWith("FUT") ? "NFO" : "NSE");
+    const isFno = exchange === "NFO";
+    let producttype = request.producttype || (isFno ? "CARRYFORWARD" : "INTRADAY");
+    if (isFno && producttype === "DELIVERY") {
+      producttype = "CARRYFORWARD";
+    }
+
     const payload = {
       variety: request.variety || "NORMAL",
       tradingsymbol: request.tradingsymbol,
       symboltoken: String(request.symboltoken),
       transactiontype: request.transactiontype,
-      exchange: request.exchange || "NSE",
-      ordertype: request.ordertype || "MARKET",
-      producttype: request.producttype || "INTRADAY",
+      exchange: exchange,
+      ordertype: ordertype,
+      producttype: producttype,
       duration: request.duration || "DAY",
-      price: priceStr,
+      price: isMarket ? "0" : priceStr,
       squareoff: String(request.squareoff ?? "0"),
       stoploss: String(request.stoploss ?? "0"),
       quantity: quantityStr,
-      triggerprice: String(request.triggerprice ?? "0"),
+      triggerprice: isMarket ? "0" : String(request.triggerprice ?? "0"),
     };
 
     try {

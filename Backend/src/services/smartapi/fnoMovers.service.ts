@@ -116,6 +116,39 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
       rawFutures.push(...losersRes.data);
     }
 
+    // Enrich futures with FullMode quotes so LTP, close, volume are always populated
+    const futuresTokens = rawFutures
+      .map((f) => String(f.symbolToken || ""))
+      .filter((t) => t.length > 0);
+
+    if (futuresTokens.length > 0) {
+      try {
+        const quotesRes = await getFullModeData({
+          mode: "FULL",
+          exchangeTokens: { NFO: futuresTokens },
+        });
+        const qMap = new Map<string, any>();
+        for (const q of quotesRes.data?.fetched || []) {
+          qMap.set(String(q.symbolToken), q);
+        }
+        for (const item of rawFutures) {
+          const q = qMap.get(String(item.symbolToken));
+          if (q) {
+            item.ltp = Number(q.ltp);
+            item.netChange = Number(q.netChange);
+            item.open = Number(q.open);
+            item.high = Number(q.high);
+            item.low = Number(q.low);
+            item.close = Number(q.close);
+            item.tradeVolume = Number(q.tradeVolume);
+            item.opnInterest = Number(q.opnInterest || item.opnInterest);
+          }
+        }
+      } catch (quoteErr: any) {
+        console.warn("[FnoMoversService] Futures quote enrichment warning:", quoteErr?.message || quoteErr);
+      }
+    }
+
     // Deduplicate futures
     for (const item of rawFutures) {
       if (!item.symbolToken && !item.tradingSymbol) continue;

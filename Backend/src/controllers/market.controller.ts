@@ -2,9 +2,10 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
-import { getCandleData, getFullModeData, getLtpData, getGainersLosersData, type FullModeRequest } from "../services/smartapi/index.js";
+import { getCandleData, getFullModeData, getLtpData, getGainersLosersData, smartApiRateLimiter, type FullModeRequest } from "../services/smartapi/index.js";
 import { getTopFnoMovers } from "../services/smartapi/fnoMovers.service.js";
 import { getIndianMarketStatus } from "../utils/marketHours.js";
+import { registerWatchedToken } from "../services/websocket/socketService.js";
 
 /**
  * Fetch historical candle data.
@@ -231,8 +232,62 @@ export const getGainersLosers = asyncHandler(async (req: Request, res: Response)
     expirytype,
   });
 
+  const rawItems = Array.isArray(data.data) ? data.data : [];
+  const tokens = rawItems
+    .map((item) => String(item.symbolToken || ""))
+    .filter((t) => t.length > 0);
+
+  if (tokens.length > 0) {
+    // 1. Register these tokens for continuous background 1.5s WebSocket tick streaming
+    for (const token of tokens) {
+      registerWatchedToken(token, "NFO");
+    }
+
+    // 2. Fetch FullMode real-time quotes to enrich contracts with LTP, netChange, open, high, low, volume
+    try {
+      const quotesRes = await getFullModeData({
+        mode: "FULL",
+        exchangeTokens: { NFO: tokens },
+        bypassCache: true,
+      });
+
+      const fetchedQuotes = quotesRes.data?.fetched || [];
+      const quoteMap = new Map<string, any>();
+      for (const q of fetchedQuotes) {
+        quoteMap.set(String(q.symbolToken), q);
+      }
+
+      for (const item of rawItems) {
+        const token = String(item.symbolToken || "");
+        const quote = quoteMap.get(token);
+        if (quote) {
+          const freshLtp = Number(quote.ltp);
+          const closePrice = Number(quote.close || freshLtp);
+          const change = Number(quote.netChange ?? (freshLtp - closePrice));
+
+          item.ltp = freshLtp;
+          item.netChange = Number(change.toFixed(2));
+          if (datatype.includes("Price") && (item.percentChange === undefined || item.percentChange === 0)) {
+            const pct = closePrice > 0 ? ((freshLtp - closePrice) / closePrice) * 100 : 0;
+            item.percentChange = Number((quote.percentChange ?? pct).toFixed(2));
+          }
+          item.close = closePrice;
+          item.open = Number(quote.open || 0);
+          item.high = Number(quote.high || 0);
+          item.low = Number(quote.low || 0);
+          item.tradeVolume = Number(quote.tradeVolume || 0);
+          if (quote.opnInterest && (!item.opnInterest || item.opnInterest === 0)) {
+            item.opnInterest = Number(quote.opnInterest);
+          }
+        }
+      }
+    } catch (quoteErr: any) {
+      console.warn("[getGainersLosers] Live quote enrichment warning:", quoteErr?.message || quoteErr);
+    }
+  }
+
   res.status(200).json(
-    new ApiResponse(200, data.data, `Gainers/Losers fetched successfully (${datatype})`)
+    new ApiResponse(200, rawItems, `Gainers/Losers fetched successfully (${datatype})`)
   );
 });
 
@@ -297,6 +352,28 @@ export const getMarketStatusController = asyncHandler(async (_req: Request, res:
 
   res.status(200).json(
     new ApiResponse(200, status, "Market status fetched successfully")
+  );
+});
+
+/**
+ * Return live SmartAPI rate-limiting throttling telemetry partitioned by client code
+ */
+export const getRateLimitsController = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const customClientCode = (req.query.clientcode || req.query.clientCode) as string | undefined;
+  const telemetry = smartApiRateLimiter.getTelemetry(customClientCode);
+  const clientCode = smartApiRateLimiter.resolveClientCode(customClientCode);
+
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        clientCode,
+        cumulativeOrderLimit: "Combined placeOrder, modifyOrder, cancelOrder capped at <= 9 req/sec, 500/min, 1000/hr",
+        cumulativeGttLimit: "Combined createRule, modifyRule, cancelRule capped at <= 9 req/sec, 500/min, 5000/hr",
+        limits: telemetry,
+      },
+      "SmartAPI rate limit throttling telemetry fetched successfully"
+    )
   );
 });
 

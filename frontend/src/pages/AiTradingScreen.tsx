@@ -37,8 +37,11 @@ import { AiOrderBookTab } from '../components/aiTrading/AiOrderBookTab';
 import { AiOrderExecutionModal } from '../components/aiTrading/AiOrderExecutionModal';
 import { AiAutoPilotModal } from '../components/aiTrading/AiAutoPilotModal';
 import { AiUniverseModal } from '../components/aiTrading/AiUniverseModal';
+import { useAppStore } from '../store';
 
 export const AiTradingScreen: React.FC = () => {
+  const showValidationModal = useAppStore((state) => state.showValidationModal);
+
   // Navigation / View Tabs
   const [activeTab, setActiveTab] = useState<AiTradingTab>('signals');
   const [filterAction, setFilterAction] = useState<'ALL' | 'BUY' | 'SELL' | 'HIGH_CONFIDENCE'>('ALL');
@@ -240,6 +243,23 @@ export const AiTradingScreen: React.FC = () => {
     strike?: string | number;
     expiry?: string;
   }) => {
+    if (!item.symbol || !item.token) {
+      showValidationModal({
+        title: 'Invalid Instrument',
+        message: 'The selected instrument is missing a symbol or token.',
+        type: 'warning',
+      });
+      return;
+    }
+    if (universe.some((u) => u.token === item.token)) {
+      showValidationModal({
+        title: 'Already in Universe',
+        message: `${item.symbol} is already part of your active scanning universe.`,
+        type: 'info',
+        suggestion: 'The AI Sniper Engine is already actively tracking this symbol.',
+      });
+      return;
+    }
     try {
       const exch = item.exch_seg || (selectedSegment === 'FNO' ? 'NFO' : 'NSE');
       const isFno = exch === 'NFO' || item.symbol.endsWith('CE') || item.symbol.endsWith('PE') || item.symbol.endsWith('FUT');
@@ -323,9 +343,22 @@ export const AiTradingScreen: React.FC = () => {
   }, []);
 
   const handleRunBudgetAnalysis = useCallback(async (customBudget?: number, overrideSegment?: BudgetSegment) => {
+    const rawVal = customBudget !== undefined ? String(customBudget) : budgetInput;
     const amount = customBudget !== undefined ? customBudget : parseFloat(budgetInput.replace(/,/g, ''));
-    if (!amount || isNaN(amount) || amount < 500) {
-      setBudgetError('Please enter a budget of at least ₹500');
+    if (!rawVal || isNaN(amount) || amount < 500) {
+      const errorMsg = 'Please enter a budget of at least ₹500';
+      setBudgetError(errorMsg);
+      showValidationModal({
+        title: 'Minimum Budget Required',
+        message: errorMsg,
+        type: 'warning',
+        suggestion: 'Trading capital of at least ₹500 is required to size equity positions and F&O option contracts according to exchange lot rules and margin requirements.',
+        actionLabel: 'Set Budget to ₹5,000',
+        onAction: () => {
+          setBudgetInput('5000');
+          handleRunBudgetAnalysis(5000);
+        },
+      });
       return;
     }
     const targetSegment = overrideSegment || budgetSegment;
@@ -340,11 +373,18 @@ export const AiTradingScreen: React.FC = () => {
       });
       setBudgetAnalysis(res);
     } catch (err: any) {
-      setBudgetError(err?.message || 'Failed to generate budget suggestions');
+      const errorMsg = err?.message || 'Failed to generate budget suggestions';
+      setBudgetError(errorMsg);
+      showValidationModal({
+        title: 'Budget Allocation Notice',
+        message: errorMsg,
+        type: 'error',
+        suggestion: 'Please verify that your selected universe has active trading instruments or adjust your risk profile parameters.',
+      });
     } finally {
       setIsAnalyzingBudget(false);
     }
-  }, [budgetInput, budgetRiskProfile, budgetSegment, budgetMaxTrades]);
+  }, [budgetInput, budgetRiskProfile, budgetSegment, budgetMaxTrades, showValidationModal]);
 
   // Handler to 1-click allocate budget to a top volatile Call or Put option
   const handleAllocateVolatileOption = useCallback((option: VolatileOptionItem) => {
@@ -599,11 +639,33 @@ export const AiTradingScreen: React.FC = () => {
   // Submit Order Execution
   const handleConfirmOrder = async () => {
     if (!executingSignal) return;
+
+    const isFno = executingSignal.exchange === 'NFO' || executingSignal.segment === 'FNO' || executingSignal.symbol.endsWith('CE') || executingSignal.symbol.endsWith('PE');
+    const lotSize = executingSignal.lotSize || 65;
+    const finalQuantity = isFno ? execLots * lotSize : execQuantity;
+
+    if (!finalQuantity || finalQuantity <= 0) {
+      showValidationModal({
+        title: 'Invalid Order Quantity',
+        message: 'Order quantity must be at least 1 unit or 1 lot.',
+        type: 'warning',
+        suggestion: 'Please enter a valid quantity or lot count before confirming order execution.',
+      });
+      return;
+    }
+
+    if (execOrderType === 'LIMIT' && (!execLimitPrice || execLimitPrice <= 0)) {
+      showValidationModal({
+        title: 'Invalid Limit Price',
+        message: 'Please specify a valid Limit Price greater than ₹0.',
+        type: 'warning',
+        suggestion: 'Limit orders require an explicit execution price trigger.',
+      });
+      return;
+    }
+
     setIsExecuting(true);
     try {
-      const isFno = executingSignal.exchange === 'NFO' || executingSignal.segment === 'FNO' || executingSignal.symbol.endsWith('CE') || executingSignal.symbol.endsWith('PE');
-      const lotSize = executingSignal.lotSize || 65;
-      const finalQuantity = isFno ? execLots * lotSize : execQuantity;
 
       const res = await executeSignalOrder({
         signalId: executingSignal.id,
@@ -631,9 +693,16 @@ export const AiTradingScreen: React.FC = () => {
       setExecutingSignal(null);
       loadOrders();
     } catch (err: any) {
+      const errorMsg = err?.message || 'Order execution failed';
       setExecutionToast({
         type: 'error',
-        message: err?.message || 'Order execution failed',
+        message: errorMsg,
+      });
+      showValidationModal({
+        title: 'Order Execution Alert',
+        message: errorMsg,
+        type: 'error',
+        suggestion: 'Verify SmartAPI session tokens, available margin balances, or switch to Paper mode for simulation.',
       });
     } finally {
       setIsExecuting(false);
@@ -642,12 +711,46 @@ export const AiTradingScreen: React.FC = () => {
 
   // Save AutoPilot settings
   const handleSaveAutoPilot = async (updated: Partial<AutoPilotConfig>) => {
+    if (updated.profitTargetPct !== undefined && (updated.profitTargetPct <= 0 || updated.profitTargetPct > 500)) {
+      showValidationModal({
+        title: 'Invalid Profit Target',
+        message: 'Profit Target percentage must be between 1% and 500%.',
+        type: 'warning',
+        suggestion: 'Recommended setting for Greek Momentum Sniper is +50%.',
+      });
+      return;
+    }
+    if (updated.stopLossPct !== undefined && (updated.stopLossPct <= 0 || updated.stopLossPct > 100)) {
+      showValidationModal({
+        title: 'Invalid Stop-Loss',
+        message: 'Stop-Loss percentage must be between 1% and 100%.',
+        type: 'warning',
+        suggestion: 'Recommended setting is -22% to strictly protect capital against sudden market swings.',
+      });
+      return;
+    }
+    if (updated.thetaTimeoutMinutes !== undefined && (updated.thetaTimeoutMinutes < 5 || updated.thetaTimeoutMinutes > 360)) {
+      showValidationModal({
+        title: 'Invalid Theta Timeout',
+        message: 'Theta timeout must be between 5 and 360 minutes.',
+        type: 'warning',
+        suggestion: 'Recommended timeout is 45 minutes to protect option buyers against theta decay.',
+      });
+      return;
+    }
     try {
       const res = await updateAutoPilotConfig(updated);
       setAutoPilot(res);
+
+      const strategyLabel = res.strategy === 'GREEK_SNIPER' ? 'Greek Sniper' : 'Standard';
+      const details =
+        res.strategy === 'GREEK_SNIPER'
+          ? `Target: +${res.profitTargetPct || 50}%, SL: -${res.stopLossPct || 22}%, Timeout: ${res.thetaTimeoutMinutes || 45}m`
+          : `${res.minConfidence || 65}% min confidence`;
+
       setExecutionToast({
         type: 'success',
-        message: `Auto-Pilot updated: ${res.enabled ? 'ACTIVE' : 'PAUSED'} (${res.mode} Mode, ${res.minConfidence}% min confidence)`,
+        message: `Auto-Pilot updated: ${res.enabled ? 'ACTIVE' : 'PAUSED'} (${res.mode} Mode • ${strategyLabel} • ${details})`,
       });
       setIsAutoPilotModalOpen(false);
     } catch (err: any) {
@@ -735,6 +838,20 @@ export const AiTradingScreen: React.FC = () => {
         holdCount={holdCount}
         brokerFunds={brokerFunds}
         onUseBrokerFunds={(amount) => {
+          if (amount < 500) {
+            showValidationModal({
+              title: 'Insufficient Broker Margin',
+              message: `Your available broker cash (₹${amount.toLocaleString('en-IN')}) is below the minimum required ₹500.`,
+              type: 'warning',
+              suggestion: 'Please transfer funds to your Angel One account or use Paper mode with recommended presets.',
+              actionLabel: 'Use ₹5,000 Preset',
+              onAction: () => {
+                setBudgetInput('5000');
+                handleRunBudgetAnalysis(5000);
+              },
+            });
+            return;
+          }
           setBudgetInput(String(amount));
           handleRunBudgetAnalysis(amount);
         }}

@@ -531,6 +531,18 @@ export async function fetchAiErrorLogs(limit = 100): Promise<AiErrorLogItem[]> {
 }
 
 /**
+ * Clear all historical error logs from PostgreSQL
+ */
+export async function clearAiErrorLogs(): Promise<number> {
+  const res = await fetch(`${API_BASE}/error-logs`, {
+    method: 'DELETE',
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to clear error logs');
+  return json.deletedCount || 0;
+}
+
+/**
  * Get current Indian market Golden Hours status and timing window
  */
 export async function fetchGoldenHoursStatus(): Promise<GoldenHoursStatus> {

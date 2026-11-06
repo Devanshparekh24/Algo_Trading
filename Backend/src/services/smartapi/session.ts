@@ -38,12 +38,12 @@ export async function getValidSession(): Promise<string> {
   if (isSessionExpired()) {
     if (store.refreshToken) {
       try {
-        const result = await refreshSmartAPISession(store.refreshToken);
+        const result = await refreshSmartAPISession(store.refreshToken, store.jwtToken);
         return result.jwtToken;
-      } catch {
-        // Refresh failed (e.g. refresh token also expired) → full re-login
+      } catch (err: any) {
+        // Refresh token expired or rejected → fallback to seamless auto-login with TOTP
         console.warn(
-          "[SmartAPI] Refresh failed, falling back to full login..."
+          `[SmartAPI] Token refresh failed (${err?.message || "expired"}), auto-renewing session via full TOTP login...`
         );
         const result = await loginSmartAPI();
         return result.jwtToken;
