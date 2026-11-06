@@ -37,16 +37,25 @@ export const getHistoricalData = asyncHandler(async (req: Request, res: Response
     );
   }
 
-  const candles = await getCandleData({
-    exchange: finalExchange,
-    symboltoken: finalSymbolToken,
-    interval: finalInterval,
-    fromdate: finalFromDate,
-    todate: finalToDate,
-  });
+  let candles: any[] = [];
+  try {
+    candles = await getCandleData({
+      exchange: finalExchange,
+      symboltoken: finalSymbolToken,
+      interval: finalInterval,
+      fromdate: finalFromDate,
+      todate: finalToDate,
+    });
+  } catch (err: any) {
+    console.warn(
+      `[getHistoricalData] Warning: Unable to fetch SmartAPI candles for token ${finalSymbolToken} (${finalInterval}):`,
+      err?.message || err
+    );
+    candles = [];
+  }
 
   res.status(200).json(
-    new ApiResponse(200, candles, "Historical candle data fetched successfully")
+    new ApiResponse(200, candles || [], "Historical candle data fetched successfully")
   );
 });
 

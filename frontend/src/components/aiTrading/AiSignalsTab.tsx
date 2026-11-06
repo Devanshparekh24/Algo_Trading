@@ -22,8 +22,8 @@ interface AiSignalsTabProps {
   filteredSignals: TradeSignal[];
   selectedSegment: MarketSegment;
   onSelectSegment: (segment: MarketSegment) => void;
-  filterAction: 'ALL' | 'BUY' | 'SELL' | 'HIGH_CONFIDENCE';
-  onFilterChange: (action: 'ALL' | 'BUY' | 'SELL' | 'HIGH_CONFIDENCE') => void;
+  filterAction: 'ALL' | 'BUY' | 'SELL';
+  onFilterChange: (action: 'ALL' | 'BUY' | 'SELL') => void;
   buyCount: number;
   sellCount: number;
   lastScanTime: string | null;
@@ -264,17 +264,6 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onFilterChange('HIGH_CONFIDENCE')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filterAction === 'HIGH_CONFIDENCE'
-                ? 'bg-purple-600 text-white shadow-xs'
-                : 'text-gray-600 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-300'
-            }`}
-          >
-            High Confidence &ge; 80%
-          </button>
-          <button
-            type="button"
             onClick={() => onFilterChange('BUY')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
               filterAction === 'BUY'
@@ -408,7 +397,7 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                   </div>
                 </div>
 
-                {/* Action & Confidence Pill */}
+                {/* Action Pill */}
                 <div className="flex flex-col items-end gap-1">
                   <span
                     className={`flex items-center space-x-1 px-3 py-1 rounded-xl text-xs font-bold uppercase tracking-wider shadow-2xs ${
@@ -428,27 +417,7 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                     )}
                     <span>{sig.action}</span>
                   </span>
-
-                  {/* Confidence Meter */}
-                  <div className="flex items-center space-x-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <span>Confidence:</span>
-                    <span className="font-bold text-gray-900 dark:text-white">{sig.confidence}%</span>
-                  </div>
                 </div>
-              </div>
-
-              {/* Confidence Bar */}
-              <div className="w-full bg-gray-200 dark:bg-gray-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    sig.confidence >= 80
-                      ? 'bg-gradient-to-r from-purple-500 to-emerald-400'
-                      : sig.confidence >= 65
-                      ? 'bg-emerald-500'
-                      : 'bg-amber-500'
-                  }`}
-                  style={{ width: `${sig.confidence}%` }}
-                />
               </div>
 
               {/* Price & Levels Grid */}

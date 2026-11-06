@@ -49,6 +49,7 @@ interface AiBudgetAllocatorTabProps {
   setVolatileRadarTab: (tab: 'calls' | 'puts') => void;
   onOpenChart: (symbol: string) => void;
   onOpenExecuteModal: (signal: TradeSignal, customLots?: number, customQuantity?: number) => void;
+  onOpenAutoPilotModal?: (customBudget?: number) => void;
 }
 
 const PRESET_BUDGETS = [
@@ -125,6 +126,7 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
   setVolatileRadarTab,
   onOpenChart,
   onOpenExecuteModal,
+  onOpenAutoPilotModal,
 }) => {
   const liveCalls = budgetAnalysis?.volatileCalls || fnoCallsList || [];
   const livePuts = budgetAnalysis?.volatilePuts || fnoPutsList || [];
@@ -539,12 +541,25 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                 </h3>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <span className="text-xs text-gray-500 dark:text-gray-400">Health Score:</span>
-                <span className="px-3 py-1 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/40 text-xs flex items-center gap-1 font-mono">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  {budgetAnalysis.portfolioHealthScore}/100
-                </span>
+              <div className="flex items-center space-x-2 flex-wrap gap-2">
+                {onOpenAutoPilotModal && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAutoPilotModal(budgetAnalysis.budget)}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/25 flex items-center gap-1.5 transition-all"
+                    title={`Arm Auto-Pilot with ₹${budgetAnalysis.budget.toLocaleString('en-IN')} max budget`}
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Arm Auto-Pilot (₹{budgetAnalysis.budget.toLocaleString('en-IN')})</span>
+                  </button>
+                )}
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Health:</span>
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-500/40 text-xs flex items-center gap-1 font-mono">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    {budgetAnalysis.portfolioHealthScore}/100
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -731,9 +746,6 @@ export const AiBudgetAllocatorTab: React.FC<AiBudgetAllocatorTabProps> = ({
                             }`}
                           >
                             {sig.action}
-                          </span>
-                          <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 font-semibold">
-                            {sig.confidence}% Confidence
                           </span>
                         </div>
                       </div>

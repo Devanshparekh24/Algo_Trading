@@ -177,15 +177,24 @@ export interface TradeSignal {
   status: 'ACTIVE' | 'EXECUTED' | 'EXPIRED';
 }
 
+export type AutoPilotStrategy =
+  | 'GREEK_SNIPER'
+  | 'GAMMA_BLAST'
+  | 'VWAP_TRAP'
+  | 'ORB_15M'
+  | 'PCR_REVERSAL'
+  | 'STANDARD';
+
 export interface AutoPilotConfig {
   enabled: boolean;
   mode: 'PAPER' | 'LIVE';
-  strategy: 'GREEK_SNIPER' | 'STANDARD';
+  strategy: AutoPilotStrategy;
   enforceGoldenHours?: boolean;
   profitTargetPct: number;
   stopLossPct: number;
   thetaTimeoutMinutes: number;
   defaultQuantity: number;
+  maxBudgetPerTrade?: number;
   productType: 'INTRADAY' | 'DELIVERY';
   maxDailyTrades: number;
   executedToday: number;
@@ -198,7 +207,7 @@ export interface ActiveAiPosition {
   symbol: string;
   token: string;
   exchange: string;
-  strategy: 'GREEK_SNIPER' | 'STANDARD';
+  strategy: AutoPilotStrategy;
   entryPrice: number;
   currentPrice: number;
   highestPrice: number;

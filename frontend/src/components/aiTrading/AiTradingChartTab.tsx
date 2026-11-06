@@ -81,6 +81,14 @@ export const AiTradingChartTab: React.FC<AiTradingChartTabProps> = ({
   const displayChange = currentQuote?.change ?? matchingSignal?.netChange;
   const displayPercent = currentQuote?.percentChange ?? matchingSignal?.percentChange;
 
+  const selectedToken =
+    POPULAR_WATCHLIST.find(
+      (w) =>
+        w.sym.toUpperCase() === selectedChartSymbol.toUpperCase() ||
+        w.label.toUpperCase() === selectedChartSymbol.toUpperCase() ||
+        selectedChartSymbol.toUpperCase().includes(w.sym.replace(/^NSE:/, '').toUpperCase())
+    )?.lookup || matchingSignal?.token;
+
   return (
     <div className="space-y-4">
       {/* Quick Stock Switcher & Timeframe Controls */}
@@ -258,6 +266,7 @@ export const AiTradingChartTab: React.FC<AiTradingChartTabProps> = ({
       {/* Interactive TradingView Chart Component */}
       <TradingViewChart
         symbol={selectedChartSymbol}
+        symbolToken={selectedToken}
         interval={chartInterval}
         height={620}
         theme="dark"
@@ -270,6 +279,7 @@ export const AiTradingChartTab: React.FC<AiTradingChartTabProps> = ({
         underlyingPrice={underlyingQuote?.ltp}
         underlyingPercentChange={underlyingQuote?.percentChange}
         onSymbolChange={onSelectChartSymbol}
+        onIntervalChange={(newInt) => onChangeChartInterval(newInt as any)}
       />
 
       {/* Connected AI Signal & Execution Overlay for this Symbol */}
@@ -290,7 +300,7 @@ export const AiTradingChartTab: React.FC<AiTradingChartTabProps> = ({
                     : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                 }`}
               >
-                AI Signal: {matchingSignal.action} ({matchingSignal.confidence}%)
+                AI Signal: {matchingSignal.action}
               </span>
 
               <div className="text-xs text-gray-300 flex items-center gap-2 flex-wrap">

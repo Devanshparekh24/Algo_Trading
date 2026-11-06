@@ -75,3 +75,27 @@ export const getGainersLosers = async (params: GainersLosersParams): Promise<Gai
     return fallback.data.data || [];
   }
 };
+
+export interface HistoricalCandleParams {
+  exchange: string;
+  symbolToken: string;
+  interval: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE' | 'TEN_MINUTE' | 'FIFTEEN_MINUTE' | 'THIRTY_MINUTE' | 'ONE_HOUR' | 'ONE_DAY';
+  fromDate: string;
+  toDate: string;
+}
+
+export type RawCandleData = [string, number, number, number, number, number];
+
+/**
+ * Fetches historical OHLCV candlestick data from Angel One SmartAPI via backend.
+ */
+export const getHistoricalCandles = async (params: HistoricalCandleParams): Promise<RawCandleData[]> => {
+  try {
+    const response = await api.post<ApiResponse<RawCandleData[]>>('/api/v1/market/historical', params);
+    return response.data.data || [];
+  } catch {
+    const fallback = await api.post<ApiResponse<RawCandleData[]>>('/market/historical', params);
+    return fallback.data.data || [];
+  }
+};
+

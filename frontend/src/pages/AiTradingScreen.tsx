@@ -44,7 +44,7 @@ export const AiTradingScreen: React.FC = () => {
 
   // Navigation / View Tabs
   const [activeTab, setActiveTab] = useState<AiTradingTab>('signals');
-  const [filterAction, setFilterAction] = useState<'ALL' | 'BUY' | 'SELL' | 'HIGH_CONFIDENCE'>('ALL');
+  const [filterAction, setFilterAction] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
 
   // Segment State: EQUITY (Cash) vs FNO (Futures & Options)
   const [selectedSegment, setSelectedSegment] = useState<MarketSegment>('EQUITY');
@@ -742,11 +742,17 @@ export const AiTradingScreen: React.FC = () => {
       const res = await updateAutoPilotConfig(updated);
       setAutoPilot(res);
 
-      const strategyLabel = res.strategy === 'GREEK_SNIPER' ? 'Greek Sniper' : 'Standard';
-      const details =
-        res.strategy === 'GREEK_SNIPER'
-          ? `Target: +${res.profitTargetPct || 50}%, SL: -${res.stopLossPct || 22}%, Timeout: ${res.thetaTimeoutMinutes || 45}m`
-          : `${res.minConfidence || 65}% min confidence`;
+      const strategyMap: Record<string, string> = {
+        GREEK_SNIPER: 'Greek Sniper',
+        GAMMA_BLAST: 'Expiry Gamma Blast',
+        VWAP_TRAP: 'VWAP Fakeout Trap',
+        ORB_15M: '15-Min ORB',
+        PCR_REVERSAL: 'PCR Reversal',
+        STANDARD: 'Standard Scalper',
+      };
+      const strategyLabel = strategyMap[res.strategy] || res.strategy;
+      const budgetText = res.maxBudgetPerTrade ? `Budget: ₹${res.maxBudgetPerTrade.toLocaleString('en-IN')}` : '';
+      const details = `Target: +${res.profitTargetPct || 35}%, SL: -${res.stopLossPct || 18}%${budgetText ? ` • ${budgetText}` : ''}`;
 
       setExecutionToast({
         type: 'success',
@@ -766,7 +772,6 @@ export const AiTradingScreen: React.FC = () => {
     return signals.filter((s) => {
       if (filterAction === 'BUY') return s.action === 'BUY';
       if (filterAction === 'SELL') return s.action === 'SELL';
-      if (filterAction === 'HIGH_CONFIDENCE') return s.confidence >= 80;
       return true;
     });
   }, [signals, filterAction]);
@@ -928,6 +933,12 @@ export const AiTradingScreen: React.FC = () => {
             setActiveTab('chart');
           }}
           onOpenExecuteModal={handleOpenExecuteModal}
+          onOpenAutoPilotModal={(customBudget) => {
+            if (customBudget) {
+              setAutoPilot((p) => ({ ...p, maxBudgetPerTrade: customBudget }));
+            }
+            setIsAutoPilotModalOpen(true);
+          }}
         />
       )}
 

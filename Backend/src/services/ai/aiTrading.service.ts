@@ -98,15 +98,24 @@ export interface TradeSignal {
   status: "ACTIVE" | "EXECUTED" | "EXPIRED";
 }
 
+export type AutoPilotStrategy =
+  | "GREEK_SNIPER"
+  | "GAMMA_BLAST"
+  | "VWAP_TRAP"
+  | "ORB_15M"
+  | "PCR_REVERSAL"
+  | "STANDARD";
+
 export interface AutoPilotConfig {
   enabled: boolean;
   mode: "PAPER" | "LIVE";
-  strategy: "STANDARD" | "GREEK_SNIPER";
+  strategy: AutoPilotStrategy;
   enforceGoldenHours?: boolean | undefined;
   profitTargetPct: number;
   stopLossPct: number;
   thetaTimeoutMinutes: number;
   defaultQuantity: number;
+  maxBudgetPerTrade?: number | undefined;
   productType: "INTRADAY" | "DELIVERY";
   maxDailyTrades: number;
   executedToday: number;
@@ -119,7 +128,7 @@ export interface ActiveAiPosition {
   symbol: string;
   token: string;
   exchange: string;
-  strategy: "GREEK_SNIPER" | "STANDARD";
+  strategy: AutoPilotStrategy;
   entryPrice: number;
   currentPrice: number;
   highestPrice: number;
@@ -550,14 +559,14 @@ let autoPilotConfig: AutoPilotConfig = {
   mode: "PAPER",
   strategy: "GREEK_SNIPER",
   enforceGoldenHours: true,
-  profitTargetPct: 50,
-  stopLossPct: 22,
+  profitTargetPct: 35,
+  stopLossPct: 18,
   thetaTimeoutMinutes: 45,
   defaultQuantity: 1,
+  maxBudgetPerTrade: 5000,
   productType: "INTRADAY",
   maxDailyTrades: 5,
   executedToday: 0,
-  minConfidence: 65,
 };
 
 // Map of open and recent active positions managed by AI Auto-Pilot & Execution
@@ -1330,27 +1339,64 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
     if (sig.status !== "ACTIVE") continue;
     if (sig.action === "HOLD") continue;
 
-    // Greek Sniper applies Greek filters & trend confirmation instead of old generic confidence
+    const isFno = sig.exchange === "NFO" || sig.segment === "FNO";
+
+    // 1. GREEK_SNIPER Strategy Pipeline
     if (autoPilotConfig.strategy === "GREEK_SNIPER") {
-      const isFno = sig.exchange === "NFO" || sig.segment === "FNO";
       if (!isFno) continue;
       if (sig.greeks) {
-        if (sig.greeks.delta < 0.25 || sig.greeks.delta > 0.55) continue;
+        if (sig.greeks.delta < 0.25 || sig.greeks.delta > 0.60) continue;
         if (sig.greeks.thetaPremiumRatio > 0.18) continue;
       }
-    } else {
-      if (sig.confidence < (autoPilotConfig.minConfidence ?? 65)) continue;
+    }
+    // 2. GAMMA_BLAST Strategy Pipeline (Expiry Afternoon Gamma Surge)
+    else if (autoPilotConfig.strategy === "GAMMA_BLAST") {
+      if (!isFno) continue;
+      // Scans for cheap, high-elasticity explosive strikes (₹10 to ₹55)
+      if (sig.currentPrice > 65 || sig.currentPrice < 8) continue;
+      if (sig.greeks && sig.greeks.delta > 0.45) continue;
+    }
+    // 3. VWAP_TRAP Strategy Pipeline (Institutional Fakeout Trap & Reversal)
+    else if (autoPilotConfig.strategy === "VWAP_TRAP") {
+      if (!isFno) continue;
+      // Counter-trend confirmation: Puts on high failure, Calls on low bounce
+      if (sig.indicators) {
+        if (sig.contractType === "PE" && sig.indicators.rsi < 40) continue;
+        if (sig.contractType === "CE" && sig.indicators.rsi > 60) continue;
+      }
+    }
+    // 4. ORB_15M Strategy Pipeline (Opening Range Breakout Trend Follower)
+    else if (autoPilotConfig.strategy === "ORB_15M") {
+      // Requires strong momentum and trending indicators
+      if (sig.indicators && (sig.indicators.emaTrend === "NEUTRAL" || sig.indicators.macd?.trend === "NEUTRAL")) continue;
+    }
+    // 5. PCR_REVERSAL Strategy Pipeline (Sentiment Extremes Mean Reversion)
+    else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
+      if (!isFno) continue;
+      // Reversal oscillator: Avoid buying Calls when overbought or Puts when oversold
+      if (sig.contractType === "CE" && sig.indicators && sig.indicators.rsi > 68) continue;
+      if (sig.contractType === "PE" && sig.indicators && sig.indicators.rsi < 32) continue;
+    }
+
+    const lotSize = sig.lotSize || 65;
+    const finalQty = isFno ? lotSize : autoPilotConfig.defaultQuantity;
+    const estimatedCost = finalQty * sig.currentPrice;
+
+    // Strict Budget Gatekeeper: ensure trade cost fits configured budget (e.g. ₹5,000)
+    if (autoPilotConfig.maxBudgetPerTrade && autoPilotConfig.maxBudgetPerTrade > 0) {
+      if (estimatedCost > autoPilotConfig.maxBudgetPerTrade) {
+        console.log(
+          `[AI Auto-Pilot] Skipping ${sig.symbol}: Cost ₹${estimatedCost.toFixed(2)} (${finalQty} units @ ₹${sig.currentPrice}) exceeds max budget of ₹${autoPilotConfig.maxBudgetPerTrade}`
+        );
+        continue;
+      }
     }
 
     console.log(
-      `[AI Auto-Pilot] Qualifying signal found: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} (Strategy: ${autoPilotConfig.strategy})`
+      `[AI Auto-Pilot] Qualifying signal found: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} (Cost: ₹${estimatedCost.toFixed(2)}, Strategy: ${autoPilotConfig.strategy})`
     );
 
     try {
-      const isFno = sig.exchange === "NFO" || sig.segment === "FNO";
-      const lotSize = sig.lotSize || 65;
-      const finalQty = isFno ? lotSize : autoPilotConfig.defaultQuantity;
-
       const orderReq: OrderPlacementRequest = {
         variety: "NORMAL",
         tradingsymbol: sig.symbol,
@@ -1370,10 +1416,28 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
       sig.status = "EXECUTED";
       autoPilotConfig.executedToday += 1;
 
-      // Register active AI position for auto-exit monitoring (Target, StopLoss, 45-Min Theta Timeout)
+      // Register active AI position for auto-exit monitoring
       const posId = `pos_${result.orderid || Date.now()}`;
-      const targetPct = autoPilotConfig.profitTargetPct || 50;
-      const slPct = autoPilotConfig.stopLossPct || 22;
+      
+      // Dynamic Target & Stop Loss tailored by Strategy
+      let targetPct = autoPilotConfig.profitTargetPct || 35;
+      let slPct = autoPilotConfig.stopLossPct || 18;
+      let timeoutMins = autoPilotConfig.thetaTimeoutMinutes || 45;
+
+      if (autoPilotConfig.strategy === "GAMMA_BLAST") {
+        targetPct = Math.max(targetPct, 75); // Asymmetric reward
+        slPct = Math.min(slPct, 30);
+        timeoutMins = 30; // Fast scalping
+      } else if (autoPilotConfig.strategy === "VWAP_TRAP") {
+        targetPct = Math.max(targetPct, 40);
+        slPct = 18;
+      } else if (autoPilotConfig.strategy === "ORB_15M") {
+        timeoutMins = 60; // Hold morning trend
+      } else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
+        targetPct = Math.max(targetPct, 35);
+        slPct = 15;
+      }
+
       const targetPrice = sig.target1 > 0 ? sig.target1 : Number((sig.currentPrice * (1 + targetPct / 100)).toFixed(2));
       const stopLossPrice = sig.stopLoss > 0 ? sig.stopLoss : Number((sig.currentPrice * (1 - slPct / 100)).toFixed(2));
 
@@ -1394,7 +1458,7 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
         stopLossPrice,
         enteredAt: Date.now(),
         holdingMinutes: 0,
-        timeoutMinutes: autoPilotConfig.thetaTimeoutMinutes || 45,
+        timeoutMinutes: timeoutMins,
         mode: autoPilotConfig.mode,
         status: "OPEN",
         pnl: 0,

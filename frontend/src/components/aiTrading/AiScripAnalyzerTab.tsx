@@ -224,12 +224,6 @@ export const AiScripAnalyzerTab: React.FC<AiScripAnalyzerTabProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-xs text-gray-400">Confidence Score</div>
-                <div className="text-2xl font-extrabold text-white font-mono">
-                  {analyzedSignal.confidence}%
-                </div>
-              </div>
               <button
                 type="button"
                 onClick={() => onOpenExecuteModal(analyzedSignal)}

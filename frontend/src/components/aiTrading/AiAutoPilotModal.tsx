@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, X, Shield, Clock, Target, CheckCircle2 } from 'lucide-react';
-import type { AutoPilotConfig } from '../../services/aiTradingService';
+import {
+  Zap,
+  X,
+  Shield,
+  Clock,
+  Target,
+  CheckCircle2,
+  Wallet,
+  Flame,
+  TrendingDown,
+  Sun,
+  BarChart3,
+} from 'lucide-react';
+import type { AutoPilotConfig, AutoPilotStrategy } from '../../services/aiTradingService';
 
 interface AiAutoPilotModalProps {
   isOpen: boolean;
@@ -8,6 +20,57 @@ interface AiAutoPilotModalProps {
   config: AutoPilotConfig;
   onSave: (updated: AutoPilotConfig) => void;
 }
+
+const STRATEGIES: Array<{
+  id: AutoPilotStrategy;
+  name: string;
+  badge: string;
+  icon: React.ComponentType<{ className?: string }>;
+  desc: string;
+}> = [
+  {
+    id: 'GREEK_SNIPER',
+    name: 'Greek Sniper',
+    badge: '⭐ Recommended',
+    icon: Zap,
+    desc: 'Δ 0.30–0.50, Top Gamma, Θ/Prem < 0.18, 45m exit',
+  },
+  {
+    id: 'GAMMA_BLAST',
+    name: 'Expiry Gamma Blast',
+    badge: '🚀 1:15–2:45 PM',
+    icon: Flame,
+    desc: 'Cheap ₹10–₹45 options, afternoon short-covering, 1:3+ payout',
+  },
+  {
+    id: 'VWAP_TRAP',
+    name: 'VWAP Fakeout Trap',
+    badge: '🪤 Counter-Trend',
+    icon: TrendingDown,
+    desc: 'Catches failed breakout reversals & institutional traps',
+  },
+  {
+    id: 'ORB_15M',
+    name: '15-Min ORB',
+    badge: '🌅 09:30–11:00 AM',
+    icon: Sun,
+    desc: 'Opening range breakout with volume confirmation',
+  },
+  {
+    id: 'PCR_REVERSAL',
+    name: 'PCR Reversal',
+    badge: '📊 Contrarian',
+    icon: BarChart3,
+    desc: 'Sentiment extremes (PCR > 1.35 or < 0.70) mean reversion',
+  },
+  {
+    id: 'STANDARD',
+    name: 'Standard Scalper',
+    badge: 'Classic',
+    icon: Target,
+    desc: 'EMA & VWAP trend momentum indicator scalper',
+  },
+];
 
 export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   isOpen,
@@ -18,20 +81,22 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   const [localConfig, setLocalConfig] = useState<AutoPilotConfig>({
     ...config,
     strategy: config.strategy || 'GREEK_SNIPER',
-    profitTargetPct: config.profitTargetPct || 50,
-    stopLossPct: config.stopLossPct || 22,
+    profitTargetPct: config.profitTargetPct || 35,
+    stopLossPct: config.stopLossPct || 18,
     thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
     enforceGoldenHours: config.enforceGoldenHours !== false,
+    maxBudgetPerTrade: config.maxBudgetPerTrade || 5000,
   });
 
   useEffect(() => {
     setLocalConfig({
       ...config,
       strategy: config.strategy || 'GREEK_SNIPER',
-      profitTargetPct: config.profitTargetPct || 50,
-      stopLossPct: config.stopLossPct || 22,
+      profitTargetPct: config.profitTargetPct || 35,
+      stopLossPct: config.stopLossPct || 18,
       thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
       enforceGoldenHours: config.enforceGoldenHours !== false,
+      maxBudgetPerTrade: config.maxBudgetPerTrade || 5000,
     });
   }, [config]);
 
@@ -106,43 +171,42 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
 
           {/* Strategy Selection */}
           <div>
-            <label className="text-gray-700 dark:text-gray-300 font-semibold block mb-1.5">Active Strategy Pipeline:</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setLocalConfig((p) => ({ ...p, strategy: 'GREEK_SNIPER' }))}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  localConfig.strategy === 'GREEK_SNIPER'
-                    ? 'bg-emerald-50 border-emerald-500 dark:bg-emerald-950/40 dark:border-emerald-500 text-gray-900 dark:text-white shadow-2xs'
-                    : 'bg-gray-50 dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
-                }`}
-              >
-                <div className="font-bold flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 mb-1">
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Greek Sniper ⭐</span>
-                </div>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Δ 0.30–0.50, Top Gamma, Θ/Premium &lt; 0.15, 45m exit
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLocalConfig((p) => ({ ...p, strategy: 'STANDARD' }))}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  localConfig.strategy === 'STANDARD'
-                    ? 'bg-blue-50 border-blue-500 dark:bg-blue-950/40 dark:border-blue-500 text-gray-900 dark:text-white shadow-2xs'
-                    : 'bg-gray-50 dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
-                }`}
-              >
-                <div className="font-bold flex items-center space-x-1.5 text-blue-600 dark:text-blue-400 mb-1">
-                  <Target className="w-3.5 h-3.5" />
-                  <span>Standard Scalper</span>
-                </div>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Basic EMA/VWAP momentum indicators
-                </p>
-              </button>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-gray-700 dark:text-gray-300 font-semibold block">Active Strategy Pipeline:</label>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">
+                {localConfig.strategy.replace('_', ' ')} ACTIVE
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {STRATEGIES.map((strat) => {
+                const IconComponent = strat.icon;
+                const isSelected = localConfig.strategy === strat.id;
+                return (
+                  <button
+                    key={strat.id}
+                    type="button"
+                    onClick={() => setLocalConfig((p) => ({ ...p, strategy: strat.id }))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      isSelected
+                        ? 'bg-emerald-50 border-emerald-500 dark:bg-emerald-950/40 dark:border-emerald-500 text-gray-900 dark:text-white shadow-2xs ring-1 ring-emerald-500/40'
+                        : 'bg-gray-50 dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="font-bold flex items-center space-x-1.5 text-xs text-gray-900 dark:text-white">
+                        <IconComponent className={`w-3.5 h-3.5 ${isSelected ? 'text-emerald-500' : 'text-gray-400'}`} />
+                        <span>{strat.name}</span>
+                      </div>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                        {strat.badge}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                      {strat.desc}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -269,6 +333,54 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             </button>
           </div>
 
+          {/* Max Budget per Trade */}
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
+                <Wallet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+                <span>Max Budget per Trade (₹):</span>
+              </div>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
+                ₹{(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="500"
+                max="100000"
+                step="500"
+                value={localConfig.maxBudgetPerTrade || 5000}
+                onChange={(e) =>
+                  setLocalConfig((p) => ({
+                    ...p,
+                    maxBudgetPerTrade: Math.max(500, parseInt(e.target.value) || 5000),
+                  }))
+                }
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[2000, 5000, 10000, 25000].map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: amt }))}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                    (localConfig.maxBudgetPerTrade || 5000) === amt
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                      : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                  }`}
+                >
+                  ₹{amt.toLocaleString('en-IN')}{amt === 5000 ? ' ⭐ Exact' : ''}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              Auto-Pilot scans the live option chain to auto-buy <strong>ONLY</strong> options where 1-lot cost (LTP × lot size) is within ₹{(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}.
+            </p>
+          </div>
+
           {/* Quantity & Daily Limits */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -310,13 +422,57 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-[11px] text-gray-600 dark:text-gray-400 space-y-1">
             <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1 mb-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
-              <span>Greek Momentum Sniper Rules Enforced:</span>
+              <span>{localConfig.strategy.replace('_', ' ')} Auto-Pilot Rules:</span>
             </div>
             <div className="grid grid-cols-2 gap-1 text-[10px]">
-              <div>• Strike Premium: ₹25 – ₹75</div>
-              <div>• Delta: 0.30 – 0.50 (OTM/ATM)</div>
-              <div>• Gamma: Top 3 Candidate Rank</div>
-              <div>• Theta/Premium: &lt; 0.15</div>
+              {localConfig.strategy === 'GAMMA_BLAST' && (
+                <>
+                  <div>• Time Window: 01:15 – 02:45 PM</div>
+                  <div>• Strike Premium: ₹10 – ₹55</div>
+                  <div>• Target: +75% to +100% (1:3+ Payout)</div>
+                  <div>• Stop-Loss: -30% (Strict capital cap)</div>
+                </>
+              )}
+              {localConfig.strategy === 'VWAP_TRAP' && (
+                <>
+                  <div>• Trigger: Day High/Low Fakeout Trap</div>
+                  <div>• Filter: Counter-Trend VWAP Reclaim</div>
+                  <div>• Target: +40% (Reversal Swing)</div>
+                  <div>• Stop-Loss: -18% (Swing high/low)</div>
+                </>
+              )}
+              {localConfig.strategy === 'ORB_15M' && (
+                <>
+                  <div>• Time Window: 09:30 – 11:00 AM</div>
+                  <div>• Trigger: 15m High/Low Breakout</div>
+                  <div>• Volume: &gt; 1.2x 20-SMA Volume</div>
+                  <div>• Auto-Exit: 11:00 AM before lunch</div>
+                </>
+              )}
+              {localConfig.strategy === 'PCR_REVERSAL' && (
+                <>
+                  <div>• Trigger: PCR &gt; 1.35 (PE) or &lt; 0.70 (CE)</div>
+                  <div>• Filter: RSI Overbought/Oversold</div>
+                  <div>• Target: +35% (Mean Reversion)</div>
+                  <div>• Stop-Loss: -15% (Tight Risk)</div>
+                </>
+              )}
+              {localConfig.strategy === 'GREEK_SNIPER' && (
+                <>
+                  <div>• Strike Premium: Affordable &le; Budget</div>
+                  <div>• Delta: 0.30 – 0.50 (OTM/ATM)</div>
+                  <div>• Gamma: Top Rank Sensitivity</div>
+                  <div>• Theta/Premium: &lt; 0.18 (45m Timeout)</div>
+                </>
+              )}
+              {localConfig.strategy === 'STANDARD' && (
+                <>
+                  <div>• Indicators: 9/21 EMA + VWAP Trend</div>
+                  <div>• Target: +30%</div>
+                  <div>• Stop-Loss: -18%</div>
+                  <div>• Quantity: Configured Lots</div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -329,11 +329,15 @@ export const MarketsScreen: React.FC<MarketsScreenProps> = ({ onNavigateFno }) =
             ? 'NSE:HDFCBANK'
             : 'NSE:NIFTYBEES'
         }
+        symbolToken={selectedToken}
         interval="15"
         height={500}
         theme="dark"
         enableStudies={true}
         allowSymbolChange={true}
+        livePrice={typeof activeQuote?.ltp === 'number' ? activeQuote.ltp : activeQuote?.ltp ? Number(activeQuote.ltp) : undefined}
+        liveNetChange={activeQuote?.netChange ?? undefined}
+        livePercentChange={activeQuote?.percentChange ?? undefined}
       />
 
       {/* Session & Range Metadata */}
