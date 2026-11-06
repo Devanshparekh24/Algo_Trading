@@ -290,6 +290,49 @@ export interface GoldenHoursStatus {
   canTrade: boolean;
 }
 
+export interface LiveStrategySuggestion {
+  recommendedStrategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD';
+  strategyName: string;
+  badge: string;
+  icon: string;
+  timeWindowLabel: string;
+  activeNow: boolean;
+  expiryIndexToday: string;
+  reason: string;
+  suggestedBudget?: number;
+  sizingLabel?: string;
+  targetProfitPct: number;
+  stopLossPct: number;
+  dateTime: string;
+}
+
+export interface StrategyScheduleRecord {
+  strategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD';
+  name: string;
+  badge: string;
+  icon: string;
+  startTime: string;
+  endTime: string;
+  timeLabel: string;
+  daysActive: string;
+  bestDays: string;
+  marketCondition: string;
+  description: string;
+  targetProfitPct: number;
+  stopLossPct: number;
+  suggestedBudget?: number;
+  sizingLabel?: string;
+  status: 'ACTIVE' | 'UPCOMING' | 'PAST';
+  isActiveNow: boolean;
+  dateTime: string;
+}
+
+export interface StrategyScheduleResponse {
+  liveSuggestion: LiveStrategySuggestion;
+  schedules: StrategyScheduleRecord[];
+  history: any[];
+}
+
 export interface OrderBookItem {
   variety: string;
   ordertype: string;
@@ -558,6 +601,30 @@ export async function fetchGoldenHoursStatus(): Promise<GoldenHoursStatus> {
   const res = await fetch(`${API_BASE}/golden-hours`);
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to fetch golden hours status');
+  return json.data;
+}
+
+/**
+ * Fetch strategy schedules and live IST strategy suggestion
+ */
+export async function fetchStrategySchedule(): Promise<StrategyScheduleResponse> {
+  const res = await fetch(`${API_BASE}/strategy-schedule`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch strategy schedules');
+  return json.data;
+}
+
+/**
+ * Log strategy schedule action or event to backend
+ */
+export async function logStrategySchedule(payload: Partial<StrategyScheduleRecord>): Promise<any> {
+  const res = await fetch(`${API_BASE}/strategy-schedule/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to log strategy schedule');
   return json.data;
 }
 

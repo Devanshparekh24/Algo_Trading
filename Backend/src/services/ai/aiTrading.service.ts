@@ -563,7 +563,7 @@ let autoPilotConfig: AutoPilotConfig = {
   stopLossPct: 18,
   thetaTimeoutMinutes: 45,
   defaultQuantity: 1,
-  maxBudgetPerTrade: 5000,
+  maxBudgetPerTrade: 0, // 0 = Dynamic sizing (no fixed price limit, trades by lot)
   productType: "INTRADAY",
   maxDailyTrades: 5,
   executedToday: 0,
@@ -1379,14 +1379,16 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
     }
 
     const lotSize = sig.lotSize || 65;
-    const finalQty = isFno ? lotSize : autoPilotConfig.defaultQuantity;
+    const lots = autoPilotConfig.defaultQuantity || 1;
+    const finalQty = isFno ? lotSize * lots : lots;
     const estimatedCost = finalQty * sig.currentPrice;
 
-    // Strict Budget Gatekeeper: ensure trade cost fits configured budget (e.g. ₹5,000)
+    // Optional Budget Gatekeeper: ONLY active if a positive budget cap > 0 is configured by user.
+    // If maxBudgetPerTrade is 0 or undefined, dynamic market sizing is used without fixed price restrictions.
     if (autoPilotConfig.maxBudgetPerTrade && autoPilotConfig.maxBudgetPerTrade > 0) {
       if (estimatedCost > autoPilotConfig.maxBudgetPerTrade) {
         console.log(
-          `[AI Auto-Pilot] Skipping ${sig.symbol}: Cost ₹${estimatedCost.toFixed(2)} (${finalQty} units @ ₹${sig.currentPrice}) exceeds max budget of ₹${autoPilotConfig.maxBudgetPerTrade}`
+          `[AI Auto-Pilot] Skipping ${sig.symbol}: Cost ₹${estimatedCost.toFixed(2)} (${finalQty} units @ ₹${sig.currentPrice}) exceeds custom budget of ₹${autoPilotConfig.maxBudgetPerTrade}`
         );
         continue;
       }
@@ -2010,6 +2012,351 @@ export async function clearAiErrorLogs(): Promise<number> {
   } catch (err: any) {
     console.error("[Database] Error clearing AI error logs:", err?.message || err);
     throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Strategy Scheduling & Live Suggestion Timeline Engine
+// ---------------------------------------------------------------------------
+
+export interface LiveStrategySuggestion {
+  recommendedStrategy: AutoPilotStrategy;
+  strategyName: string;
+  badge: string;
+  icon: string;
+  timeWindowLabel: string;
+  activeNow: boolean;
+  expiryIndexToday: string;
+  reason: string;
+  suggestedBudget?: number | undefined;
+  sizingLabel: string;
+  targetProfitPct: number;
+  stopLossPct: number;
+  dateTime: string;
+}
+
+export interface StrategyScheduleRecord {
+  id?: string;
+  strategy: AutoPilotStrategy;
+  name: string;
+  startTime: string;
+  endTime: string;
+  timeWindowLabel: string;
+  daysActive: string;
+  marketCondition: string;
+  description: string;
+  targetProfitPct: number;
+  stopLossPct: number;
+  suggestedBudget?: number | undefined;
+  sizingLabel: string;
+  status: "ACTIVE" | "UPCOMING" | "PAST";
+  isActiveNow: boolean;
+  dateTime: string;
+}
+
+const STATIC_STRATEGY_SCHEDULES: Omit<StrategyScheduleRecord, "isActiveNow" | "status" | "dateTime">[] = [
+  {
+    strategy: "ORB_15M",
+    name: "15-Minute ORB",
+    startTime: "09:30",
+    endTime: "11:00",
+    timeWindowLabel: "09:30 AM – 11:00 AM IST",
+    daysActive: "ALL",
+    marketCondition: "Morning High-Volume Breakout",
+    description: "Captures 15m high/low breakouts with volume surge. Auto-exits before 11 AM midday chop.",
+    targetProfitPct: 35,
+    stopLossPct: 18,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+  {
+    strategy: "VWAP_TRAP",
+    name: "VWAP Fakeout Trap",
+    startTime: "11:00",
+    endTime: "13:15",
+    timeWindowLabel: "11:00 AM – 01:15 PM IST",
+    daysActive: "ALL",
+    marketCondition: "Midday Chop & Institutional Reversal",
+    description: "Catches failed retail breakouts. Buys PEs on failed highs and CEs on reclaimed lows.",
+    targetProfitPct: 40,
+    stopLossPct: 18,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+  {
+    strategy: "GAMMA_BLAST",
+    name: "Expiry Gamma Blast",
+    startTime: "13:15",
+    endTime: "14:45",
+    timeWindowLabel: "01:15 PM – 02:45 PM IST",
+    daysActive: "EXPIRY_DAY",
+    marketCondition: "Afternoon Expiry Squeeze (Hero/Zero)",
+    description: "Cheap ₹10–₹45 options on the day's expiry index catching explosive 1:3+ gamma surges.",
+    targetProfitPct: 80,
+    stopLossPct: 30,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+  {
+    strategy: "GREEK_SNIPER",
+    name: "Greek Momentum Sniper",
+    startTime: "09:35",
+    endTime: "15:15",
+    timeWindowLabel: "09:35 AM – 03:15 PM IST",
+    daysActive: "ALL",
+    marketCondition: "Directional High-Delta Momentum",
+    description: "High Delta (0.35–0.50), top Gamma, and strict 45-minute theta decay protection timeout.",
+    targetProfitPct: 35,
+    stopLossPct: 18,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+  {
+    strategy: "PCR_REVERSAL",
+    name: "PCR Sentiment Reversal",
+    startTime: "10:00",
+    endTime: "15:00",
+    timeWindowLabel: "Market Sentiment Extremes",
+    daysActive: "ALL",
+    marketCondition: "Overbought / Oversold Contrarian",
+    description: "Buys PEs when PCR > 1.35 (Overbought), buys CEs when PCR < 0.70 (Oversold).",
+    targetProfitPct: 35,
+    stopLossPct: 15,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+  {
+    strategy: "STANDARD",
+    name: "Standard Scalper",
+    startTime: "09:20",
+    endTime: "15:20",
+    timeWindowLabel: "All Trading Hours",
+    daysActive: "ALL",
+    marketCondition: "Classic Trend Following",
+    description: "9/21 EMA + VWAP momentum scalping across liquid instruments.",
+    targetProfitPct: 30,
+    stopLossPct: 18,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
+];
+
+function getCurrentIST(): { hours: number; minutes: number; day: number; timeNum: number; istString: string } {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utc + 330 * 60000);
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
+  const day = istDate.getDay();
+  const timeNum = hours * 100 + minutes;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const istString = `${istDate.getFullYear()}-${pad(istDate.getMonth() + 1)}-${pad(istDate.getDate())} ${pad(hours)}:${pad(minutes)} IST`;
+  return { hours, minutes, day, timeNum, istString };
+}
+
+function getTodayExpiryIndex(day: number): string {
+  switch (day) {
+    case 1:
+      return "MIDCPNIFTY (Monday Expiry)";
+    case 2:
+      return "FINNIFTY (Tuesday Expiry)";
+    case 3:
+      return "BANKNIFTY (Wednesday Expiry)";
+    case 4:
+      return "NIFTY 50 (Thursday Expiry)";
+    case 5:
+      return "BSE SENSEX (Friday Expiry)";
+    default:
+      return "NIFTY 50 / BANKNIFTY";
+  }
+}
+
+export function getLiveStrategySuggestion(): LiveStrategySuggestion {
+  const { hours, minutes, day, timeNum, istString } = getCurrentIST();
+  const expiryIndexToday = getTodayExpiryIndex(day);
+
+  // 1. Morning ORB: 09:30 to 11:00
+  if (timeNum >= 930 && timeNum < 1100) {
+    return {
+      recommendedStrategy: "ORB_15M",
+      strategyName: "15-Minute ORB",
+      badge: "🌅 Morning Breakout Window",
+      icon: "Sun",
+      timeWindowLabel: "09:30 AM – 11:00 AM IST",
+      activeNow: true,
+      expiryIndexToday,
+      reason: "High institutional morning rush. Ride 15m High/Low breakouts with volume confirmation before 11 AM.",
+      suggestedBudget: 0,
+      sizingLabel: "Dynamic (1 Lot @ Market Price)",
+      targetProfitPct: 35,
+      stopLossPct: 18,
+      dateTime: istString,
+    };
+  }
+
+  // 2. Midday VWAP Trap: 11:00 to 13:15
+  if (timeNum >= 1100 && timeNum < 1315) {
+    return {
+      recommendedStrategy: "VWAP_TRAP",
+      strategyName: "VWAP Fakeout Trap",
+      badge: "🪤 Midday Reversal Window",
+      icon: "TrendingDown",
+      timeWindowLabel: "11:00 AM – 01:15 PM IST",
+      activeNow: true,
+      expiryIndexToday,
+      reason: "Lunch chop period. Avoid chasing breakout fakes; buy PEs on failed day highs and CEs on reclaimed day lows.",
+      suggestedBudget: 0,
+      sizingLabel: "Dynamic (1 Lot @ Market Price)",
+      targetProfitPct: 40,
+      stopLossPct: 18,
+      dateTime: istString,
+    };
+  }
+
+  // 3. Afternoon Expiry Gamma Blast: 13:15 to 14:45
+  if (timeNum >= 1315 && timeNum < 1445) {
+    return {
+      recommendedStrategy: "GAMMA_BLAST",
+      strategyName: "Expiry Gamma Blast",
+      badge: "🚀 Afternoon Gamma Surge",
+      icon: "Flame",
+      timeWindowLabel: "01:15 PM – 02:45 PM IST",
+      activeNow: true,
+      expiryIndexToday,
+      reason: `Expiry short-covering rally active on ${expiryIndexToday}. Fast asymmetric 1:3+ surge on cheap options.`,
+      suggestedBudget: 0,
+      sizingLabel: "Dynamic (1 Lot @ Market Price)",
+      targetProfitPct: 80,
+      stopLossPct: 30,
+      dateTime: istString,
+    };
+  }
+
+  // 4. Closing Momentum: 14:45 to 15:30
+  if (timeNum >= 1445 && timeNum <= 1530) {
+    return {
+      recommendedStrategy: "GREEK_SNIPER",
+      strategyName: "Greek Momentum Sniper",
+      badge: "⚡ Closing Scalper",
+      icon: "Zap",
+      timeWindowLabel: "02:45 PM – 03:30 PM IST",
+      activeNow: true,
+      expiryIndexToday,
+      reason: "Market close directional squeeze. Filters high Delta and top Gamma for fast closing scalps.",
+      suggestedBudget: 0,
+      sizingLabel: "Dynamic (1 Lot @ Market Price)",
+      targetProfitPct: 35,
+      stopLossPct: 18,
+      dateTime: istString,
+    };
+  }
+
+  // Outside Trading Hours
+  return {
+    recommendedStrategy: "ORB_15M",
+    strategyName: "15-Minute ORB",
+    badge: "⏳ Pre-Market Preparation",
+    icon: "Clock",
+    timeWindowLabel: "Tomorrow 09:30 AM – 11:00 AM IST",
+    activeNow: false,
+    expiryIndexToday,
+    reason: `Market closed. Next high-probability institutional window is 15-Min ORB on ${expiryIndexToday} at 09:30 AM.`,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic (1 Lot @ Market Price)",
+    targetProfitPct: 35,
+    stopLossPct: 18,
+    dateTime: istString,
+  };
+}
+
+export async function getStrategySchedules(): Promise<{
+  liveSuggestion: LiveStrategySuggestion;
+  schedules: StrategyScheduleRecord[];
+  history: any[];
+}> {
+  const liveSuggestion = getLiveStrategySuggestion();
+  const { timeNum, istString } = getCurrentIST();
+
+  const schedules: StrategyScheduleRecord[] = STATIC_STRATEGY_SCHEDULES.map((s) => {
+    let status: "ACTIVE" | "UPCOMING" | "PAST" = "UPCOMING";
+    let isActiveNow = false;
+
+    const startNum = parseInt(s.startTime.replace(":", ""), 10);
+    const endNum = parseInt(s.endTime.replace(":", ""), 10);
+
+    if (timeNum >= startNum && timeNum <= endNum) {
+      status = "ACTIVE";
+      isActiveNow = true;
+    } else if (timeNum > endNum) {
+      status = "PAST";
+    }
+
+    return {
+      ...s,
+      status,
+      isActiveNow,
+      dateTime: istString,
+    };
+  });
+
+  let history: any[] = [];
+  try {
+    history = await prisma.aiStrategySchedule.findMany({
+      orderBy: { dateTime: "desc" },
+      take: 20,
+    });
+    history = history.map((h) => ({
+      ...h,
+      id: String(h.id),
+    }));
+  } catch {
+    history = [];
+  }
+
+  return {
+    liveSuggestion,
+    schedules,
+    history,
+  };
+}
+
+export async function logStrategyScheduleEvent(params: {
+  strategy: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  daysActive?: string;
+  marketCondition?: string;
+  description?: string;
+  targetProfitPct?: number;
+  stopLossPct?: number;
+  suggestedBudget?: number;
+}): Promise<any> {
+  try {
+    const res = await prisma.aiStrategySchedule.create({
+      data: {
+        strategy: params.strategy,
+        name: params.name,
+        startTime: params.startTime,
+        endTime: params.endTime,
+        daysActive: params.daysActive || "ALL",
+        marketCondition: params.marketCondition || "Active Schedule",
+        description: params.description || "",
+        targetProfitPct: params.targetProfitPct || 35,
+        stopLossPct: params.stopLossPct || 18,
+        suggestedBudget: params.suggestedBudget || 5000,
+        status: "ACTIVE",
+        dateTime: new Date(),
+      },
+    });
+    return { ...res, id: String(res.id) };
+  } catch (err: any) {
+    console.warn("[Database] Could not log strategy schedule event:", err?.message || err);
+    return {
+      ...params,
+      id: String(Date.now()),
+      dateTime: new Date().toISOString(),
+    };
   }
 }
 

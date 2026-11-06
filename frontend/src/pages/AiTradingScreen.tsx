@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, X, Zap, Clock, Calendar, Sparkles } from 'lucide-react';
 import {
   fetchAiSignals,
   analyzeScrip,
@@ -14,8 +14,11 @@ import {
   resetUniverse,
   searchInstrumentsApi,
   fetchBudgetAdvice,
+  fetchStrategySchedule,
+  logStrategySchedule,
   type TradeSignal,
   type AutoPilotConfig,
+  type AutoPilotStrategy,
   type OrderBookItem,
   type MarketSegment,
   type UniverseScrip,
@@ -23,6 +26,8 @@ import {
   type RiskProfile,
   type BudgetSegment,
   type VolatileOptionItem,
+  type LiveStrategySuggestion,
+  type StrategyScheduleRecord,
 } from '../services/aiTradingService';
 import { useFnoMovers } from '../hooks/useMarket';
 import { getRMSLimit } from '../services/authService';
@@ -37,6 +42,7 @@ import { AiOrderBookTab } from '../components/aiTrading/AiOrderBookTab';
 import { AiOrderExecutionModal } from '../components/aiTrading/AiOrderExecutionModal';
 import { AiAutoPilotModal } from '../components/aiTrading/AiAutoPilotModal';
 import { AiUniverseModal } from '../components/aiTrading/AiUniverseModal';
+import { AiStrategyScheduleModal } from '../components/aiTrading/AiStrategyScheduleModal';
 import { useAppStore } from '../store';
 
 export const AiTradingScreen: React.FC = () => {
@@ -130,6 +136,13 @@ export const AiTradingScreen: React.FC = () => {
   });
   const [isAutoPilotModalOpen, setIsAutoPilotModalOpen] = useState(false);
 
+  // Live Strategy Schedule & IST Timetable State
+  const [strategySuggestion, setStrategySuggestion] = useState<LiveStrategySuggestion | null>(null);
+  const [strategySchedules, setStrategySchedules] = useState<StrategyScheduleRecord[]>([]);
+  const [strategyLogs, setStrategyLogs] = useState<any[]>([]);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
+
   // Dynamic Scanning Universe State
   const [universe, setUniverse] = useState<UniverseScrip[]>([]);
   const [isUniverseModalOpen, setIsUniverseModalOpen] = useState(false);
@@ -215,6 +228,22 @@ export const AiTradingScreen: React.FC = () => {
       setIsLoadingUniverse(false);
     }
   }, [selectedSegment]);
+
+  const loadStrategySchedule = useCallback(async () => {
+    setIsLoadingSchedule(true);
+    try {
+      const data = await fetchStrategySchedule();
+      if (data) {
+        setStrategySuggestion(data.liveSuggestion);
+        setStrategySchedules(data.schedules || []);
+        setStrategyLogs(data.history || []);
+      }
+    } catch (err) {
+      console.warn('Could not load strategy schedules:', err);
+    } finally {
+      setIsLoadingSchedule(false);
+    }
+  }, []);
 
   const handleUniverseSearch = async (query: string) => {
     setUniverseSearchQuery(query);
@@ -405,7 +434,13 @@ export const AiTradingScreen: React.FC = () => {
     loadOrders();
     loadUniverse();
     loadBrokerFunds();
-  }, [loadSignals, loadAutoPilot, loadOrders, loadUniverse, loadBrokerFunds]);
+    loadStrategySchedule();
+
+    const timer = setInterval(() => {
+      loadStrategySchedule();
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [loadSignals, loadAutoPilot, loadOrders, loadUniverse, loadBrokerFunds, loadStrategySchedule]);
 
   // Request WebSocket price update when chart symbol changes
   useEffect(() => {
@@ -767,6 +802,47 @@ export const AiTradingScreen: React.FC = () => {
     }
   };
 
+  // 1-Click Arm Strategy from Suggestion or Timetable
+  const handleArmStrategy = async (
+    strategy: AutoPilotStrategy,
+    budget?: number,
+    targetPct?: number,
+    slPct?: number
+  ) => {
+    const tradeBudget = budget || 5000;
+    const target = targetPct || 35;
+    const sl = slPct || 18;
+
+    const updated: Partial<AutoPilotConfig> = {
+      ...autoPilot,
+      strategy,
+      maxBudgetPerTrade: tradeBudget,
+      profitTargetPct: target,
+      stopLossPct: sl,
+      enabled: true,
+    };
+
+    try {
+      await handleSaveAutoPilot(updated);
+      await logStrategySchedule({
+        strategy,
+        name: strategySuggestion?.strategyName || strategy,
+        startTime: strategySuggestion?.timeWindowLabel?.split('–')[0]?.trim() || '09:30',
+        endTime: strategySuggestion?.timeWindowLabel?.split('–')[1]?.trim() || '15:30',
+        suggestedBudget: tradeBudget,
+        targetProfitPct: target,
+        stopLossPct: sl,
+        marketCondition: strategySuggestion?.reason || 'Live IST Strategy Schedule Activation',
+      }).catch(() => {});
+      loadStrategySchedule();
+    } catch (err: any) {
+      setExecutionToast({
+        type: 'error',
+        message: err?.message || 'Failed to arm strategy',
+      });
+    }
+  };
+
   // Filtered Signals
   const filteredSignals = useMemo(() => {
     return signals.filter((s) => {
@@ -826,6 +902,108 @@ export const AiTradingScreen: React.FC = () => {
         onScanMarket={() => loadSignals(true)}
         onPauseAutoPilot={() => handleSaveAutoPilot({ enabled: false })}
       />
+
+      {/* Live AI Strategy Suggestion Label & Timetable Banner */}
+      {strategySuggestion && (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/90 to-blue-950/40 border border-amber-500/30 p-4 sm:p-5 shadow-xl shadow-amber-500/5 transition-all">
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 bg-gradient-to-br from-amber-500/10 to-orange-500/0 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+            {/* Left: Strategy Info & Live Clock */}
+            <div className="space-y-1.5 flex-1">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  <Sparkles className="w-3 h-3 mr-1 fill-amber-300 text-amber-300" />
+                  Live AI Strategy Suggestion
+                </span>
+
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    strategySuggestion.activeNow
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse'
+                      : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  }`}
+                >
+                  <Clock className="w-2.5 h-2.5 mr-1" />
+                  {strategySuggestion.activeNow ? '🟢 ACTIVE NOW' : '⏳ UPCOMING'} • {strategySuggestion.timeWindowLabel}
+                </span>
+
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-800 text-gray-300 border border-gray-700">
+                  {strategySuggestion.expiryIndexToday}
+                </span>
+
+                <span className="text-[11px] text-gray-400 font-mono">
+                  {strategySuggestion.dateTime}
+                </span>
+              </div>
+
+              <div className="flex items-baseline space-x-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                  <span>{strategySuggestion.strategyName}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-md bg-gray-800/90 text-amber-400 font-semibold border border-gray-700">
+                    {strategySuggestion.badge}
+                  </span>
+                </h3>
+              </div>
+
+              <p className="text-xs text-gray-300 leading-relaxed max-w-3xl">
+                {strategySuggestion.reason}
+              </p>
+
+              {/* Metrics Chips */}
+              <div className="flex items-center space-x-3 sm:space-x-5 text-xs pt-1 flex-wrap gap-y-1">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-gray-400">Budget Cap:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    ₹{strategySuggestion.suggestedBudget.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-gray-400">Target Profit:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    +{strategySuggestion.targetProfitPct}%
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-gray-400">Stop-Loss:</span>
+                  <span className="font-mono font-bold text-rose-400">
+                    -{strategySuggestion.stopLossPct}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: 1-Click Action Buttons */}
+            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 pt-2 lg:pt-0">
+              <button
+                type="button"
+                onClick={() =>
+                  handleArmStrategy(
+                    strategySuggestion.recommendedStrategy,
+                    strategySuggestion.suggestedBudget,
+                    strategySuggestion.targetProfitPct,
+                    strategySuggestion.stopLossPct
+                  )
+                }
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center space-x-1.5 transition-all transform active:scale-95"
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>Arm This Strategy (₹{strategySuggestion.suggestedBudget.toLocaleString('en-IN')})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsScheduleModalOpen(true)}
+                className="px-3.5 py-2.5 rounded-xl bg-gray-800/90 hover:bg-gray-700/90 text-gray-200 border border-gray-700 font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                title="View full strategy schedule timetable, active days & database logs"
+              >
+                <Calendar className="w-4 h-4 text-blue-400" />
+                <span>Timetable & DB Logs</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation View Tabs */}
       <AiTradingNavTabs
@@ -1027,6 +1205,17 @@ export const AiTradingScreen: React.FC = () => {
         onRemoveScrip={handleRemoveUniverseScrip}
         onResetUniverse={handleResetUniverse}
         onReScanUniverse={() => loadSignals(true)}
+      />
+
+      {/* F&O Strategy Timetable & Database Logs Modal */}
+      <AiStrategyScheduleModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        liveSuggestion={strategySuggestion}
+        schedules={strategySchedules}
+        historyLogs={strategyLogs}
+        onArmStrategy={handleArmStrategy}
+        isLoading={isLoadingSchedule}
       />
     </div>
   );

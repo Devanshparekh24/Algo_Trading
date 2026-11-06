@@ -23,6 +23,8 @@ import {
   getAiTradeLogs,
   getAiErrorLogs,
   clearAiErrorLogs,
+  getStrategySchedules,
+  logStrategyScheduleEvent,
   type MarketSegment,
   type ScripCandidate,
 } from "../services/ai/aiTrading.service.js";
@@ -581,6 +583,48 @@ export function getGoldenHoursController(_req: Request, res: Response): void {
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to check golden hours",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/strategy-schedule
+ * Get strategy timetable with IST timings, active days, target/SL %, and current live suggestion
+ */
+export async function getStrategyScheduleController(_req: Request, res: Response): Promise<void> {
+  try {
+    const data = await getStrategySchedules();
+    res.json({
+      status: true,
+      message: "Strategy schedules and live suggestion retrieved successfully",
+      data,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching strategy schedules:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch strategy schedules",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/strategy-schedule/log
+ * Log an active strategy event or execution to the database with date and time
+ */
+export async function logStrategyScheduleController(req: Request, res: Response): Promise<void> {
+  try {
+    const result = await logStrategyScheduleEvent(req.body);
+    res.json({
+      status: true,
+      message: "Strategy schedule logged successfully",
+      data: result,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error logging strategy schedule:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to log strategy schedule",
     });
   }
 }

@@ -78,6 +78,10 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   config,
   onSave,
 }) => {
+  const [pricingMode, setPricingMode] = useState<'DYNAMIC' | 'BUDGET_CAP'>(
+    config.maxBudgetPerTrade && config.maxBudgetPerTrade > 0 ? 'BUDGET_CAP' : 'DYNAMIC'
+  );
+
   const [localConfig, setLocalConfig] = useState<AutoPilotConfig>({
     ...config,
     strategy: config.strategy || 'GREEK_SNIPER',
@@ -85,7 +89,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
     stopLossPct: config.stopLossPct || 18,
     thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
     enforceGoldenHours: config.enforceGoldenHours !== false,
-    maxBudgetPerTrade: config.maxBudgetPerTrade || 5000,
+    maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
   });
 
   useEffect(() => {
@@ -96,8 +100,9 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
       stopLossPct: config.stopLossPct || 18,
       thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
       enforceGoldenHours: config.enforceGoldenHours !== false,
-      maxBudgetPerTrade: config.maxBudgetPerTrade || 5000,
+      maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
     });
+    setPricingMode(config.maxBudgetPerTrade && config.maxBudgetPerTrade > 0 ? 'BUDGET_CAP' : 'DYNAMIC');
   }, [config]);
 
   if (!isOpen) return null;
@@ -333,51 +338,103 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             </button>
           </div>
 
-          {/* Max Budget per Trade */}
-          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-2">
+          {/* Sizing & Budget Policy */}
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-3">
             <div className="flex items-center justify-between">
               <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
                 <Wallet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                <span>Max Budget per Trade (₹):</span>
+                <span>Trade Sizing & Price Mode:</span>
               </div>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
-                ₹{(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}
+              <span className={`font-bold font-mono text-xs px-2 py-0.5 rounded-md ${
+                pricingMode === 'DYNAMIC'
+                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              }`}>
+                {pricingMode === 'DYNAMIC' ? 'Dynamic (No Fixed Cap)' : `Cap: ₹${(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}`}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min="500"
-                max="100000"
-                step="500"
-                value={localConfig.maxBudgetPerTrade || 5000}
-                onChange={(e) =>
-                  setLocalConfig((p) => ({
-                    ...p,
-                    maxBudgetPerTrade: Math.max(500, parseInt(e.target.value) || 5000),
-                  }))
-                }
-                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
-              />
+
+            {/* Sizing Mode Tabs */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPricingMode('DYNAMIC')}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-left flex flex-col ${
+                  pricingMode === 'DYNAMIC'
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Dynamic Market Sizing</span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-normal ${pricingMode === 'DYNAMIC' ? 'text-blue-100' : 'text-gray-500'}`}>
+                  No fixed price restriction. Buys optimal strike by lots.
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPricingMode('BUDGET_CAP')}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-left flex flex-col ${
+                  pricingMode === 'BUDGET_CAP'
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/20'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Custom Budget Cap</span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-normal ${pricingMode === 'BUDGET_CAP' ? 'text-emerald-100' : 'text-gray-500'}`}>
+                  Enforce an upper cost ceiling per trade.
+                </span>
+              </button>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[2000, 5000, 10000, 25000].map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: amt }))}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                    (localConfig.maxBudgetPerTrade || 5000) === amt
-                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
-                      : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
-                  }`}
-                >
-                  ₹{amt.toLocaleString('en-IN')}{amt === 5000 ? ' ⭐ Exact' : ''}
-                </button>
-              ))}
-            </div>
+
+            {pricingMode === 'BUDGET_CAP' && (
+              <div className="space-y-2 pt-1 animate-in fade-in duration-150">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="500"
+                    max="100000"
+                    step="500"
+                    value={localConfig.maxBudgetPerTrade || 5000}
+                    onChange={(e) =>
+                      setLocalConfig((p) => ({
+                        ...p,
+                        maxBudgetPerTrade: Math.max(500, parseInt(e.target.value) || 5000),
+                      }))
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500 text-xs"
+                    placeholder="Enter maximum budget in INR"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[2500, 5000, 10000, 25000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: amt }))}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                        (localConfig.maxBudgetPerTrade || 5000) === amt
+                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                          : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                      }`}
+                    >
+                      ₹{amt.toLocaleString('en-IN')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-[10px] text-gray-500 leading-relaxed">
-              Auto-Pilot scans the live option chain to auto-buy <strong>ONLY</strong> options where 1-lot cost (LTP × lot size) is within ₹{(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}.
+              {pricingMode === 'DYNAMIC'
+                ? '⭐ Strategy executes automatically based on Greeks & OI without skipping trades over arbitrary price ceilings.'
+                : 'Auto-Pilot buys only options where 1-lot premium cost is within your specified cap.'}
             </p>
           </div>
 
@@ -489,7 +546,10 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              onSave(localConfig);
+              onSave({
+                ...localConfig,
+                maxBudgetPerTrade: pricingMode === 'DYNAMIC' ? 0 : localConfig.maxBudgetPerTrade || 5000,
+              });
               onClose();
             }}
             className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center space-x-1.5"

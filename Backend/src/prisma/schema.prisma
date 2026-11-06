@@ -86,3 +86,25 @@ model AiErrorLog {
   @@index([createdAt])
   @@index([symbol])
 }
+
+model AiStrategySchedule {
+  id              BigInt    @id @default(autoincrement())
+  strategy        String    // GREEK_SNIPER, GAMMA_BLAST, VWAP_TRAP, ORB_15M, PCR_REVERSAL, STANDARD
+  name            String    // 15-Minute ORB, Expiry Gamma Blast, etc.
+  startTime       String    // e.g. "09:30"
+  endTime         String    // e.g. "11:00"
+  daysActive      String    @default("ALL") // ALL, EXPIRY_DAY, MON, TUE, WED, THU, FRI
+  marketCondition String    // Morning Trend, Lunch Chop Trap, Expiry Squeeze, etc.
+  description     String?
+  targetProfitPct Float     @default(35)
+  stopLossPct     Float     @default(18)
+  suggestedBudget Float     @default(5000)
+  status          String    @default("ACTIVE") // ACTIVE, INACTIVE
+  dateTime        DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([strategy])
+  @@index([status])
+  @@index([dateTime])
+}

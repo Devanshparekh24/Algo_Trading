@@ -23,6 +23,8 @@ import {
   getAiErrorLogsController,
   clearAiErrorLogsController,
   getGoldenHoursController,
+  getStrategyScheduleController,
+  logStrategyScheduleController,
 } from "../controllers/aiTrading.controller.js";
 
 const router = Router();
@@ -69,6 +71,10 @@ router.delete("/error-logs", clearAiErrorLogsController);
 
 // Golden Hours Status Indicator
 router.get("/golden-hours", getGoldenHoursController);
+
+// Strategy Schedule & Dynamic Live IST Suggestion
+router.get("/strategy-schedule", getStrategyScheduleController);
+router.post("/strategy-schedule/log", logStrategyScheduleController);
 
 export default router;
 
