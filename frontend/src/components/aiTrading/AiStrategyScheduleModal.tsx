@@ -200,7 +200,7 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
                       <th className="py-3 px-4">Active Days</th>
                       <th className="py-3 px-4">Market Condition</th>
                       <th className="py-3 px-4">Target / SL</th>
-                      <th className="py-3 px-4">Budget Cap</th>
+                      <th className="py-3 px-4">Trade Sizing</th>
                       <th className="py-3 px-4 text-center">Status</th>
                       <th className="py-3 px-4 text-right">Action</th>
                     </tr>
@@ -262,8 +262,9 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
                             <span className="text-rose-400 font-bold">-{item.stopLossPct}%</span>
                           </td>
 
-                          <td className="py-3.5 px-4 font-mono text-emerald-400 font-bold">
-                            ₹{item.suggestedBudget.toLocaleString('en-IN')}
+                          <td className="py-3.5 px-4 font-mono">
+                            <span className="text-emerald-400 font-bold block text-xs">Dynamic (By Lots)</span>
+                            <span className="text-[10px] text-gray-400 font-sans">Market Price (No Cap)</span>
                           </td>
 
                           <td className="py-3.5 px-4 text-center">
@@ -288,7 +289,7 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
                               onClick={() => {
                                 onArmStrategy(
                                   item.strategy,
-                                  item.suggestedBudget,
+                                  0,
                                   item.targetProfitPct,
                                   item.stopLossPct
                                 );
@@ -376,7 +377,7 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
                         <th className="py-3 px-4">Strategy</th>
                         <th className="py-3 px-4">Time Window</th>
                         <th className="py-3 px-4">Days Active</th>
-                        <th className="py-3 px-4">Budget Cap</th>
+                        <th className="py-3 px-4">Sizing Policy</th>
                         <th className="py-3 px-4">Market Condition</th>
                       </tr>
                     </thead>
@@ -396,7 +397,7 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
                             {log.daysActive || 'Mon – Fri'}
                           </td>
                           <td className="py-3 px-4 text-emerald-400 font-bold">
-                            ₹{Number(log.suggestedBudget || 5000).toLocaleString('en-IN')}
+                            {Number(log.suggestedBudget) > 0 ? `Cap: ₹${Number(log.suggestedBudget).toLocaleString('en-IN')}` : 'Dynamic (By Lots)'}
                           </td>
                           <td className="py-3 px-4 font-sans text-gray-400 text-[11px] max-w-xs truncate">
                             {log.marketCondition || log.description || 'Active Window Execution'}
@@ -414,8 +415,8 @@ export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = (
         {/* Modal Footer */}
         <div className="p-4 border-t border-gray-800 bg-gray-950 flex items-center justify-between text-xs text-gray-400 shrink-0">
           <div className="flex items-center space-x-2">
-            <Shield className="w-4 h-4 text-emerald-400" />
-            <span>5,000 INR strict risk limit per trade enforced across all strategies</span>
+            <Zap className="w-4 h-4 text-amber-400" />
+            <span>Dynamic Market Sizing: Option strikes are selected strictly by Greek momentum & OI, not restricted by a fixed price ceiling.</span>
           </div>
           <button
             type="button"
