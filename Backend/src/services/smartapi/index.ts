@@ -79,4 +79,12 @@ export {
   smartApiRateLimiter as smartApiPacer,
   smartApiRateLimiter as smartApiQueue,
   RATE_LIMIT_CONFIGS,
-} from "./rateLimiter.js";
+} from "./rateLimiter.js";
+
+// Option Chain Service
+export {
+  getOptionChainData,
+  type OptionChainData,
+  type OptionChainStrikeRow,
+  type OptionContractDetails,
+} from "./optionChain.service.js";

@@ -22,8 +22,15 @@ export const MarketStatusBadge: React.FC<MarketStatusBadgeProps> = ({
 
   // Specific short reason for badge text
   const reasonShort = (() => {
-    if (statusInfo?.isHoliday) return `Holiday: ${statusInfo.holidayName || ''}`;
-    if (statusInfo?.isWeekend) return 'Weekend';
+    if (statusInfo?.subStatus === 'MUHURAT_TRADING') return 'Diwali Muhurat';
+    if (statusInfo?.isHoliday) {
+      if (statusInfo.isMuhuratTrading) return 'Diwali Muhurat Today';
+      return `Holiday: ${statusInfo.holidayName || ''}`;
+    }
+    if (statusInfo?.isWeekend) {
+      if (statusInfo.nextSession?.includes('Muhurat')) return 'Muhurat Ahead';
+      return 'Weekend';
+    }
     if (statusInfo?.subStatus === 'BEFORE_MARKET') return 'Pre-Hours';
     if (statusInfo?.subStatus === 'AFTER_HOURS' || statusInfo?.subStatus === 'CLOSING_SESSION') return 'After Hours';
     return '';
@@ -32,12 +39,13 @@ export const MarketStatusBadge: React.FC<MarketStatusBadgeProps> = ({
   // Badge visual styles
   const badgeConfig = (() => {
     if (isOpen) {
+      const isMuhurat = statusInfo?.subStatus === 'MUHURAT_TRADING';
       return {
-        bg: 'bg-emerald-50 dark:bg-emerald-950/40',
-        border: 'border-emerald-200 dark:border-emerald-800/80',
-        text: 'text-emerald-700 dark:text-emerald-400',
-        dot: 'bg-emerald-500',
-        label: 'Market Open',
+        bg: isMuhurat ? 'bg-amber-100 dark:bg-amber-950/60' : 'bg-emerald-50 dark:bg-emerald-950/40',
+        border: isMuhurat ? 'border-amber-400 dark:border-amber-600' : 'border-emerald-200 dark:border-emerald-800/80',
+        text: isMuhurat ? 'text-amber-800 dark:text-amber-300 font-extrabold' : 'text-emerald-700 dark:text-emerald-400',
+        dot: isMuhurat ? 'bg-amber-500' : 'bg-emerald-500',
+        label: isMuhurat ? 'Diwali Muhurat Open' : 'Market Open',
         ping: true,
       };
     }

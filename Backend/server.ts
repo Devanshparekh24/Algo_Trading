@@ -4,6 +4,7 @@ import prisma from "./src/config/prisma.js";
 import { startSessionScheduler, startInstrumentScheduler } from "./src/services/smartapi/index.js";
 import { getTopFnoMovers } from "./src/services/smartapi/fnoMovers.service.js";
 import { initSocketServer } from "./src/services/websocket/socketService.js";
+import { seedMarketHolidays, seedSundayMarketOpen } from "./src/services/marketHoliday.service.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -61,6 +62,15 @@ server.listen(PORT, async () => {
         await startInstrumentScheduler();
     } catch (error) {
         console.error("[SmartAPI] Failed to start instrument scheduler:", error);
+    }
+
+    try {
+        // Initialize & seed official NSE/BSE market holidays in PostgreSQL
+        await seedMarketHolidays();
+        // Seed share-market holidays that fall on Sat/Sun into SundayMarkeopen table
+        await seedSundayMarketOpen();
+    } catch (error) {
+        console.error("[MarketHoliday] Failed to seed market holidays:", error);
     }
 
     try {

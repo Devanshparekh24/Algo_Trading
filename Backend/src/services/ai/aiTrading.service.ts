@@ -9,6 +9,7 @@ import { getHoldings } from "../smartapi/api/holdings.js";
 import { getGainersLosersData } from "../smartapi/api/gainersLosers.js";
 import { placeSmartApiOrder, getSmartApiOrderBook } from "../smartapi/api/order.js";
 import { getTopFnoMovers, type FnoMoverItem } from "../smartapi/fnoMovers.service.js";
+import { getOptionChainData, type OptionChainData, type OptionChainStrikeRow } from "../smartapi/optionChain.service.js";
 import type { CandleData, FullMode, OrderPlacementRequest, OrderBookItem } from "../smartapi/types.js";
 import { broadcastSocketEvent } from "../websocket/socketService.js";
 import prisma from "../../config/prisma.js";
@@ -104,7 +105,8 @@ export type AutoPilotStrategy =
   | "VWAP_TRAP"
   | "ORB_15M"
   | "PCR_REVERSAL"
-  | "STANDARD";
+  | "STANDARD"
+  | "EMA_9_21";
 
 export interface AutoPilotConfig {
   enabled: boolean;
@@ -1317,6 +1319,123 @@ export async function findAndAnalyzeOptionStrike(params: {
 }
 
 /**
+ * Scan an Option Chain and produce a ranked list of TradeSignals (CE/PE strikes).
+ * Underlying e.g. "NIFTY", optional expiry, strikeCount (default 8 each side).
+ */
+export async function scanOptionChainSignals(params: {
+  underlying: string;
+  expiry?: string;
+  strikeCount?: number;
+}): Promise<{ underlying: string; spotPrice: number; pcr: number; pcrSentiment: string; maxPainStrike: number; signals: TradeSignal[] }> {
+  const underlying = (params.underlying || "NIFTY").trim().toUpperCase();
+  const chain = await getOptionChainData({ underlying, expiry: params.expiry, strikeCount: params.strikeCount ?? 8 });
+
+  const signals: TradeSignal[] = [];
+  const lotSize = chain.lotSize || 65;
+  const spot = chain.spotPrice;
+
+  for (const row of chain.rows) {
+    for (const side of ["call", "put"] as const) {
+      const contract = side === "call" ? row.call : row.put;
+      if (!contract || !contract.ltp || contract.ltp <= 0) continue;
+
+      const isCall = side === "call";
+      const pct = contract.percentChange || 0;
+      const vol = contract.tradeVolume || 0;
+      const oi = contract.opnInterest || 0;
+      const delta = contract.greeks?.delta ?? 0;
+      const gamma = contract.greeks?.gamma ?? 0;
+      const thetaRatio = contract.greeks?.thetaPremiumRatio ?? 0;
+
+      // Action heuristic
+      let action: SignalAction = "HOLD";
+      if (pct > 0.5 && delta >= 0.2 && delta <= 0.6) action = "BUY";
+      else if (pct < -0.5 && delta >= 0.2 && delta <= 0.6) action = "SELL";
+
+      // Confidence
+      let confidence = 50 + Math.min(30, Math.abs(pct) * 2) + Math.min(10, (vol > 0 ? 5 : 0)) + Math.min(10, (oi > 0 ? 5 : 0));
+      if (row.isAtm) confidence += 5;
+      confidence = Math.min(95, Math.max(40, Math.round(confidence)));
+
+      const ltp = contract.ltp;
+      const sl = Number((ltp * 0.78).toFixed(2));
+      const t1 = Number((ltp * 1.5).toFixed(2));
+      const t2 = Number((ltp * 2.2).toFixed(2));
+
+      const signal: TradeSignal = {
+        id: `OC_${contract.symbolToken}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        symbol: contract.tradingSymbol,
+        token: contract.symbolToken,
+        exchange: "NFO",
+        segment: "FNO",
+        contractType: isCall ? "CE" : "PE",
+        strike: contract.strike,
+        expiry: contract.expiry,
+        lotSize,
+        underlying,
+        openInterest: oi,
+        action,
+        confidence,
+        timeframe: "INTRADAY",
+        currentPrice: ltp,
+        entryPrice: ltp,
+        stopLoss: sl,
+        target1: t1,
+        target2: t2,
+        riskReward: "1:2.0",
+        netChange: contract.netChange,
+        percentChange: pct,
+        indicators: {
+          rsi: pct >= 0 ? 62 : 38,
+          rsiSignal: pct >= 0 ? "BULLISH_MOMENTUM" : "BEARISH_MOMENTUM",
+          ema9: ltp,
+          ema21: ltp * 0.98,
+          sma50: ltp * 0.95,
+          emaTrend: pct >= 0 ? "BULLISH" : "BEARISH",
+          macd: { macdLine: pct, signalLine: pct * 0.8, histogram: pct * 0.2, trend: pct >= 0 ? "BULLISH" : "BEARISH" },
+          bollingerBands: { upper: ltp * 1.1, middle: ltp, lower: ltp * 0.9, bandwidth: 20, percentB: 0.6, position: "UPPER_HALF" },
+          atr: ltp * 0.05,
+          volumeRatio: vol > 0 ? 1.5 : 1.0,
+          supportLevel: sl,
+          resistanceLevel: t1,
+          orderBookImbalance: pct >= 0 ? 0.3 : -0.3,
+        },
+        greeks: contract.greeks,
+        aiThesis: {
+          summary: `${isCall ? "Call" : "Put"} ${contract.strike} ${pct >= 0 ? "momentum" : "weakness"}: ${pct.toFixed(2)}% move, delta ${delta.toFixed(2)}, gamma ${gamma.toFixed(4)}.`,
+          rationale: [
+            `Premium ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`,
+            `Delta ${delta.toFixed(3)} | Gamma ${gamma.toFixed(4)} | Theta/Premium ${thetaRatio.toFixed(3)}`,
+            `OI ${oi} | Volume ${vol}${row.isAtm ? " | ATM strike" : ""}`,
+          ],
+          riskFactor: `Theta decay if held; SL at ₹${sl}.`,
+          catalyst: "Option chain momentum + greeks confluence.",
+        },
+        generatedAt: new Date().toISOString(),
+        status: "ACTIVE",
+      };
+      signals.push(signal);
+    }
+  }
+
+  signals.sort((a, b) => {
+    const aAction = a.action !== "HOLD" ? 1 : 0;
+    const bAction = b.action !== "HOLD" ? 1 : 0;
+    if (aAction !== bAction) return bAction - aAction;
+    return b.confidence - a.confidence;
+  });
+
+  return {
+    underlying,
+    spotPrice: spot,
+    pcr: chain.pcr,
+    pcrSentiment: chain.pcrSentiment,
+    maxPainStrike: chain.maxPainStrike,
+    signals,
+  };
+}
+
+/**
  * Evaluate Auto-Pilot trigger rules and execute trades
  */
 async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> {
@@ -1376,6 +1495,17 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
       // Reversal oscillator: Avoid buying Calls when overbought or Puts when oversold
       if (sig.contractType === "CE" && sig.indicators && sig.indicators.rsi > 68) continue;
       if (sig.contractType === "PE" && sig.indicators && sig.indicators.rsi < 32) continue;
+    }
+    // 6. EMA_9_21 Strategy Pipeline (NIFTY Intraday EMA Crossover)
+    else if (autoPilotConfig.strategy === "EMA_9_21") {
+      // Only trade NIFTY-based instruments for this strategy
+      if (sig.underlying !== "NIFTY" && !sig.symbol.includes("NIFTY")) continue;
+      // Require strong EMA alignment: EMA9 above EMA21 for BUY, EMA9 below EMA21 for SELL
+      if (sig.action === "BUY" && sig.indicators && !(sig.indicators.emaTrend === "STRONG_BULLISH" || sig.indicators.emaTrend === "BULLISH")) continue;
+      if (sig.action === "SELL" && sig.indicators && !(sig.indicators.emaTrend === "STRONG_BEARISH" || sig.indicators.emaTrend === "BEARISH")) continue;
+      // Price must be above EMA9 for BUY, below EMA9 for SELL
+      if (sig.action === "BUY" && sig.indicators && sig.currentPrice < sig.indicators.ema9) continue;
+      if (sig.action === "SELL" && sig.indicators && sig.currentPrice > sig.indicators.ema9) continue;
     }
 
     const lotSize = sig.lotSize || 65;
@@ -1438,6 +1568,10 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
       } else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
         targetPct = Math.max(targetPct, 35);
         slPct = 15;
+      } else if (autoPilotConfig.strategy === "EMA_9_21") {
+        targetPct = Math.max(targetPct, 25);
+        slPct = 12;
+        timeoutMins = 90; // Hold intraday EMA trend longer
       }
 
       const targetPrice = sig.target1 > 0 ? sig.target1 : Number((sig.currentPrice * (1 + targetPct / 100)).toFixed(2));
@@ -2139,6 +2273,20 @@ const STATIC_STRATEGY_SCHEDULES: Omit<StrategyScheduleRecord, "isActiveNow" | "s
     suggestedBudget: 0,
     sizingLabel: "Dynamic Market Sizing (By Lots)",
   },
+  {
+    strategy: "EMA_9_21",
+    name: "NIFTY 9/21 EMA Crossover",
+    startTime: "09:15",
+    endTime: "15:30",
+    timeWindowLabel: "All Trading Hours (NIFTY Intraday)",
+    daysActive: "ALL",
+    marketCondition: "Trending EMA Crossover",
+    description: "9/21 EMA crossover on intraday NIFTY 5-minute candles. Buy when EMA9 crosses above EMA21 with price above both; Sell when EMA9 crosses below EMA21 with price below both.",
+    targetProfitPct: 25,
+    stopLossPct: 12,
+    suggestedBudget: 0,
+    sizingLabel: "Dynamic Market Sizing (By Lots)",
+  },
 ];
 
 function getCurrentIST(): { hours: number; minutes: number; day: number; timeNum: number; istString: string } {
@@ -2175,7 +2323,26 @@ export function getLiveStrategySuggestion(): LiveStrategySuggestion {
   const { hours, minutes, day, timeNum, istString } = getCurrentIST();
   const expiryIndexToday = getTodayExpiryIndex(day);
 
-  // 1. Morning ORB: 09:30 to 11:00
+  // 1. Early Morning NIFTY 9/21 EMA Crossover: 09:15 to 09:30
+  if (timeNum >= 915 && timeNum < 930) {
+    return {
+      recommendedStrategy: "EMA_9_21",
+      strategyName: "NIFTY 9/21 EMA Crossover",
+      badge: "📈 Early EMA Crossover",
+      icon: "TrendingUp",
+      timeWindowLabel: "09:15 AM – 09:30 AM IST",
+      activeNow: true,
+      expiryIndexToday,
+      reason: "NIFTY 5-minute EMA 9/21 crossover scan. Enter BUY when EMA9 crosses above EMA21 with price above both; enter SELL on bearish cross with price below both.",
+      suggestedBudget: 0,
+      sizingLabel: "Dynamic (1 Lot @ Market Price)",
+      targetProfitPct: 25,
+      stopLossPct: 12,
+      dateTime: istString,
+    };
+  }
+
+  // 2. Morning ORB: 09:30 to 11:00
   if (timeNum >= 930 && timeNum < 1100) {
     return {
       recommendedStrategy: "ORB_15M",

@@ -154,4 +154,62 @@ export interface MarketStatusInfo {
   isHoliday?: boolean;
   holidayName?: string;
   nextSession: string;
+  isMuhuratTrading?: boolean;
 }
+
+export interface OptionGreeks {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  iv: number;
+  thetaPremiumRatio: number;
+  isGreekEligible: boolean;
+}
+
+export interface OptionContractDetails {
+  symbolToken: string;
+  tradingSymbol: string;
+  instrumentType: 'CE' | 'PE';
+  strike: number;
+  expiry: string;
+  ltp: number;
+  netChange: number;
+  percentChange: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  tradeVolume?: number;
+  opnInterest?: number;
+  greeks?: OptionGreeks;
+  isItm: boolean;
+}
+
+export interface OptionChainStrikeRow {
+  strike: number;
+  isAtm: boolean;
+  call?: OptionContractDetails;
+  put?: OptionContractDetails;
+}
+
+export interface OptionChainData {
+  underlying: string;
+  spotPrice: number;
+  spotChange: number;
+  spotPercentChange: number;
+  atmStrike: number;
+  selectedExpiry: string;
+  availableExpiries: string[];
+  totalCallOI: number;
+  totalPutOI: number;
+  totalCallVolume: number;
+  totalPutVolume: number;
+  pcr: number;
+  pcrSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  maxPainStrike: number;
+  lotSize: number;
+  lastUpdated: string;
+  rows: OptionChainStrikeRow[];
+}
+

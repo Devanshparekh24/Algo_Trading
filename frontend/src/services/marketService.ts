@@ -1,5 +1,5 @@
 import api from './api';
-import type { ApiResponse, NiftyQuote, FnoMoversResponse, MarketStatusInfo } from '../types';
+import type { ApiResponse, NiftyQuote, FnoMoversResponse, MarketStatusInfo, OptionChainData } from '../types';
 
 export const getNiftyQuote = async (): Promise<NiftyQuote> => {
   try {
@@ -98,4 +98,31 @@ export const getHistoricalCandles = async (params: HistoricalCandleParams): Prom
     return fallback.data.data || [];
   }
 };
+
+export interface OptionChainParams {
+  underlying?: string;
+  expiry?: string;
+  strikeCount?: number;
+}
+
+/**
+ * Fetches real-time derivatives Option Chain matrix with Greeks, PCR & Max Pain
+ */
+export const getOptionChain = async (params: OptionChainParams = {}): Promise<OptionChainData> => {
+  const query = new URLSearchParams();
+  if (params.underlying) query.set('underlying', params.underlying);
+  if (params.expiry) query.set('expiry', params.expiry);
+  if (params.strikeCount) query.set('strikeCount', String(params.strikeCount));
+
+  const qs = query.toString() ? `?${query.toString()}` : '';
+
+  try {
+    const response = await api.get<ApiResponse<OptionChainData>>(`/api/v1/market/option-chain${qs}`);
+    return response.data.data;
+  } catch {
+    const fallback = await api.get<ApiResponse<OptionChainData>>(`/option-chain${qs}`);
+    return fallback.data.data;
+  }
+};
+
 

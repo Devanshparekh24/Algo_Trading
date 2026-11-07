@@ -1,9 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { CheckCircle2, AlertCircle, X, Zap, Clock, Calendar, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Zap,
+  Clock,
+  Calendar,
+  Sparkles,
+  Bot,
+  Wallet,
+  Activity,
+  Sliders,
+} from 'lucide-react';
 import {
   fetchAiSignals,
   analyzeScrip,
   lookupOptionStrike,
+  scanOptionChain,
   executeSignalOrder,
   fetchOrderHistory,
   fetchAutoPilotConfig,
@@ -23,19 +36,21 @@ import {
   type MarketSegment,
   type UniverseScrip,
   type BudgetAnalysisResult,
+  type OptionChainScanResult,
   type RiskProfile,
   type BudgetSegment,
   type VolatileOptionItem,
   type LiveStrategySuggestion,
   type StrategyScheduleRecord,
 } from '../services/aiTradingService';
-import { useFnoMovers } from '../hooks/useMarket';
+import { useFnoMovers, useMarketStatus } from '../hooks/useMarket';
 import { getRMSLimit } from '../services/authService';
 import { getSocket, requestAiPricesRefresh, type RealtimeTickData } from '../services/socketService';
 import { AiTradingHeader } from '../components/aiTrading/AiTradingHeader';
 import { AiTradingNavTabs, type AiTradingTab } from '../components/aiTrading/AiTradingNavTabs';
 import { AiSignalsTab } from '../components/aiTrading/AiSignalsTab';
 import { AiBudgetAllocatorTab } from '../components/aiTrading/AiBudgetAllocatorTab';
+import { AiOptionChainScannerTab } from '../components/aiTrading/AiOptionChainScannerTab';
 import { AiTradingChartTab } from '../components/aiTrading/AiTradingChartTab';
 import { AiScripAnalyzerTab, POPULAR_SCRIPS } from '../components/aiTrading/AiScripAnalyzerTab';
 import { AiOrderBookTab } from '../components/aiTrading/AiOrderBookTab';
@@ -45,12 +60,41 @@ import { AiUniverseModal } from '../components/aiTrading/AiUniverseModal';
 import { AiStrategyScheduleModal } from '../components/aiTrading/AiStrategyScheduleModal';
 import { useAppStore } from '../store';
 
+/**
+ * Checks regular Indian market trading hours (09:15 AM - 03:30 PM IST Mon-Fri)
+ * as well as special annual Diwali Muhurat Trading sessions (18:15 - 19:15 IST).
+ */
+function checkIsMarketOpenIST(): boolean {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const ist = new Date(utc + 5.5 * 3600000);
+  const day = ist.getDay(); // 0 = Sun, 6 = Sat
+  const hour = ist.getHours();
+  const minute = ist.getMinutes();
+  const timeNum = hour * 100 + minute;
+  const year = ist.getFullYear();
+  const month = String(ist.getMonth() + 1).padStart(2, '0');
+  const d = String(ist.getDate()).padStart(2, '0');
+  const dateKey = `${year}-${month}-${d}`;
+
+  // Check special Diwali Muhurat Trading session (18:15 - 19:15 IST)
+  const isMuhuratDate = dateKey === '2024-11-01' || dateKey === '2025-10-21' || dateKey === '2026-11-08';
+  if (isMuhuratDate && timeNum >= 1815 && timeNum < 1915) {
+    return true;
+  }
+
+  if (day === 0 || day === 6) return false;
+  return timeNum >= 915 && timeNum <= 1530;
+}
+
 export const AiTradingScreen: React.FC = () => {
   const showValidationModal = useAppStore((state) => state.showValidationModal);
+  const { data: marketStatus } = useMarketStatus();
 
   // Navigation / View Tabs
   const [activeTab, setActiveTab] = useState<AiTradingTab>('signals');
   const [filterAction, setFilterAction] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
+  const [layoutMode, setLayoutMode] = useState<'STUDIO' | 'TABS'>('STUDIO');
 
   // Segment State: EQUITY (Cash) vs FNO (Futures & Options)
   const [selectedSegment, setSelectedSegment] = useState<MarketSegment>('EQUITY');
@@ -98,6 +142,25 @@ export const AiTradingScreen: React.FC = () => {
   const [isAnalyzingBudget, setIsAnalyzingBudget] = useState<boolean>(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [brokerFunds, setBrokerFunds] = useState<{ net: number; available: number } | null>(null);
+
+  // Option Chain Scanner State
+  const [optionChainScanResult, setOptionChainScanResult] = useState<OptionChainScanResult | null>(null);
+  const [isScanningOptionChain, setIsScanningOptionChain] = useState<boolean>(false);
+  const [optionChainScanError, setOptionChainScanError] = useState<string | null>(null);
+
+  const handleScanOptionChain = useCallback(async () => {
+    setIsScanningOptionChain(true);
+    setOptionChainScanError(null);
+    try {
+      const result = await scanOptionChain({ underlying: 'NIFTY', strikeCount: 8 });
+      setOptionChainScanResult(result);
+    } catch (err: any) {
+      setOptionChainScanError(err?.message || 'Failed to scan option chain');
+    } finally {
+      setIsScanningOptionChain(false);
+    }
+  }, []);
+
   const [isLoadingFunds, setIsLoadingFunds] = useState<boolean>(false);
   const [volatileRadarTab, setVolatileRadarTab] = useState<'calls' | 'puts'>('calls');
 
@@ -744,8 +807,41 @@ export const AiTradingScreen: React.FC = () => {
     }
   };
 
-  // Save AutoPilot settings
-  const handleSaveAutoPilot = async (updated: Partial<AutoPilotConfig>) => {
+  // Save AutoPilot settings with Market Closed Validation
+  const handleSaveAutoPilot = async (
+    updated: Partial<AutoPilotConfig>,
+    bypassMarketCheck = false
+  ) => {
+    // Validation: Check if enabling or arming Auto-Pilot while Indian markets are closed
+    const isEnabling = updated.enabled === true || (autoPilot.enabled && updated.enabled !== false);
+    const isClosed = marketStatus ? !marketStatus.isOpen : !checkIsMarketOpenIST();
+
+    if (isEnabling && isClosed && !bypassMarketCheck) {
+      const statusReason =
+        marketStatus?.message ||
+        marketStatus?.closeReason ||
+        (marketStatus?.isWeekend
+          ? 'Markets are closed on weekends'
+          : 'Regular trading hours are 09:15 AM – 03:30 PM IST');
+      const nextSession = marketStatus?.nextSession || 'Next trading day at 09:15 AM IST';
+      const targetMode = updated.mode || autoPilot.mode;
+
+      showValidationModal({
+        title: 'Market is Currently Closed',
+        message: `Indian markets (NSE/BSE) are currently CLOSED (${statusReason}). Auto-Pilot cannot execute orders on the exchange while markets are shut.`,
+        type: 'warning',
+        suggestion: `Next trading session: ${nextSession}. You can switch to Paper Mode for real-time strategy testing, or queue Auto-Pilot to automatically arm at market open.`,
+        actionLabel:
+          targetMode === 'LIVE' ? 'Switch to Paper Mode & Arm' : 'Arm Anyway (Queue for Open)',
+        onAction: () => {
+          const finalConfig: Partial<AutoPilotConfig> =
+            targetMode === 'LIVE' ? { ...updated, mode: 'PAPER' } : updated;
+          handleSaveAutoPilot(finalConfig, true);
+        },
+      });
+      return;
+    }
+
     if (updated.profitTargetPct !== undefined && (updated.profitTargetPct <= 0 || updated.profitTargetPct > 500)) {
       showValidationModal({
         title: 'Invalid Profit Target',
@@ -784,10 +880,14 @@ export const AiTradingScreen: React.FC = () => {
         ORB_15M: '15-Min ORB',
         PCR_REVERSAL: 'PCR Reversal',
         STANDARD: 'Standard Scalper',
+        EMA_9_21: 'NIFTY 9/21 EMA Crossover',
       };
       const strategyLabel = strategyMap[res.strategy] || res.strategy;
-      const budgetText = res.maxBudgetPerTrade ? `Budget: ₹${res.maxBudgetPerTrade.toLocaleString('en-IN')}` : '';
-      const details = `Target: +${res.profitTargetPct || 35}%, SL: -${res.stopLossPct || 18}%${budgetText ? ` • ${budgetText}` : ''}`;
+      const budgetText =
+        res.maxBudgetPerTrade && res.maxBudgetPerTrade > 0
+          ? `Cap: ₹${res.maxBudgetPerTrade.toLocaleString('en-IN')}`
+          : 'Dynamic Sizing (No Cap)';
+      const details = `Target: +${res.profitTargetPct || 35}%, SL: -${res.stopLossPct || 18}% • ${budgetText}`;
 
       setExecutionToast({
         type: 'success',
@@ -802,14 +902,15 @@ export const AiTradingScreen: React.FC = () => {
     }
   };
 
-  // 1-Click Arm Strategy from Suggestion or Timetable
+  // 1-Click Arm Strategy from Suggestion or Timetable (Dynamic sizing without fixed price dependency)
   const handleArmStrategy = async (
     strategy: AutoPilotStrategy,
     budget?: number,
     targetPct?: number,
     slPct?: number
   ) => {
-    const tradeBudget = budget || 5000;
+    // 0 = Dynamic sizing (by lot size at market price, no fixed price restriction)
+    const tradeBudget = typeof budget === 'number' ? budget : 0;
     const target = targetPct || 35;
     const sl = slPct || 18;
 
@@ -832,7 +933,11 @@ export const AiTradingScreen: React.FC = () => {
         suggestedBudget: tradeBudget,
         targetProfitPct: target,
         stopLossPct: sl,
-        marketCondition: strategySuggestion?.reason || 'Live IST Strategy Schedule Activation',
+        marketCondition:
+          strategySuggestion?.reason ||
+          (tradeBudget === 0
+            ? 'Dynamic Market Sizing (No Fixed Price Limit)'
+            : `Custom Cap: ₹${tradeBudget.toLocaleString('en-IN')}`),
       }).catch(() => {});
       loadStrategySchedule();
     } catch (err: any) {
@@ -858,7 +963,7 @@ export const AiTradingScreen: React.FC = () => {
   const holdCount = useMemo(() => signals.filter((s) => s.action === 'HOLD').length, [signals]);
 
   return (
-    <div className="space-y-6 pb-12 max-w-7xl mx-auto px-4 sm:px-6">
+    <div className="space-y-5 pb-12 w-full max-w-[1720px] mx-auto px-3 sm:px-6 animate-in fade-in duration-200">
       {/* Toast Notification */}
       {executionToast && (
         <div
@@ -884,7 +989,7 @@ export const AiTradingScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Top Header Card */}
+      {/* Top Command Deck Header Bar */}
       <AiTradingHeader
         isLiveConnected={isLiveConnected}
         totalTicksReceived={totalTicksReceived}
@@ -901,16 +1006,20 @@ export const AiTradingScreen: React.FC = () => {
         }}
         onScanMarket={() => loadSignals(true)}
         onPauseAutoPilot={() => handleSaveAutoPilot({ enabled: false })}
+        marketStatus={marketStatus}
+        layoutMode={layoutMode}
+        onToggleLayoutMode={setLayoutMode}
+        activeStrategyName={strategySuggestion?.strategyName}
       />
 
-      {/* Live AI Strategy Suggestion Label & Timetable Banner */}
+      {/* Hero AI Strategy Intelligence HUD */}
       {strategySuggestion && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/90 to-blue-950/40 border border-amber-500/30 p-4 sm:p-5 shadow-xl shadow-amber-500/5 transition-all">
-          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 bg-gradient-to-br from-amber-500/10 to-orange-500/0 rounded-full blur-2xl pointer-events-none" />
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-52 h-52 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
 
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
-            {/* Left: Strategy Info & Live Clock */}
-            <div className="space-y-1.5 flex-1">
+            {/* Strategy Meta & Explanation */}
+            <div className="space-y-2 flex-1">
               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
                   <Sparkles className="w-3 h-3 mr-1 fill-amber-300 text-amber-300" />
@@ -918,7 +1027,7 @@ export const AiTradingScreen: React.FC = () => {
                 </span>
 
                 <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                     strategySuggestion.activeNow
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse'
                       : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
@@ -928,43 +1037,43 @@ export const AiTradingScreen: React.FC = () => {
                   {strategySuggestion.activeNow ? '🟢 ACTIVE NOW' : '⏳ UPCOMING'} • {strategySuggestion.timeWindowLabel}
                 </span>
 
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-800 text-gray-300 border border-gray-700">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-gray-800 text-amber-300 border border-amber-500/30">
                   {strategySuggestion.expiryIndexToday}
                 </span>
 
                 <span className="text-[11px] text-gray-400 font-mono">
-                  {strategySuggestion.dateTime}
+                  IST: {strategySuggestion.dateTime}
                 </span>
               </div>
 
               <div className="flex items-baseline space-x-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                <h3 className="text-base sm:text-xl font-black text-white flex items-center gap-2">
                   <span>{strategySuggestion.strategyName}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-md bg-gray-800/90 text-amber-400 font-semibold border border-gray-700">
+                  <span className="text-xs px-2.5 py-0.5 rounded-md bg-gray-800/90 text-amber-400 font-bold border border-gray-700">
                     {strategySuggestion.badge}
                   </span>
                 </h3>
               </div>
 
-              <p className="text-xs text-gray-300 leading-relaxed max-w-3xl">
+              <p className="text-xs text-gray-300 leading-relaxed max-w-4xl">
                 {strategySuggestion.reason}
               </p>
 
-              {/* Metrics Chips */}
-              <div className="flex items-center space-x-3 sm:space-x-5 text-xs pt-1 flex-wrap gap-y-1">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-gray-400">Budget Cap:</span>
+              {/* Strategy Telemetry Chips */}
+              <div className="flex items-center space-x-3 sm:space-x-5 text-xs pt-1 flex-wrap gap-y-1.5">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
+                  <span className="text-gray-400">Trade Sizing:</span>
                   <span className="font-mono font-bold text-emerald-400">
-                    ₹{strategySuggestion.suggestedBudget.toLocaleString('en-IN')}
+                    {strategySuggestion.sizingLabel || 'Dynamic (By Lots) • No Fixed Cap'}
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
                   <span className="text-gray-400">Target Profit:</span>
                   <span className="font-mono font-bold text-emerald-400">
                     +{strategySuggestion.targetProfitPct}%
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
                   <span className="text-gray-400">Stop-Loss:</span>
                   <span className="font-mono font-bold text-rose-400">
                     -{strategySuggestion.stopLossPct}%
@@ -973,22 +1082,40 @@ export const AiTradingScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: 1-Click Action Buttons */}
-            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 pt-2 lg:pt-0">
+            {/* Strategy Action Buttons */}
+            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 pt-2 lg:pt-0 flex-wrap gap-y-2">
               <button
                 type="button"
                 onClick={() =>
                   handleArmStrategy(
                     strategySuggestion.recommendedStrategy,
-                    strategySuggestion.suggestedBudget,
+                    0,
                     strategySuggestion.targetProfitPct,
                     strategySuggestion.stopLossPct
                   )
                 }
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center space-x-1.5 transition-all transform active:scale-95"
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/25 flex items-center space-x-1.5 transition-all transform active:scale-95"
               >
                 <Zap className="w-4 h-4 fill-current" />
-                <span>Arm This Strategy (₹{strategySuggestion.suggestedBudget.toLocaleString('en-IN')})</span>
+                <span>Arm Strategy (Dynamic Lots)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoPilot((p) => ({
+                    ...p,
+                    strategy: strategySuggestion.recommendedStrategy,
+                    profitTargetPct: strategySuggestion.targetProfitPct,
+                    stopLossPct: strategySuggestion.stopLossPct,
+                  }));
+                  setIsAutoPilotModalOpen(true);
+                }}
+                className="px-3.5 py-2.5 rounded-xl bg-gray-800/90 hover:bg-gray-700/90 text-gray-200 border border-gray-700 font-bold text-xs flex items-center space-x-1 transition-colors"
+                title="Customize lots, target %, or set optional budget cap"
+              >
+                <Sliders className="w-3.5 h-3.5 text-gray-400" />
+                <span>Customize</span>
               </button>
 
               <button
@@ -1004,6 +1131,103 @@ export const AiTradingScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 4-Card Quick KPI Telemetry Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* KPI 1: AI Signal Flow */}
+        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-[11px]">AI Signal Flow</span>
+            <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              <Activity className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl sm:text-2xl font-black text-white font-mono">
+              {signals.length}
+            </span>
+            <span className="text-xs text-gray-400">Signals Detected</span>
+          </div>
+          <div className="flex items-center space-x-2 text-xs font-mono font-bold pt-0.5">
+            <span className="text-emerald-400">{buyCount} Longs</span>
+            <span className="text-gray-600">•</span>
+            <span className="text-rose-400">{sellCount} Shorts</span>
+            <span className="text-gray-600">•</span>
+            <span className="text-amber-400">{holdCount} Neutral</span>
+          </div>
+        </div>
+
+        {/* KPI 2: Autonomous Engine Status */}
+        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-[11px]">Auto-Pilot Engine</span>
+            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className={`text-xl sm:text-2xl font-black font-mono ${autoPilot.enabled ? 'text-emerald-400' : 'text-gray-400'}`}>
+              {autoPilot.enabled ? 'ACTIVE' : 'IDLE'}
+            </span>
+            <span className="text-xs px-2 py-0.5 rounded-md bg-gray-800 text-gray-300 font-semibold text-[11px]">
+              {autoPilot.mode}
+            </span>
+          </div>
+          <div className="text-xs text-gray-400 truncate">
+            {autoPilot.strategy.replace('_', ' ')} • {autoPilot.executedToday || 0}/{autoPilot.maxDailyTrades || 5} Fills Today
+          </div>
+        </div>
+
+        {/* KPI 3: Available Margin & Sizing */}
+        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-[11px]">Broker Margin Cash</span>
+            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <Wallet className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">
+              ₹{brokerFunds ? brokerFunds.available.toLocaleString('en-IN') : '10,000'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-400 pt-0.5">
+            <span>Sizing: Dynamic Lots</span>
+            {brokerFunds && brokerFunds.available > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBudgetInput('5000');
+                  handleRunBudgetAnalysis(5000);
+                  setActiveTab('budget');
+                }}
+                className="text-[11px] font-bold text-blue-400 hover:text-blue-300 underline"
+              >
+                Allocate ₹5k
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* KPI 4: Market Session & Expiry */}
+        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-[11px]">Market Timing & Expiry</span>
+            <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              <Clock className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl sm:text-2xl font-black text-purple-300 font-mono truncate">
+              {strategySuggestion?.expiryIndexToday || 'NIFTY 50'}
+            </span>
+          </div>
+          <div className="text-xs text-gray-400 flex items-center space-x-1.5 truncate">
+            <span className={`w-1.5 h-1.5 rounded-full ${marketStatus?.isOpen ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+            <span>{marketStatus?.isOpen ? 'Regular Trading Session' : (marketStatus?.subStatus || 'Closed')}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Navigation View Tabs */}
       <AiTradingNavTabs
@@ -1038,127 +1262,203 @@ export const AiTradingScreen: React.FC = () => {
           setBudgetInput(String(amount));
           handleRunBudgetAnalysis(amount);
         }}
+        layoutMode={layoutMode}
+        onToggleLayoutMode={setLayoutMode}
       />
 
-      {/* Tab 1: AI Signals Matrix */}
-      {activeTab === 'signals' && (
-        <AiSignalsTab
-          signals={signals}
-          filteredSignals={filteredSignals}
-          selectedSegment={selectedSegment}
-          onSelectSegment={(seg) => {
-            setSelectedSegment(seg);
-            loadSignals(false, seg);
-          }}
-          filterAction={filterAction}
-          onFilterChange={setFilterAction}
-          buyCount={buyCount}
-          sellCount={sellCount}
-          lastScanTime={lastScanTime}
-          isScanning={isScanning}
-          scanError={scanError}
-          onRetryScan={() => loadSignals(true)}
-          fnoUnderlying={fnoUnderlying}
-          setFnoUnderlying={setFnoUnderlying}
-          fnoStrike={fnoStrike}
-          setFnoStrike={setFnoStrike}
-          fnoOptionType={fnoOptionType}
-          setFnoOptionType={setFnoOptionType}
-          isLookingUpOption={isLookingUpOption}
-          onLookupOption={handleLookupOption}
-          priceFlashes={priceFlashes}
-          getLiveQuote={getLiveQuote}
-          autoPilotMode={autoPilot.mode}
-          onOpenChart={(sym) => {
-            setSelectedChartSymbol(sym);
-            setActiveTab('chart');
-          }}
-          onExecuteSignal={handleOpenExecuteModal}
-          onOpenBudgetAdvisor={() => {
-            setActiveTab('budget');
-            if (!budgetAnalysis && !isAnalyzingBudget) {
-              handleRunBudgetAnalysis();
-            }
-          }}
-        />
-      )}
+      {/* Main Content Workspace */}
+      {/* 1. Studio Split Deck (Signals on Left, Chart on Right) */}
+      {layoutMode === 'STUDIO' && activeTab === 'signals' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-in fade-in duration-200">
+          {/* Left Column: AI Signals Matrix */}
+          <div className="lg:col-span-7 xl:col-span-7 space-y-4">
+            <AiSignalsTab
+              signals={signals}
+              filteredSignals={filteredSignals}
+              selectedSegment={selectedSegment}
+              onSelectSegment={(seg) => {
+                setSelectedSegment(seg);
+                loadSignals(false, seg);
+              }}
+              filterAction={filterAction}
+              onFilterChange={setFilterAction}
+              buyCount={buyCount}
+              sellCount={sellCount}
+              lastScanTime={lastScanTime}
+              isScanning={isScanning}
+              scanError={scanError}
+              onRetryScan={() => loadSignals(true)}
+              fnoUnderlying={fnoUnderlying}
+              setFnoUnderlying={setFnoUnderlying}
+              fnoStrike={fnoStrike}
+              setFnoStrike={setFnoStrike}
+              fnoOptionType={fnoOptionType}
+              setFnoOptionType={setFnoOptionType}
+              isLookingUpOption={isLookingUpOption}
+              onLookupOption={handleLookupOption}
+              priceFlashes={priceFlashes}
+              getLiveQuote={getLiveQuote}
+              autoPilotMode={autoPilot.mode}
+              onOpenChart={(sym) => {
+                setSelectedChartSymbol(sym);
+              }}
+              onExecuteSignal={handleOpenExecuteModal}
+              onOpenBudgetAdvisor={() => {
+                setActiveTab('budget');
+                if (!budgetAnalysis && !isAnalyzingBudget) {
+                  handleRunBudgetAnalysis();
+                }
+              }}
+            />
+          </div>
 
-      {/* Tab 2: AI Budget Trade Advisor & Capital Allocator */}
-      {activeTab === 'budget' && (
-        <AiBudgetAllocatorTab
-          budgetInput={budgetInput}
-          setBudgetInput={setBudgetInput}
-          budgetRiskProfile={budgetRiskProfile}
-          setBudgetRiskProfile={setBudgetRiskProfile}
-          budgetSegment={budgetSegment}
-          setBudgetSegment={setBudgetSegment}
-          budgetMaxTrades={budgetMaxTrades}
-          setBudgetMaxTrades={setBudgetMaxTrades}
-          budgetAnalysis={budgetAnalysis}
-          isAnalyzingBudget={isAnalyzingBudget}
-          budgetError={budgetError}
-          brokerFunds={brokerFunds}
-          isLoadingFunds={isLoadingFunds}
-          onLoadBrokerFunds={loadBrokerFunds}
-          onRunBudgetAnalysis={handleRunBudgetAnalysis}
-          onAllocateVolatileOption={handleAllocateVolatileOption}
-          fnoCallsList={fnoMoversQuery.data?.calls as any[] || []}
-          fnoPutsList={fnoMoversQuery.data?.puts as any[] || []}
-          volatileRadarTab={volatileRadarTab}
-          setVolatileRadarTab={setVolatileRadarTab}
-          onOpenChart={(sym) => {
-            setSelectedChartSymbol(sym);
-            setActiveTab('chart');
-          }}
-          onOpenExecuteModal={handleOpenExecuteModal}
-          onOpenAutoPilotModal={(customBudget) => {
-            if (customBudget) {
-              setAutoPilot((p) => ({ ...p, maxBudgetPerTrade: customBudget }));
-            }
-            setIsAutoPilotModalOpen(true);
-          }}
-        />
-      )}
+          {/* Right Column: Live Chart Studio & Telemetry */}
+          <div className="lg:col-span-5 xl:col-span-5 lg:sticky lg:top-4 space-y-4">
+            <div className="rounded-2xl border border-gray-800 bg-gray-900/90 shadow-xl overflow-hidden p-1">
+              <AiTradingChartTab
+                selectedChartSymbol={selectedChartSymbol}
+                onSelectChartSymbol={setSelectedChartSymbol}
+                chartInterval={chartInterval}
+                onChangeChartInterval={setChartInterval}
+                signals={signals}
+                priceFlashes={priceFlashes}
+                getLiveQuote={getLiveQuote}
+                onExecuteSignal={handleOpenExecuteModal}
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* 2. Full Width Dedicated Views */
+        <div className="animate-in fade-in duration-200">
+          {/* Tab 1: AI Signals Matrix (Full Width) */}
+          {activeTab === 'signals' && (
+            <AiSignalsTab
+              signals={signals}
+              filteredSignals={filteredSignals}
+              selectedSegment={selectedSegment}
+              onSelectSegment={(seg) => {
+                setSelectedSegment(seg);
+                loadSignals(false, seg);
+              }}
+              filterAction={filterAction}
+              onFilterChange={setFilterAction}
+              buyCount={buyCount}
+              sellCount={sellCount}
+              lastScanTime={lastScanTime}
+              isScanning={isScanning}
+              scanError={scanError}
+              onRetryScan={() => loadSignals(true)}
+              fnoUnderlying={fnoUnderlying}
+              setFnoUnderlying={setFnoUnderlying}
+              fnoStrike={fnoStrike}
+              setFnoStrike={setFnoStrike}
+              fnoOptionType={fnoOptionType}
+              setFnoOptionType={setFnoOptionType}
+              isLookingUpOption={isLookingUpOption}
+              onLookupOption={handleLookupOption}
+              priceFlashes={priceFlashes}
+              getLiveQuote={getLiveQuote}
+              autoPilotMode={autoPilot.mode}
+              onOpenChart={(sym) => {
+                setSelectedChartSymbol(sym);
+                setActiveTab('chart');
+              }}
+              onExecuteSignal={handleOpenExecuteModal}
+              onOpenBudgetAdvisor={() => {
+                setActiveTab('budget');
+                if (!budgetAnalysis && !isAnalyzingBudget) {
+                  handleRunBudgetAnalysis();
+                }
+              }}
+            />
+          )}
 
-      {/* Tab 3: Interactive TradingView Chart */}
-      {activeTab === 'chart' && (
-        <AiTradingChartTab
-          selectedChartSymbol={selectedChartSymbol}
-          onSelectChartSymbol={setSelectedChartSymbol}
-          chartInterval={chartInterval}
-          onChangeChartInterval={setChartInterval}
-          signals={signals}
-          priceFlashes={priceFlashes}
-          getLiveQuote={getLiveQuote}
-          onExecuteSignal={handleOpenExecuteModal}
-        />
-      )}
+          {/* Tab 2: AI Budget Trade Advisor & Capital Allocator */}
+          {activeTab === 'budget' && (
+            <AiBudgetAllocatorTab
+              budgetInput={budgetInput}
+              setBudgetInput={setBudgetInput}
+              budgetRiskProfile={budgetRiskProfile}
+              setBudgetRiskProfile={setBudgetRiskProfile}
+              budgetSegment={budgetSegment}
+              setBudgetSegment={setBudgetSegment}
+              budgetMaxTrades={budgetMaxTrades}
+              setBudgetMaxTrades={setBudgetMaxTrades}
+              budgetAnalysis={budgetAnalysis}
+              isAnalyzingBudget={isAnalyzingBudget}
+              budgetError={budgetError}
+              brokerFunds={brokerFunds}
+              isLoadingFunds={isLoadingFunds}
+              onLoadBrokerFunds={loadBrokerFunds}
+              onRunBudgetAnalysis={handleRunBudgetAnalysis}
+              onAllocateVolatileOption={handleAllocateVolatileOption}
+              fnoCallsList={(fnoMoversQuery.data?.calls as any[]) || []}
+              fnoPutsList={(fnoMoversQuery.data?.puts as any[]) || []}
+              volatileRadarTab={volatileRadarTab}
+              setVolatileRadarTab={setVolatileRadarTab}
+              onOpenChart={(sym) => {
+                setSelectedChartSymbol(sym);
+                setActiveTab('chart');
+              }}
+              onOpenExecuteModal={handleOpenExecuteModal}
+              onOpenAutoPilotModal={(customBudget) => {
+                if (customBudget) {
+                  setAutoPilot((p) => ({ ...p, maxBudgetPerTrade: customBudget }));
+                }
+                setIsAutoPilotModalOpen(true);
+              }}
+            />
+          )}
 
-      {/* Tab 4: Deep Scrip Analyzer */}
-      {activeTab === 'analyzer' && (
-        <AiScripAnalyzerTab
-          selectedScrip={selectedScrip}
-          onSelectScrip={setSelectedScrip}
-          customSymbol={customSymbol}
-          setCustomSymbol={setCustomSymbol}
-          customToken={customToken}
-          setCustomToken={setCustomToken}
-          analyzedSignal={analyzedSignal}
-          isAnalyzing={isAnalyzing}
-          onAnalyzeScrip={handleAnalyzeScrip}
-          priceFlashes={priceFlashes}
-          getLiveQuote={getLiveQuote}
-          onOpenExecuteModal={handleOpenExecuteModal}
-        />
-      )}
+          {/* Tab 3: Option Chain Scanner */}
+          {activeTab === 'option-chain' && (
+            <AiOptionChainScannerTab
+              onOpenExecuteModal={handleOpenExecuteModal}
+            />
+          )}
 
-      {/* Tab 5: Order Execution Book */}
-      {activeTab === 'orders' && (
-        <AiOrderBookTab
-          orders={orders}
-          isLoadingOrders={isLoadingOrders}
-          onRefreshOrders={loadOrders}
-        />
+          {/* Tab 4: Interactive TradingView Chart (Full Width) */}
+          {activeTab === 'chart' && (
+            <AiTradingChartTab
+              selectedChartSymbol={selectedChartSymbol}
+              onSelectChartSymbol={setSelectedChartSymbol}
+              chartInterval={chartInterval}
+              onChangeChartInterval={setChartInterval}
+              signals={signals}
+              priceFlashes={priceFlashes}
+              getLiveQuote={getLiveQuote}
+              onExecuteSignal={handleOpenExecuteModal}
+            />
+          )}
+
+          {/* Tab 4: Deep Scrip Analyzer */}
+          {activeTab === 'analyzer' && (
+            <AiScripAnalyzerTab
+              selectedScrip={selectedScrip}
+              onSelectScrip={setSelectedScrip}
+              customSymbol={customSymbol}
+              setCustomSymbol={setCustomSymbol}
+              customToken={customToken}
+              setCustomToken={setCustomToken}
+              analyzedSignal={analyzedSignal}
+              isAnalyzing={isAnalyzing}
+              onAnalyzeScrip={handleAnalyzeScrip}
+              priceFlashes={priceFlashes}
+              getLiveQuote={getLiveQuote}
+              onOpenExecuteModal={handleOpenExecuteModal}
+            />
+          )}
+
+          {/* Tab 5: Order Execution Book */}
+          {activeTab === 'orders' && (
+            <AiOrderBookTab
+              orders={orders}
+              isLoadingOrders={isLoadingOrders}
+              onRefreshOrders={loadOrders}
+            />
+          )}
+        </div>
       )}
 
       {/* 1-Click Order Execution Modal */}

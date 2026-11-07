@@ -131,6 +131,24 @@ export interface BudgetAnalysisResult {
   mostVolatile?: VolatileOptionItem | null;
 }
 
+/**
+ * Option Chain Scan Result (backend: POST /api/v1/ai/option-chain/scan)
+ */
+export interface OptionChainScanResult {
+  underlying: string;
+  spotPrice: number;
+  pcr: number;
+  pcrSentiment: string;
+  maxPainStrike: number;
+  signals: TradeSignal[];
+}
+
+export interface ScanOptionChainParams {
+  underlying?: string;
+  expiry?: string;
+  strikeCount?: number;
+}
+
 export interface OptionGreeks {
   delta: number;
   gamma: number;
@@ -183,7 +201,8 @@ export type AutoPilotStrategy =
   | 'VWAP_TRAP'
   | 'ORB_15M'
   | 'PCR_REVERSAL'
-  | 'STANDARD';
+  | 'STANDARD'
+  | 'EMA_9_21';
 
 export interface AutoPilotConfig {
   enabled: boolean;
@@ -291,7 +310,7 @@ export interface GoldenHoursStatus {
 }
 
 export interface LiveStrategySuggestion {
-  recommendedStrategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD';
+  recommendedStrategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD' | 'EMA_9_21';
   strategyName: string;
   badge: string;
   icon: string;
@@ -307,7 +326,7 @@ export interface LiveStrategySuggestion {
 }
 
 export interface StrategyScheduleRecord {
-  strategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD';
+  strategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD' | 'EMA_9_21';
   name: string;
   badge: string;
   icon: string;
@@ -537,6 +556,21 @@ export async function fetchBudgetAdvice(params: BudgetAdvisorParams): Promise<Bu
   });
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to generate budget trade suggestions');
+  return json.data;
+}
+
+/**
+ * Scan an option chain and return ranked list of option signals (CE/PE strikes).
+ * POST /api/v1/ai/option-chain/scan
+ */
+export async function scanOptionChain(params: ScanOptionChainParams = {}): Promise<OptionChainScanResult> {
+  const res = await fetch(`${API_BASE}/option-chain/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to scan option chain');
   return json.data;
 }
 

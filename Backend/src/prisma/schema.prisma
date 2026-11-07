@@ -108,3 +108,44 @@ model AiStrategySchedule {
   @@index([status])
   @@index([dateTime])
 }
+
+
+model SundayMarkeopen {
+  id               String   @id @default(uuid())
+  date             String   @unique // "YYYY-MM-DD"
+  holidayName      String
+  description      String?
+  year             Int
+  dayOfWeek        String   // "Saturday" or "Sunday"
+  isMuhuratTrading Boolean  @default(false)
+  muhuratTimings   String?
+  circularRef      String?
+  closedSegments   String   @default("Equity, Equity Derivatives (F&O), SLB")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([date])
+  @@index([year])
+}
+
+
+
+model MarketHoliday {
+  id               String   @id @default(uuid())
+  date             String   @unique // "YYYY-MM-DD" e.g. "2025-10-21"
+  holidayName      String
+  description      String?
+  year             Int
+  dayOfWeek        String   // "Monday", "Tuesday", etc.
+  isWeekendHoliday Boolean  @default(false)
+  isMuhuratTrading Boolean  @default(false)
+  muhuratTimings   String?  // e.g. "06:15 PM - 07:15 PM IST"
+  closedSegments   String   @default("Equity, Equity Derivatives (F&O), SLB")
+  circularRef      String?  // e.g. "NSE/CMTR/65587"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([date])
+  @@index([year])
+  @@index([isMuhuratTrading])
+}

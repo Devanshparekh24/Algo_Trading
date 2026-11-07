@@ -19,32 +19,57 @@ export const MarketClosedBanner: React.FC<MarketClosedBannerProps> = ({
     return null;
   }
 
+  const isMuhurat = statusInfo.isMuhuratTrading || statusInfo.nextSession?.includes('Muhurat');
+
   return (
     <div
-      className={`relative overflow-hidden bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 dark:from-rose-950/40 dark:via-amber-950/30 dark:to-orange-950/30 border border-rose-200 dark:border-rose-800/80 rounded-2xl p-4 shadow-sm transition-all ${className}`}
+      className={`relative overflow-hidden ${
+        isMuhurat
+          ? 'bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50 dark:from-amber-950/40 dark:via-orange-950/30 dark:to-yellow-950/30 border border-amber-300 dark:border-amber-800'
+          : 'bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 dark:from-rose-950/40 dark:via-amber-950/30 dark:to-orange-950/30 border border-rose-200 dark:border-rose-800/80'
+      } rounded-2xl p-4 shadow-sm transition-all ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800 flex items-center justify-center shrink-0 mt-0.5">
+          <div
+            className={`w-8 h-8 rounded-xl ${
+              isMuhurat
+                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700'
+                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
+            } flex items-center justify-center shrink-0 mt-0.5`}
+          >
             <AlertTriangle className="w-4 h-4" />
           </div>
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-rose-700 dark:text-rose-400">
+              <span
+                className={`text-xs font-extrabold uppercase tracking-wider ${
+                  isMuhurat ? 'text-amber-800 dark:text-amber-300' : 'text-rose-700 dark:text-rose-400'
+                }`}
+              >
                 {segmentName} Is Currently Closed
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-800 dark:text-rose-300 font-bold font-mono">
                 {statusInfo.timeIST.replace(' IST', '')} IST
               </span>
+              {isMuhurat && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-extrabold font-mono border border-amber-300/60">
+                  🪔 Diwali Muhurat Ahead
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-800 dark:text-gray-200 font-medium">
-              <span className="font-bold text-rose-600 dark:text-rose-400">Reason: </span>
+              <span className={`font-bold ${isMuhurat ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                Reason:{' '}
+              </span>
               {statusInfo.closeReason}
             </div>
             <div className="text-[11px] text-gray-600 dark:text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
               <span className="flex items-center gap-1">
-                <Bell className="w-3 h-3 text-rose-500 inline" />
-                <strong className="text-gray-800 dark:text-gray-200">{statusInfo.nextSession}</strong>
+                <Bell className={`w-3 h-3 ${isMuhurat ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500'} inline`} />
+                <strong className={isMuhurat ? 'text-amber-800 dark:text-amber-300 font-bold' : 'text-gray-800 dark:text-gray-200'}>
+                  {statusInfo.nextSession}
+                </strong>
               </span>
               <span className="flex items-center gap-1">
                 <Clock className="w-3 h-3 text-gray-400 inline" />

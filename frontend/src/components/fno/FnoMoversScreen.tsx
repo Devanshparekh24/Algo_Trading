@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshCw, Table as TableIcon, LayoutGrid, Zap, Activity, BarChart3, Flame } from 'lucide-react';
+import { RefreshCw, Table as TableIcon, LayoutGrid, Zap, Activity, BarChart3, Flame, Layers } from 'lucide-react';
 import { useFnoMovers } from '../../hooks/useMarket';
 import { useRealtimeFnoMovers } from '../../hooks/useRealtimeFnoMovers';
 import type { FnoMoverItem } from '../../types';
@@ -11,10 +11,11 @@ import FnoTableView from './FnoTableView';
 import FnoCardGrid from './FnoCardGrid';
 import ContractDetailModal from './ContractDetailModal';
 import SmartApiGainersLosersView from './SmartApiGainersLosersView';
+import OptionChainView from './OptionChainView';
 import { useFnoFilterStore, useWatchlistStore } from '../../store';
 
 export const FnoMoversScreen: React.FC = () => {
-  const [fnoActiveView, setFnoActiveView] = useState<'SMARTAPI_GAINERS' | 'VOLATILE_STREAM'>('SMARTAPI_GAINERS');
+  const [fnoActiveView, setFnoActiveView] = useState<'SMARTAPI_GAINERS' | 'VOLATILE_STREAM' | 'OPTION_CHAIN'>('OPTION_CHAIN');
   const { data, isLoading, isError, error, refetch, isFetching } = useFnoMovers();
   const {
     liveData,
@@ -268,8 +269,24 @@ export const FnoMoversScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Navigation Tabs: Official SmartAPI Gainers/Losers vs High-Volatility Radar */}
+      {/* Primary Navigation Tabs: Option Chain Matrix vs Official SmartAPI Gainers/Losers vs High-Volatility Radar */}
       <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700/80 pb-3 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setFnoActiveView('OPTION_CHAIN')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 ${
+            fnoActiveView === 'OPTION_CHAIN'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25 ring-2 ring-emerald-400/40'
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-emerald-300" />
+          <span>Interactive Option Chain Matrix</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 dark:bg-black/30 font-mono">
+            Greeks & PCR
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => setFnoActiveView('SMARTAPI_GAINERS')}
@@ -303,14 +320,17 @@ export const FnoMoversScreen: React.FC = () => {
         </button>
       </div>
 
-      {/* VIEW 1: Official SmartAPI Top Gainers / Losers (Derivatives Segment) */}
-      {fnoActiveView === 'SMARTAPI_GAINERS' ? (
+      {/* VIEW 1: Interactive Option Chain Matrix */}
+      {fnoActiveView === 'OPTION_CHAIN' ? (
+        <OptionChainView onSelectContract={handleSelectGainersContract} />
+      ) : fnoActiveView === 'SMARTAPI_GAINERS' ? (
+        /* VIEW 2: Official SmartAPI Top Gainers / Losers (Derivatives Segment) */
         <SmartApiGainersLosersView
           viewMode={viewMode}
           onSelectContract={handleSelectGainersContract}
         />
       ) : (
-        /* VIEW 2: High Volatility Derivatives Movers & Live Stream */
+        /* VIEW 3: High Volatility Derivatives Movers & Live Stream */
         <div className="space-y-6">
           {/* Market Closed Notification Banner with Reason */}
           <MarketClosedBanner segmentName="Derivatives (F&O) Market" />

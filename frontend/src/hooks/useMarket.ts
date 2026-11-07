@@ -5,7 +5,9 @@ import {
   getFnoMovers,
   getMarketStatus,
   getGainersLosers,
+  getOptionChain,
   type GainersLosersParams,
+  type OptionChainParams,
 } from '../services/marketService';
 import { queryKeys } from '../constants/queryKeys';
 
@@ -70,5 +72,18 @@ export const useGainersLosers = (params: GainersLosersParams) => {
     queryFn: () => getGainersLosers(params),
     staleTime: 1000 * 20,
     refetchInterval: 1000 * 30,
+  });
+};
+
+/**
+ * Hook to fetch derivatives Option Chain matrix with Greeks, PCR, and Max Pain
+ * Auto-refetches every 15 seconds
+ */
+export const useOptionChain = (params: OptionChainParams = {}) => {
+  return useQuery({
+    queryKey: ['market', 'optionChain', params.underlying || 'NIFTY', params.expiry || 'default', params.strikeCount || 12],
+    queryFn: () => getOptionChain(params),
+    staleTime: 1000 * 10,
+    refetchInterval: 1000 * 20,
   });
 };

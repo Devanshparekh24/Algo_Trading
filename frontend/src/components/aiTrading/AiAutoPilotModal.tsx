@@ -9,6 +9,7 @@ import {
   Wallet,
   Flame,
   TrendingDown,
+  TrendingUp,
   Sun,
   BarChart3,
 } from 'lucide-react';
@@ -69,6 +70,13 @@ const STRATEGIES: Array<{
     badge: 'Classic',
     icon: Target,
     desc: 'EMA & VWAP trend momentum indicator scalper',
+  },
+  {
+    id: 'EMA_9_21',
+    name: 'NIFTY 9/21 EMA',
+    badge: '📈 EMA Crossover',
+    icon: TrendingUp,
+    desc: '9/21 EMA crossover on intraday NIFTY 5m candles. BUY on golden cross, SELL on death cross.',
   },
 ];
 
@@ -528,6 +536,16 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                   <div>• Target: +30%</div>
                   <div>• Stop-Loss: -18%</div>
                   <div>• Quantity: Configured Lots</div>
+                </>
+              )}
+              {localConfig.strategy === 'EMA_9_21' && (
+                <>
+                  <div>• Indicators: EMA 9 / EMA 21 Crossover</div>
+                  <div>• Underlying: NIFTY (Intraday 5m)</div>
+                  <div>• Buy: EMA9 > EMA21 & Price > EMA9</div>
+                  <div>• Sell: EMA9 < EMA21 & Price < EMA9</div>
+                  <div>• Target: +25% | Stop-Loss: -12%</div>
+                  <div>• Auto-Exit: 90 min theta timeout</div>
                 </>
               )}
             </div>

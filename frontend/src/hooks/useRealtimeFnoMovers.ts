@@ -57,33 +57,37 @@ export const useRealtimeFnoMovers = (initialData?: FnoMoversResponse | null) => 
       setTickCount((c) => c + 1);
       setLastTickTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
-      // 1. Determine tick direction (up/down flash)
-      const prevPrice = lastKnownPrices.current[key] ?? freshLtp;
-      const direction: 'up' | 'down' = freshLtp >= prevPrice ? 'up' : 'down';
+      // 1. Determine tick direction (up/down flash only if price actually changed)
+      const prevPrice = lastKnownPrices.current[key];
       lastKnownPrices.current[key] = freshLtp;
       if (token) lastKnownPrices.current[token] = freshLtp;
       if (symbol) lastKnownPrices.current[symbol] = freshLtp;
 
-      setFlashes((prev) => {
-        const updated = { ...prev };
-        if (token) updated[token] = direction;
-        if (symbol) updated[symbol] = direction;
-        return updated;
-      });
+      // Only trigger visual flash badge if price actually changed
+      if (prevPrice !== undefined && freshLtp !== prevPrice) {
+        const direction: 'up' | 'down' = freshLtp > prevPrice ? 'up' : 'down';
 
-      // Clear flash after 1000ms
-      const flashKey = token || symbol || '';
-      if (flashTimers.current[flashKey]) {
-        clearTimeout(flashTimers.current[flashKey]);
-      }
-      flashTimers.current[flashKey] = setTimeout(() => {
         setFlashes((prev) => {
-          const next = { ...prev };
-          if (token) delete next[token];
-          if (symbol) delete next[symbol];
-          return next;
+          const updated = { ...prev };
+          if (token) updated[token] = direction;
+          if (symbol) updated[symbol] = direction;
+          return updated;
         });
-      }, 1000);
+
+        // Clear flash after 800ms
+        const flashKey = token || symbol || '';
+        if (flashTimers.current[flashKey]) {
+          clearTimeout(flashTimers.current[flashKey]);
+        }
+        flashTimers.current[flashKey] = setTimeout(() => {
+          setFlashes((prev) => {
+            const next = { ...prev };
+            if (token) delete next[token];
+            if (symbol) delete next[symbol];
+            return next;
+          });
+        }, 800);
+      }
 
       // 2. Helper to update a contract with live tick data
       const updateMoverItem = (item: FnoMoverItem): FnoMoverItem => {

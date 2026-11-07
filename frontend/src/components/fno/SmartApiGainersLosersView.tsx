@@ -121,30 +121,33 @@ export const SmartApiGainersLosersView: React.FC<SmartApiGainersLosersViewProps>
       setTickCount((c) => c + 1);
       setLastTickTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
-      // Flash determination
-      const prevPrice = lastPrices.current[key] ?? freshLtp;
-      const direction: 'up' | 'down' = freshLtp >= prevPrice ? 'up' : 'down';
+      // Flash determination: ONLY flash if price actually changed!
+      const prevPrice = lastPrices.current[key];
       lastPrices.current[key] = freshLtp;
       if (token) lastPrices.current[token] = freshLtp;
       if (symbol) lastPrices.current[symbol] = freshLtp;
 
-      setFlashes((prev) => ({
-        ...prev,
-        ...(token ? { [token]: direction } : {}),
-        ...(symbol ? { [symbol]: direction } : {}),
-      }));
+      if (prevPrice !== undefined && freshLtp !== prevPrice) {
+        const direction: 'up' | 'down' = freshLtp > prevPrice ? 'up' : 'down';
 
-      if (flashTimers.current[key]) {
-        clearTimeout(flashTimers.current[key]);
+        setFlashes((prev) => ({
+          ...prev,
+          ...(token ? { [token]: direction } : {}),
+          ...(symbol ? { [symbol]: direction } : {}),
+        }));
+
+        if (flashTimers.current[key]) {
+          clearTimeout(flashTimers.current[key]);
+        }
+        flashTimers.current[key] = setTimeout(() => {
+          setFlashes((prev) => {
+            const next = { ...prev };
+            if (token) delete next[token];
+            if (symbol) delete next[symbol];
+            return next;
+          });
+        }, 800);
       }
-      flashTimers.current[key] = setTimeout(() => {
-        setFlashes((prev) => {
-          const next = { ...prev };
-          if (token) delete next[token];
-          if (symbol) delete next[symbol];
-          return next;
-        });
-      }, 1000);
 
       setLiveTicks((prev) => ({
         ...prev,

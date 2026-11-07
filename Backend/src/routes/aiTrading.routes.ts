@@ -17,6 +17,7 @@ import {
   removeUniverseScripController,
   resetUniverseController,
   budgetAdvisorController,
+  scanOptionChainController,
   getActivePositionsController,
   closePositionController,
   getAiTradeLogsController,
@@ -34,6 +35,9 @@ router.get("/signals", getAiSignalsController);
 
 // AI Budget Trade Advisor & Sizing (User inputs budget -> tailored suggestions)
 router.post("/budget-advisor", budgetAdvisorController);
+
+// Scan Option Chain -> ranked list of option signals
+router.post("/option-chain/scan", scanOptionChainController);
 
 // Dynamic F&O Option Strike Lookup & Analysis (e.g. NIFTY 25000 PE)
 router.post("/fno/strike", lookupOptionStrikeController);

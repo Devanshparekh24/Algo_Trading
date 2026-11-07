@@ -1,5 +1,18 @@
 import { Router } from "express";
-import { getFullMode, getHistoricalData, getLtp, getNiftyQuote, getMajorIndices, getGainersLosers, getFnoMovers, getMarketStatusController, getRateLimitsController } from "../controllers/market.controller.js";
+import {
+  getFullMode,
+  getHistoricalData,
+  getLtp,
+  getNiftyQuote,
+  getMajorIndices,
+  getGainersLosers,
+  getFnoMovers,
+  getMarketStatusController,
+  getRateLimitsController,
+  getOptionChainController,
+  getMarketHolidaysController,
+  getSundayMarketOpenController,
+} from "../controllers/market.controller.js";
 
 const router = Router();
 
@@ -71,5 +84,16 @@ router.get("/status", getMarketStatusController);
 
 // GET /rate-limits -> Institutional SmartAPI rate limit metrics partitioned by client code
 router.get("/rate-limits", getRateLimitsController);
+
+// GET & POST /option-chain -> Live derivatives Option Chain matrix with Greeks & PCR
+router.get("/option-chain", getOptionChainController);
+router.post("/option-chain", getOptionChainController);
+
+// GET /holidays -> Dynamic DB-backed NSE/BSE market holiday calendar
+// Query params: ?year=2026 (optional – defaults to current year)
+router.get("/holidays", getMarketHolidaysController);
+
+// GET /sunday-market-open -> Holidays falling on Saturday/Sunday (dynamic)
+router.get("/sunday-market-open", getSundayMarketOpenController);
 
 export default router;

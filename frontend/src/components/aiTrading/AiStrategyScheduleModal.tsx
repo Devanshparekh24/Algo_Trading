@@ -5,10 +5,10 @@ import {
   Zap,
   Flame,
   TrendingDown,
+  TrendingUp,
   Sun,
   BarChart3,
   Target,
-  Shield,
   X,
   Database,
   Loader2,
@@ -36,6 +36,7 @@ const STRATEGY_ICON_MAP: Record<string, React.ComponentType<{ className?: string
   GREEK_SNIPER: Zap,
   PCR_REVERSAL: BarChart3,
   STANDARD: Target,
+  EMA_9_21: TrendingUp,
 };
 
 export const AiStrategyScheduleModal: React.FC<AiStrategyScheduleModalProps> = ({

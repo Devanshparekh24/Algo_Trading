@@ -18,6 +18,7 @@ import {
   removeCustomUniverseScrip,
   resetCustomUniverse,
   analyzeBudgetAndSuggestTrades,
+  scanOptionChainSignals,
   getActiveAiPositions,
   closeAiPositionManual,
   getAiTradeLogs,
@@ -451,6 +452,35 @@ export async function budgetAdvisorController(req: Request, res: Response): Prom
     });
   }
 }
+
+/**
+ * POST /api/v1/ai/option-chain/scan
+ * Scan an option chain and return a ranked list of option signals
+ */
+export async function scanOptionChainController(req: Request, res: Response): Promise<void> {
+  try {
+    const { underlying, expiry, strikeCount } = req.body || {};
+    const params: { underlying: string; expiry?: string; strikeCount?: number } = {
+      underlying: String(underlying || "NIFTY"),
+    };
+    if (expiry) params.expiry = String(expiry);
+    if (strikeCount) params.strikeCount = Number(strikeCount);
+
+    const result = await scanOptionChainSignals(params);
+    res.json({
+      status: true,
+      message: `Option chain scan complete for ${result.underlying}`,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Option chain scan error:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to scan option chain",
+    });
+  }
+}
+
 
 /**
  * GET /api/v1/ai/positions
