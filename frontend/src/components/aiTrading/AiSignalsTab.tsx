@@ -360,6 +360,14 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                     <span className="font-bold text-lg text-gray-900 dark:text-white tracking-wide">
                       {sig.symbol}
                     </span>
+                    {sig.isSynthetic && (
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-md font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1"
+                        title="Historical candles missing. Generated from estimated curve. Do not use for live trading."
+                      >
+                        <span>⚠️ SIMULATED DATA</span>
+                      </span>
+                    )}
                     {sig.contractType && sig.contractType !== 'EQ' ? (
                       <span
                         className={`text-xs px-2.5 py-0.5 rounded-md font-extrabold uppercase ${
@@ -394,6 +402,13 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                     <span>{sig.timeframe}</span>
                     <span>•</span>
                     <span>R:R {sig.riskReward}</span>
+                    <span>•</span>
+                    <span
+                      className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 font-mono font-bold text-[10px] border border-blue-200 dark:border-blue-800"
+                      title="Heuristic AI rating (0-100) based on RSI, EMA, and MACD alignment, not an empirical win probability"
+                    >
+                      Conviction: {sig.confidence}/100
+                    </span>
                   </div>
                 </div>
 
@@ -572,8 +587,12 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                   <button
                     type="button"
                     onClick={() => onExecuteSignal(sig)}
-                    className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
-                      isBuy
+                    disabled={sig.isSynthetic}
+                    title={sig.isSynthetic ? "Cannot execute trade on simulated/synthetic data" : undefined}
+                    className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
+                      sig.isSynthetic
+                        ? 'bg-gray-400 dark:bg-gray-700 text-gray-200 shadow-none'
+                        : isBuy
                         ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
                         : isSell
                         ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
@@ -581,7 +600,7 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                     }`}
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Execute {sig.action}</span>
+                    <span>{sig.isSynthetic ? 'Simulated Data' : `Execute ${sig.action}`}</span>
                   </button>
                 </div>
               </div>

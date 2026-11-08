@@ -5,6 +5,7 @@ import { startSessionScheduler, startInstrumentScheduler } from "./src/services/
 import { getTopFnoMovers } from "./src/services/smartapi/fnoMovers.service.js";
 import { initSocketServer } from "./src/services/websocket/socketService.js";
 import { seedMarketHolidays, seedSundayMarketOpen } from "./src/services/marketHoliday.service.js";
+import { loadPersistedOpenPositions } from "./src/services/ai/aiTrading.service.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -46,6 +47,8 @@ server.listen(PORT, async () => {
     try {
         await prisma.$connect();
         console.log("[Database] Connected successfully via Prisma.");
+        // Rehydrate in-memory positions from PostgreSQL AiTradeLog
+        await loadPersistedOpenPositions();
     } catch (error) {
         console.error("[Database] Connection failed:", error);
     }

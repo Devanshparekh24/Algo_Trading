@@ -61,7 +61,6 @@ coverage/
 *.sqlite
 *.sqlite3
 *.db
-/generated/prisma
 Backend/src/generated/
 
 # Editor & OS Artifacts

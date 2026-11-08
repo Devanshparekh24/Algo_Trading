@@ -17,17 +17,25 @@ import { getCachedQuote } from "./FullMode.js";
 export async function getLtpData(
   request: LtpDataRequest
 ): Promise<LtpDataResponse> {
+  const token = request.symboltoken || request.symbolToken || "";
+  const symbol = request.tradingsymbol || request.tradingSymbol || "";
+  const payload = {
+    exchange: request.exchange,
+    tradingsymbol: symbol,
+    symboltoken: token,
+  };
+
   // Check cached quote first
   const cached =
-    getCachedQuote(request.symboltoken) ||
-    getCachedQuote(`${request.exchange}_${request.symboltoken}`) ||
-    getCachedQuote(request.tradingsymbol);
+    getCachedQuote(token) ||
+    getCachedQuote(`${request.exchange}_${token}`) ||
+    getCachedQuote(symbol);
 
   if (cached && cached.ltp) {
     return {
       exchange: cached.exchange || request.exchange,
-      tradingSymbol: cached.tradingSymbol || request.tradingsymbol,
-      symbolToken: cached.symbolToken || request.symboltoken,
+      tradingSymbol: cached.tradingSymbol || symbol,
+      symbolToken: cached.symbolToken || token,
       open: cached.open || cached.ltp,
       high: cached.high || cached.ltp,
       low: cached.low || cached.ltp,
@@ -49,7 +57,7 @@ export async function getLtpData(
         message: string;
         errorcode?: string;
         data?: LtpDataResponse;
-      }>(url, request, { headers });
+      }>(url, payload, { headers });
 
       const { status, message, data, errorcode } = response.data;
 

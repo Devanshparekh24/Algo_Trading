@@ -19,6 +19,14 @@ import { executeSmartApiRequest } from "../rateLimiter.js";
  * @param request The parameters for fetching historical data.
  */
 export async function getCandleData(request: HistoricalDataRequest): Promise<CandleData[]> {
+  const payload = {
+    exchange: request.exchange,
+    symboltoken: request.symboltoken || request.symbolToken || "",
+    interval: request.interval,
+    fromdate: request.fromdate || request.fromDate || "",
+    todate: request.todate || request.toDate || "",
+  };
+
   return executeSmartApiRequest(async () => {
     try {
       const jwtToken = await getValidSession();
@@ -32,7 +40,7 @@ export async function getCandleData(request: HistoricalDataRequest): Promise<Can
         message: string;
         errorcode?: string;
         data?: CandleData[];
-      }>(url, request, { headers });
+      }>(url, payload, { headers });
 
       const { status, message, data, errorcode } = response.data;
 

@@ -306,8 +306,33 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
                           >
                             {isProfit ? '+' : ''}{pos.pnlPercent || 0}%
                           </div>
+                          {pos.charges !== undefined && pos.charges > 0 && (
+                            <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                              Taxes/Costs: ₹{pos.charges}
+                            </div>
+                          )}
                         </div>
                       </div>
+
+                      {/* Auto-Exit Failure / Retry Critical Alert */}
+                      {pos.exitRetryCount !== undefined && pos.exitRetryCount > 0 && (
+                        <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-500/60 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-2 animate-pulse">
+                          <div className="flex items-center space-x-1.5 overflow-hidden">
+                            <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                            <span className="truncate">
+                              <strong>Auto-Exit Alert ({pos.exitRetryCount} retries):</strong> {pos.lastExitError || 'Exit rejected'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleClosePosition(pos.id)}
+                            disabled={isClosing}
+                            className="shrink-0 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] shadow-xs"
+                          >
+                            Emergency Force Exit
+                          </button>
+                        </div>
+                      )}
 
                       {/* Price Grid */}
                       <div className="grid grid-cols-3 gap-2 text-xs">
@@ -524,6 +549,11 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
                                   }`}
                                 >
                                   {isProfit ? '+' : ''}{log.pnlPercent}%
+                                </div>
+                              )}
+                              {log.charges !== undefined && log.charges > 0 && (
+                                <div className="text-[9px] text-gray-400 font-normal mt-0.5">
+                                  Charges: ₹{log.charges}
                                 </div>
                               )}
                             </div>

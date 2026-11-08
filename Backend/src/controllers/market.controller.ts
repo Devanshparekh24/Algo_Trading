@@ -37,15 +37,21 @@ export async function getHistoricalData(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { exchange, symbolToken, interval, fromDate, toDate } = req.body as Record<string, string>;
-    if (!exchange || !symbolToken || !interval || !fromDate || !toDate) {
+    const body = (req.body || {}) as Record<string, string>;
+    const exchange = body.exchange;
+    const symboltoken = body.symboltoken || body.symbolToken;
+    const interval = body.interval;
+    const fromdate = body.fromdate || body.fromDate;
+    const todate = body.todate || body.toDate;
+
+    if (!exchange || !symboltoken || !interval || !fromdate || !todate) {
       res.status(400).json({
         success: false,
-        message: "Missing required fields: exchange, symbolToken, interval, fromDate, toDate",
+        message: "Missing required fields: exchange, symbolToken (or symboltoken), interval, fromDate (or fromdate), toDate (or todate)",
       });
       return;
     }
-    const data = await getCandleData({ exchange, symbolToken, interval, fromDate, toDate });
+    const data = await getCandleData({ exchange, symboltoken, interval, fromdate, todate });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -61,15 +67,19 @@ export async function getLtp(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { exchange, tradingSymbol, symbolToken } = req.body as Record<string, string>;
-    if (!exchange || !tradingSymbol || !symbolToken) {
+    const body = (req.body || {}) as Record<string, string>;
+    const exchange = body.exchange;
+    const tradingsymbol = body.tradingsymbol || body.tradingSymbol;
+    const symboltoken = body.symboltoken || body.symbolToken;
+
+    if (!exchange || !tradingsymbol || !symboltoken) {
       res.status(400).json({
         success: false,
-        message: "Missing required fields: exchange, tradingSymbol, symbolToken",
+        message: "Missing required fields: exchange, tradingSymbol (or tradingsymbol), symbolToken (or symboltoken)",
       });
       return;
     }
-    const data = await getLtpData({ exchange, tradingSymbol, symbolToken });
+    const data = await getLtpData({ exchange, tradingsymbol, symboltoken });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -105,7 +115,7 @@ export async function getNiftyQuote(
       mode: "FULL",
       exchangeTokens: { NSE: [NIFTY_INDEX_TOKEN] },
     });
-    const quote = result.fetched?.[0] ?? null;
+    const quote = result.data?.fetched?.[0] ?? null;
     res.json({ success: true, data: quote });
   } catch (err) {
     next(err);
@@ -125,13 +135,13 @@ export async function getMajorIndices(
     const exchangeTokens: Record<string, string[]> = {};
     for (const idx of MAJOR_INDEX_TOKENS) {
       if (!exchangeTokens[idx.exchange]) exchangeTokens[idx.exchange] = [];
-      exchangeTokens[idx.exchange].push(idx.token);
+      exchangeTokens[idx.exchange]!.push(idx.token);
     }
 
     const result = await getFullModeData({ mode: "FULL", exchangeTokens });
 
     // Merge labels back into quotes
-    const labelled = (result.fetched ?? []).map((q: Record<string, unknown>) => {
+    const labelled = (result.data?.fetched ?? []).map((q: any) => {
       const meta = MAJOR_INDEX_TOKENS.find(
         (m) => m.token === (q.symbolToken as string)
       );
@@ -237,11 +247,19 @@ export async function getOptionChainController(
 ): Promise<void> {
   try {
     const underlying =
-      (req.query.symbol as string) || (req.body?.symbol as string) || "NIFTY";
+      (req.query.underlying as string) ||
+      (req.query.symbol as string) ||
+      (req.body?.underlying as string) ||
+      (req.body?.symbol as string) ||
+      "NIFTY";
     const expiry =
       (req.query.expiry as string) || (req.body?.expiry as string) || undefined;
     const strikeCount = Number(
-      (req.query.strikes as string) || (req.body?.strikes as string) || 10
+      (req.query.strikeCount as string) ||
+      (req.query.strikes as string) ||
+      (req.body?.strikeCount as string) ||
+      (req.body?.strikes as string) ||
+      10
     );
 
     const data = await getOptionChainData({

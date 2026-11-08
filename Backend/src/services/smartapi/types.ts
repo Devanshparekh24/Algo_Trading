@@ -151,18 +151,23 @@ export interface TokenStore {
 
 export interface HistoricalDataRequest {
   exchange: string;
-  symboltoken: string;
+  symboltoken?: string;
+  symbolToken?: string;
   interval: string;
-  fromdate: string;
-  todate: string;
+  fromdate?: string;
+  fromDate?: string;
+  todate?: string;
+  toDate?: string;
 }
 
 export type CandleData = [string, number, number, number, number, number];
 
 export interface LtpDataRequest {
   exchange: string;
-  tradingsymbol: string;
-  symboltoken: string;
+  tradingsymbol?: string;
+  tradingSymbol?: string;
+  symboltoken?: string;
+  symbolToken?: string;
 }
 
 export interface LtpDataResponse {

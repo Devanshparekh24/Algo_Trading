@@ -30,6 +30,7 @@ import {
   type ScripCandidate,
 } from "../services/ai/aiTrading.service.js";
 import { checkGoldenHours } from "../services/smartapi/greeks.service.js";
+import { runStrategyBacktest } from "../services/ai/backtest.service.js";
 
 /**
  * GET /api/v1/ai/signals
@@ -655,6 +656,50 @@ export async function logStrategyScheduleController(req: Request, res: Response)
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to log strategy schedule",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/backtest
+ * Run historical backtest of a trading strategy with realistic Indian market cost model
+ */
+export async function runBacktestController(req: Request, res: Response): Promise<void> {
+  try {
+    const { strategy, symbol, token, exchange, fromDate, toDate, interval, initialCapital, targetPct, stopLossPct, lotSize } = req.body;
+
+    if (!symbol || !token || !exchange || !fromDate || !toDate) {
+      res.status(400).json({
+        status: false,
+        message: "symbol, token, exchange, fromDate, and toDate are required fields.",
+      });
+      return;
+    }
+
+    const result = await runStrategyBacktest({
+      strategy,
+      symbol,
+      token,
+      exchange,
+      fromDate,
+      toDate,
+      interval,
+      initialCapital: initialCapital ? Number(initialCapital) : undefined,
+      targetPct: targetPct ? Number(targetPct) : undefined,
+      stopLossPct: stopLossPct ? Number(stopLossPct) : undefined,
+      lotSize: lotSize ? Number(lotSize) : undefined,
+    });
+
+    res.json({
+      status: true,
+      message: "Strategy backtest completed successfully",
+      data: result,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error running strategy backtest:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to execute strategy backtest",
     });
   }
 }

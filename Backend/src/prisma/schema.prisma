@@ -53,6 +53,8 @@ model AiTradeLog {
   exitReason      String?   // TARGET, STOP_LOSS, THETA_TIMEOUT, MANUAL
   pnl             Float?    @default(0)
   pnlPercent      Float?    @default(0)
+  charges         Float?    @default(0)
+  netPnl          Float?    @default(0)
   holdingMinutes  Float?    @default(0)
   delta           Float?
   gamma           Float?

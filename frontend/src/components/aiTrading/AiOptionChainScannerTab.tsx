@@ -106,7 +106,17 @@ export const AiOptionChainScannerTab: React.FC<AiOptionChainScannerTabProps> = (
       </div>
       {/* Summary Cards */}
       {scanResult && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <>
+          {scanResult.signals.some((s) => s.isSynthetic) && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+              <span className="text-base">⚠️</span>
+              <div>
+                <span className="font-bold">Simulated Option Chain:</span> Active contracts for this underlying/expiry are not in the local database. Data has been simulated for structural analysis only. <strong className="text-amber-200">Do not execute real trades based on this simulated grid.</strong>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="bg-gray-950 rounded-xl border border-gray-800 p-4">
             <div className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Underlying</div>
             <div className="text-xl font-mono font-bold text-white">{scanResult.underlying}</div>
@@ -127,6 +137,7 @@ export const AiOptionChainScannerTab: React.FC<AiOptionChainScannerTabProps> = (
             <div className="text-xl font-mono font-bold text-amber-400">₹{scanResult.maxPainStrike.toLocaleString()}</div>
           </div>
         </div>
+        </>
       )}
 
 
@@ -141,7 +152,7 @@ export const AiOptionChainScannerTab: React.FC<AiOptionChainScannerTabProps> = (
                 {scanResult.signals.length} contracts
               </span>
             </div>
-            <p className="text-xs text-gray-500">Ranked by actionability & confidence</p>
+            <p className="text-xs text-gray-500">Ranked by Greek liquidity & AI conviction score</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -150,7 +161,7 @@ export const AiOptionChainScannerTab: React.FC<AiOptionChainScannerTabProps> = (
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Strike</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Type</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Action</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Confidence</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase" title="Heuristic AI technical rating out of 100 based on RSI, EMA, and MACD alignment">AI Conviction</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">LTP</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">% Chg</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase">SL</th>
@@ -185,7 +196,9 @@ export const AiOptionChainScannerTab: React.FC<AiOptionChainScannerTabProps> = (
                           style={{ width: `${Math.min(sig.confidence, 100)}%` }}
                         />
                       </div>
-                      <span className="text-[10px]">{sig.confidence}%</span>
+                      <span className="text-[10px] font-mono text-gray-400" title="Heuristic conviction score (0-100), not an empirical win probability">
+                        Score: {sig.confidence}/100
+                      </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-emerald-300">₹{sig.currentPrice.toLocaleString()}</td>
                     <td className="px-4 py-3 font-mono">

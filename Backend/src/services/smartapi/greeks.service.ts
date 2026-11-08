@@ -346,6 +346,8 @@ export function filterAndRankGreekSniperStrikes(params: {
     close?: number;
     tradeVolume?: number;
     opnInterest?: number;
+    lotSize?: number;
+    lotsize?: string | number;
     exchange: string;
   }>;
   spotPrice: number;
@@ -371,7 +373,18 @@ export function filterAndRankGreekSniperStrikes(params: {
     if (!item.strike || item.strike <= 0) continue;
     if (item.ltp <= 0) continue;
 
-    const lotSize = item.tradingSymbol.startsWith("BANKNIFTY") ? 30 : 65;
+    const lotSize =
+      typeof item.lotSize === "number" && item.lotSize > 0
+        ? item.lotSize
+        : typeof item.lotsize === "string" && parseInt(item.lotsize, 10) > 0
+        ? parseInt(item.lotsize, 10)
+        : typeof item.lotsize === "number" && item.lotsize > 0
+        ? item.lotsize
+        : item.tradingSymbol.startsWith("BANKNIFTY")
+        ? 30
+        : item.tradingSymbol.startsWith("NIFTY")
+        ? 65
+        : 1;
     const lotCost = Math.round(item.ltp * lotSize);
 
     // Step 1: Budget allocation check (must be affordable within budget)

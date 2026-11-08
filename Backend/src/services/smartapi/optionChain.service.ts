@@ -6,6 +6,7 @@ import prisma from "../../config/prisma.js";
 import { getFullModeData } from "./api/FullMode.js";
 import { calculateOptionGreeks, parseExpiryToDte, type OptionGreeks } from "./greeks.service.js";
 import { registerWatchedToken } from "../websocket/socketService.js";
+import { getInstrumentLotSize } from "./instrument.service.js";
 
 export interface OptionContractDetails {
   symbolToken: string;
@@ -49,6 +50,9 @@ export interface OptionChainData {
   pcrSentiment: "BULLISH" | "BEARISH" | "NEUTRAL";
   maxPainStrike: number;
   lotSize: number;
+  isSynthetic?: boolean;
+  dataSource?: "LIVE_EXCHANGE" | "SYNTHETIC_FALLBACK";
+  warningMessage?: string;
   lastUpdated: string;
   rows: OptionChainStrikeRow[];
 }
@@ -272,7 +276,8 @@ export async function getOptionChainData(params: {
     ? params.expiry
     : availableExpiries[0] || "NEAR";
 
-  const lotSize = dbInstruments[0]?.lotsize ? parseInt(dbInstruments[0].lotsize) : meta.defaultLotSize;
+  const dbLot = dbInstruments[0]?.lotsize ? parseInt(dbInstruments[0].lotsize, 10) : NaN;
+  const lotSize = !isNaN(dbLot) && dbLot > 0 ? dbLot : await getInstrumentLotSize(underlying, meta.defaultLotSize);
 
   // If no DB instruments available for this expiry, provide realistic synthetic grid
   const contractsForExpiry = dbInstruments.filter((i) => i.expiry === selectedExpiry);
@@ -301,6 +306,9 @@ export async function getOptionChainData(params: {
       pcrSentiment: fallback.pcr >= 1.2 ? "BULLISH" : fallback.pcr <= 0.8 ? "BEARISH" : "NEUTRAL",
       maxPainStrike: fallback.maxPainStrike,
       lotSize,
+      isSynthetic: true,
+      dataSource: "SYNTHETIC_FALLBACK",
+      warningMessage: "SIMULATED DATA: No active market contracts found in database for this expiry. Do NOT place real trades based on this simulated chain.",
       lastUpdated: new Date().toISOString(),
       rows: fallback.rows,
     };
@@ -509,6 +517,8 @@ export async function getOptionChainData(params: {
     pcrSentiment,
     maxPainStrike,
     lotSize,
+    isSynthetic: false,
+    dataSource: "LIVE_EXCHANGE",
     lastUpdated: new Date().toISOString(),
     rows,
   };

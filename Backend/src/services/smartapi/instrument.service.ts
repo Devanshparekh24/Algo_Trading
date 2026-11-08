@@ -76,6 +76,79 @@ export async function syncInstruments(): Promise<void> {
   }
 }
 
+const lotSizeCache = new Map<string, number>();
+
+/**
+ * Dynamic DB-driven lot size resolver.
+ * Looks up the authoritative lot size from PostgreSQL `Instrument` table.
+ * Caches in-memory for zero-latency lookups without DB bottlenecks.
+ */
+export async function getInstrumentLotSize(
+  symbolOrToken: string,
+  fallback?: number
+): Promise<number> {
+  if (!symbolOrToken) return fallback ?? 1;
+  const clean = symbolOrToken.trim();
+  const upper = clean.toUpperCase();
+
+  if (lotSizeCache.has(upper)) {
+    return lotSizeCache.get(upper)!;
+  }
+
+  try {
+    // 1. Direct match on token, exact symbol, or name
+    const inst = await prisma.instrument.findFirst({
+      where: {
+        OR: [
+          { token: clean },
+          { symbol: upper },
+          { name: upper },
+        ],
+      },
+      select: { lotsize: true },
+    });
+
+    if (inst?.lotsize) {
+      const parsed = parseInt(inst.lotsize, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        lotSizeCache.set(upper, parsed);
+        return parsed;
+      }
+    }
+
+    // 2. Base derivative root lookup in NFO segment (e.g. "BANKNIFTY", "NIFTY", "FINNIFTY")
+    const baseName = upper.startsWith("BANKNIFTY")
+      ? "BANKNIFTY"
+      : upper.startsWith("FINNIFTY")
+      ? "FINNIFTY"
+      : upper.startsWith("MIDCPNIFTY")
+      ? "MIDCPNIFTY"
+      : upper.startsWith("NIFTY")
+      ? "NIFTY"
+      : null;
+
+    if (baseName) {
+      const baseInst = await prisma.instrument.findFirst({
+        where: { name: baseName, exch_seg: "NFO" },
+        select: { lotsize: true },
+      });
+      if (baseInst?.lotsize) {
+        const parsed = parseInt(baseInst.lotsize, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          lotSizeCache.set(upper, parsed);
+          return parsed;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[InstrumentService] Failed to lookup lot size for ${symbolOrToken}:`, err?.message || err);
+  }
+
+  const defaultFallback = fallback ?? (upper.startsWith("BANKNIFTY") ? 30 : upper.startsWith("NIFTY") ? 65 : 1);
+  lotSizeCache.set(upper, defaultFallback);
+  return defaultFallback;
+}
+
 /**
  * Perform a database-driven search for instruments.
  */

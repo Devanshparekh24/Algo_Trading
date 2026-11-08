@@ -25,6 +25,7 @@ import {
   getFnoMovers,
   getGainersLosers,
   getMarketStatusController,
+  getOptionChainController,
 } from "./controllers/market.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -117,6 +118,17 @@ app.get("/indices", getMajorIndices);
 app.get("/fno-movers", getFnoMovers);
 app.get("/gainers-losers", getGainersLosers);
 app.post("/gainers-losers", getGainersLosers);
+
+// Root-level & alias fallbacks for market status and option-chain
+app.get("/market-status", getMarketStatusController);
+app.get("/status", getMarketStatusController);
+app.get("/option-chain", getOptionChainController);
+app.post("/option-chain", getOptionChainController);
+app.post("/market/historical", getHistoricalData);
+app.post("/market/ltp", getLtp);
+app.get("/market/option-chain", getOptionChainController);
+app.post("/market/option-chain", getOptionChainController);
+app.get("/market/status", getMarketStatusController);
 
 // Register Swagger documentation UI endpoint
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));

@@ -16,7 +16,6 @@ import {
   fetchAiSignals,
   analyzeScrip,
   lookupOptionStrike,
-  scanOptionChain,
   executeSignalOrder,
   fetchOrderHistory,
   fetchAutoPilotConfig,
@@ -36,7 +35,6 @@ import {
   type MarketSegment,
   type UniverseScrip,
   type BudgetAnalysisResult,
-  type OptionChainScanResult,
   type RiskProfile,
   type BudgetSegment,
   type VolatileOptionItem,
@@ -59,33 +57,6 @@ import { AiAutoPilotModal } from '../components/aiTrading/AiAutoPilotModal';
 import { AiUniverseModal } from '../components/aiTrading/AiUniverseModal';
 import { AiStrategyScheduleModal } from '../components/aiTrading/AiStrategyScheduleModal';
 import { useAppStore } from '../store';
-
-/**
- * Checks regular Indian market trading hours (09:15 AM - 03:30 PM IST Mon-Fri)
- * as well as special annual Diwali Muhurat Trading sessions (18:15 - 19:15 IST).
- */
-function checkIsMarketOpenIST(): boolean {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const ist = new Date(utc + 5.5 * 3600000);
-  const day = ist.getDay(); // 0 = Sun, 6 = Sat
-  const hour = ist.getHours();
-  const minute = ist.getMinutes();
-  const timeNum = hour * 100 + minute;
-  const year = ist.getFullYear();
-  const month = String(ist.getMonth() + 1).padStart(2, '0');
-  const d = String(ist.getDate()).padStart(2, '0');
-  const dateKey = `${year}-${month}-${d}`;
-
-  // Check special Diwali Muhurat Trading session (18:15 - 19:15 IST)
-  const isMuhuratDate = dateKey === '2024-11-01' || dateKey === '2025-10-21' || dateKey === '2026-11-08';
-  if (isMuhuratDate && timeNum >= 1815 && timeNum < 1915) {
-    return true;
-  }
-
-  if (day === 0 || day === 6) return false;
-  return timeNum >= 915 && timeNum <= 1530;
-}
 
 export const AiTradingScreen: React.FC = () => {
   const showValidationModal = useAppStore((state) => state.showValidationModal);
@@ -142,24 +113,6 @@ export const AiTradingScreen: React.FC = () => {
   const [isAnalyzingBudget, setIsAnalyzingBudget] = useState<boolean>(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [brokerFunds, setBrokerFunds] = useState<{ net: number; available: number } | null>(null);
-
-  // Option Chain Scanner State
-  const [optionChainScanResult, setOptionChainScanResult] = useState<OptionChainScanResult | null>(null);
-  const [isScanningOptionChain, setIsScanningOptionChain] = useState<boolean>(false);
-  const [optionChainScanError, setOptionChainScanError] = useState<string | null>(null);
-
-  const handleScanOptionChain = useCallback(async () => {
-    setIsScanningOptionChain(true);
-    setOptionChainScanError(null);
-    try {
-      const result = await scanOptionChain({ underlying: 'NIFTY', strikeCount: 8 });
-      setOptionChainScanResult(result);
-    } catch (err: any) {
-      setOptionChainScanError(err?.message || 'Failed to scan option chain');
-    } finally {
-      setIsScanningOptionChain(false);
-    }
-  }, []);
 
   const [isLoadingFunds, setIsLoadingFunds] = useState<boolean>(false);
   const [volatileRadarTab, setVolatileRadarTab] = useState<'calls' | 'puts'>('calls');
@@ -814,7 +767,7 @@ export const AiTradingScreen: React.FC = () => {
   ) => {
     // Validation: Check if enabling or arming Auto-Pilot while Indian markets are closed
     const isEnabling = updated.enabled === true || (autoPilot.enabled && updated.enabled !== false);
-    const isClosed = marketStatus ? !marketStatus.isOpen : !checkIsMarketOpenIST();
+    const isClosed = marketStatus ? !marketStatus.isOpen : false;
 
     if (isEnabling && isClosed && !bypassMarketCheck) {
       const statusReason =

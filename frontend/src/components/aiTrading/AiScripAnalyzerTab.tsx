@@ -123,6 +123,15 @@ export const AiScripAnalyzerTab: React.FC<AiScripAnalyzerTabProps> = ({
       {/* Deep Analysis Result Card */}
       {analyzedSignal && (
         <div className="p-5 md:p-6 rounded-2xl bg-gradient-to-br from-gray-900 via-gray-900 to-blue-950/30 border border-blue-500/40 backdrop-blur-xl shadow-2xl space-y-6">
+          {analyzedSignal.isSynthetic && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+              <span className="text-base">⚠️</span>
+              <div>
+                <span className="font-bold">Simulated / Fallback Data:</span> Historical candlestick data was unavailable from the broker API. Technical indicators and levels are generated from an estimated curve. <strong className="text-amber-200">Do NOT execute real orders on this simulated data.</strong>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-800">
             <div>
@@ -141,6 +150,12 @@ export const AiScripAnalyzerTab: React.FC<AiScripAnalyzerTabProps> = ({
                   }`}
                 >
                   AI Verdict: {analyzedSignal.action}
+                </span>
+                <span
+                  className="text-xs px-2.5 py-1 rounded-md bg-blue-900/40 text-blue-300 border border-blue-500/40 font-mono font-semibold"
+                  title="Heuristic technical rating (0-100) based on RSI, EMA, and MACD alignment, not a guaranteed win probability"
+                >
+                  Conviction: {analyzedSignal.confidence}/100
                 </span>
               </div>
 

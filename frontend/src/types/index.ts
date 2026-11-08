@@ -209,6 +209,9 @@ export interface OptionChainData {
   pcrSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   maxPainStrike: number;
   lotSize: number;
+  isSynthetic?: boolean;
+  dataSource?: 'LIVE_EXCHANGE' | 'SYNTHETIC_FALLBACK';
+  warningMessage?: string;
   lastUpdated: string;
   rows: OptionChainStrikeRow[];
 }

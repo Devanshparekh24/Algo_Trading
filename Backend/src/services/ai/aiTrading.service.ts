@@ -13,6 +13,7 @@ import { getOptionChainData, type OptionChainData, type OptionChainStrikeRow } f
 import type { CandleData, FullMode, OrderPlacementRequest, OrderBookItem } from "../smartapi/types.js";
 import { broadcastSocketEvent } from "../websocket/socketService.js";
 import prisma from "../../config/prisma.js";
+import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
 import fs from "fs";
 import path from "path";
 import {
@@ -24,6 +25,11 @@ import {
   type GreekEnrichedOption,
   type GoldenHoursStatus,
 } from "../smartapi/greeks.service.js";
+import {
+  calculateIndianMarketCosts,
+  getSlippageAdjustedPrice,
+  type TradeCostBreakdown,
+} from "./costModel.service.js";
 
 // ===========================================================================
 // Type Definitions
@@ -40,6 +46,9 @@ export interface TechnicalIndicators {
   ema21: number;
   sma50: number;
   emaTrend: "STRONG_BULLISH" | "BULLISH" | "BEARISH" | "STRONG_BEARISH" | "NEUTRAL";
+  emaCrossover?: "BULLISH_CROSSOVER" | "BEARISH_CROSSOVER" | "NO_CROSSOVER";
+  prevEma9?: number;
+  prevEma21?: number;
   macd: {
     macdLine: number;
     signalLine: number;
@@ -89,6 +98,9 @@ export interface TradeSignal {
   percentChange: number;
   indicators: TechnicalIndicators;
   greeks?: OptionGreeks | undefined;
+  isSynthetic?: boolean | undefined;
+  dataSource?: ("LIVE_EXCHANGE" | "SYNTHETIC_FALLBACK") | undefined;
+  warning?: string | undefined;
   aiThesis: {
     summary: string;
     rationale: string[];
@@ -122,6 +134,9 @@ export interface AutoPilotConfig {
   maxDailyTrades: number;
   executedToday: number;
   minConfidence?: number | undefined;
+  maxDailyLoss?: number | undefined;
+  maxOpenPositions?: number | undefined;
+  confirmedLiveTrading?: boolean | undefined;
 }
 
 export interface ActiveAiPosition {
@@ -148,6 +163,12 @@ export interface ActiveAiPosition {
   pnlPercent: number;
   exitReason?: "TARGET" | "STOP_LOSS" | "THETA_TIMEOUT" | "MANUAL" | undefined;
   greeks?: OptionGreeks | undefined;
+  exitRetryCount?: number | undefined;
+  lastExitAttempt?: number | undefined;
+  lastExitError?: string | undefined;
+  isExitPending?: boolean | undefined;
+  charges?: number | undefined;
+  netPnl?: number | undefined;
 }
 
 export type UniverseSource = "CORE" | "HOLDING" | "MARKET_MOVER" | "CUSTOM";
@@ -481,7 +502,7 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
               name: `${sym} (OI Mover)`,
               segment: "FNO",
               contractType,
-              lotSize: sym.startsWith("BANKNIFTY") ? 30 : 65,
+              lotSize: await getInstrumentLotSize(sym, 1),
               underlying: sym.startsWith("BANKNIFTY") ? "BANKNIFTY" : "NIFTY",
               source: "MARKET_MOVER",
             });
@@ -522,7 +543,7 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
             contractType,
             strike,
             expiry: inst.expiry,
-            lotSize: parseInt(inst.lotsize) || (sym.startsWith("BANKNIFTY") ? 30 : 65),
+            lotSize: parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1)),
             underlying: inst.name,
             source: "CORE",
           });
@@ -569,10 +590,86 @@ let autoPilotConfig: AutoPilotConfig = {
   productType: "INTRADAY",
   maxDailyTrades: 5,
   executedToday: 0,
+  maxDailyLoss: 5000, // ₹5,000 daily loss kill-switch threshold
+  maxOpenPositions: 3, // Max concurrent open positions
+  confirmedLiveTrading: false, // Mandatory confirmation before placing LIVE broker orders
 };
 
 // Map of open and recent active positions managed by AI Auto-Pilot & Execution
 const activeAiPositions: Map<string, ActiveAiPosition> = new Map();
+
+/**
+ * Server Restart Recovery & Position Persistence:
+ * Reloads all OPEN trades from PostgreSQL AiTradeLog into activeAiPositions map,
+ * ensuring stop-loss, profit-target, and theta-timeout monitoring resumes seamlessly.
+ */
+export async function loadPersistedOpenPositions(): Promise<number> {
+  try {
+    const openLogs = await prisma.aiTradeLog.findMany({
+      where: { status: "OPEN" },
+      orderBy: { enteredAt: "asc" },
+    });
+
+    let loadedCount = 0;
+    for (const log of openLogs) {
+      const posId = `pos_${log.orderId}`;
+      const isFno = log.exchange === "NFO" || log.segment === "FNO";
+      const targetPct = autoPilotConfig.profitTargetPct || 35;
+      const slPct = autoPilotConfig.stopLossPct || 18;
+
+      const position: ActiveAiPosition = {
+        id: posId,
+        orderId: log.orderId,
+        symbol: log.symbol,
+        token: log.token,
+        exchange: log.exchange,
+        strategy: (log.strategy as AutoPilotStrategy) || (isFno ? "GREEK_SNIPER" : "STANDARD"),
+        entryPrice: log.entryPrice,
+        currentPrice: log.exitPrice || log.entryPrice,
+        highestPrice: log.entryPrice,
+        quantity: log.quantity,
+        lots: log.lots,
+        action: (log.action === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+        targetPrice: log.targetPrice || Number((log.entryPrice * (1 + targetPct / 100)).toFixed(2)),
+        stopLossPrice: log.stopLossPrice || Number((log.entryPrice * (1 - slPct / 100)).toFixed(2)),
+        enteredAt: new Date(log.enteredAt).getTime(),
+        holdingMinutes: log.holdingMinutes || 0,
+        timeoutMinutes: 45,
+        mode: (log.mode as "PAPER" | "LIVE") || "PAPER",
+        status: "OPEN",
+        pnl: log.pnl || 0,
+        pnlPercent: log.pnlPercent || 0,
+        charges: log.charges || 0,
+        netPnl: log.netPnl || 0,
+        greeks:
+          log.delta != null
+            ? {
+                delta: log.delta,
+                gamma: log.gamma || 0,
+                theta: log.theta || 0,
+                vega: 0,
+                iv: log.iv || 0,
+                thetaPremiumRatio: 0,
+                isGreekEligible: true,
+              }
+            : undefined,
+        exitRetryCount: 0,
+      };
+
+      activeAiPositions.set(posId, position);
+      loadedCount++;
+    }
+
+    if (loadedCount > 0) {
+      console.log(`[AI Position Persistence] Reloaded ${loadedCount} OPEN positions from PostgreSQL for active auto-exit monitoring.`);
+      broadcastSocketEvent("ai_positions_update", Array.from(activeAiPositions.values()));
+    }
+    return loadedCount;
+  } catch (err: any) {
+    console.error("[AI Position Persistence] Error loading active positions from database:", err?.message || err);
+    return 0;
+  }
+}
 
 // ===========================================================================
 // Mathematical Technical Indicator Calculations
@@ -614,23 +711,43 @@ function calculateRSI(closes: number[], period = 14): number {
 }
 
 /**
- * Exponential Moving Average (EMA)
+ * Exponential Moving Average (EMA) Series across an entire array of prices
  */
-function calculateEMA(data: number[], period: number): number {
-  if (data.length === 0) return 0;
+export function calculateEMASeries(data: number[], period: number): number[] {
+  if (data.length === 0) return [];
+  const result: number[] = [];
+  const k = 2 / (period + 1);
+
   if (data.length < period) {
-    const sum = data.reduce((a, b) => a + b, 0);
-    return Number((sum / data.length).toFixed(2));
+    const avg = data.reduce((a, b) => a + b, 0) / data.length;
+    for (let i = 0; i < data.length; i++) {
+      result.push(Number(avg.toFixed(2)));
+    }
+    return result;
   }
 
-  const k = 2 / (period + 1);
   let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = 0; i < period - 1; i++) {
+    result.push(Number(ema.toFixed(2)));
+  }
+  result.push(Number(ema.toFixed(2)));
 
   for (let i = period; i < data.length; i++) {
-    ema = (data[i] ?? 0) * k + ema * (1 - k);
+    const val = data[i] ?? 0;
+    ema = val * k + ema * (1 - k);
+    result.push(Number(ema.toFixed(2)));
   }
 
-  return Number(ema.toFixed(2));
+  return result;
+}
+
+/**
+ * Exponential Moving Average (EMA) for latest bar
+ */
+export function calculateEMA(data: number[], period: number): number {
+  if (data.length === 0) return 0;
+  const series = calculateEMASeries(data, period);
+  return series[series.length - 1] ?? 0;
 }
 
 /**
@@ -686,27 +803,57 @@ function calculateBollingerBands(
 
 /**
  * Moving Average Convergence Divergence (MACD 12, 26, 9)
+ * Real authentic 9-period EMA signal line over MACD series with true crossover detection.
  */
 function calculateMACD(
   closes: number[]
-): { macdLine: number; signalLine: number; histogram: number } {
+): {
+  macdLine: number;
+  signalLine: number;
+  histogram: number;
+  trend: "BULLISH_CROSSOVER" | "BEARISH_CROSSOVER" | "BULLISH" | "BEARISH" | "NEUTRAL";
+} {
   if (closes.length < 26) {
-    return { macdLine: 0, signalLine: 0, histogram: 0 };
+    return { macdLine: 0, signalLine: 0, histogram: 0, trend: "NEUTRAL" };
   }
 
-  const ema12 = calculateEMA(closes, 12);
-  const ema26 = calculateEMA(closes, 26);
-  const macdLine = ema12 - ema26;
+  const ema12Series = calculateEMASeries(closes, 12);
+  const ema26Series = calculateEMASeries(closes, 26);
+  const macdSeries: number[] = [];
 
-  // Signal line is 9-period EMA of MACD
-  // If we have enough points, compute properly, otherwise estimate
-  const signalLine = macdLine * 0.85;
-  const histogram = macdLine - signalLine;
+  for (let i = 0; i < closes.length; i++) {
+    const v12 = ema12Series[i] ?? 0;
+    const v26 = ema26Series[i] ?? 0;
+    macdSeries.push(Number((v12 - v26).toFixed(4)));
+  }
+
+  // Authentic 9-period EMA of MACD line series
+  const signalSeries = calculateEMASeries(macdSeries, 9);
+
+  const len = macdSeries.length;
+  const currMacd = macdSeries[len - 1] ?? 0;
+  const currSignal = signalSeries[len - 1] ?? 0;
+  const prevMacd = len >= 2 ? (macdSeries[len - 2] ?? 0) : currMacd;
+  const prevSignal = len >= 2 ? (signalSeries[len - 2] ?? 0) : currSignal;
+
+  const histogram = currMacd - currSignal;
+
+  let trend: "BULLISH_CROSSOVER" | "BEARISH_CROSSOVER" | "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (prevMacd <= prevSignal && currMacd > currSignal) {
+    trend = "BULLISH_CROSSOVER";
+  } else if (prevMacd >= prevSignal && currMacd < currSignal) {
+    trend = "BEARISH_CROSSOVER";
+  } else if (histogram > 0) {
+    trend = "BULLISH";
+  } else if (histogram < 0) {
+    trend = "BEARISH";
+  }
 
   return {
-    macdLine: Number(macdLine.toFixed(2)),
-    signalLine: Number(signalLine.toFixed(2)),
+    macdLine: Number(currMacd.toFixed(2)),
+    signalLine: Number(currSignal.toFixed(2)),
     histogram: Number(histogram.toFixed(2)),
+    trend,
   };
 }
 
@@ -851,7 +998,8 @@ export async function analyzeInstrument(
   }
 
   // Fallback synthetic data if candle API was unavailable
-  if (closes.length < 15) {
+  const isSynthetic = closes.length < 15;
+  if (isSynthetic) {
     const base = close || currentPrice;
     const spread = (high - low) || base * 0.02;
     closes = [
@@ -878,8 +1026,22 @@ export async function analyzeInstrument(
 
   // 3. Indicator Computations
   const rsi = calculateRSI(closes, 14);
-  const ema9 = calculateEMA(closes, 9);
-  const ema21 = calculateEMA(closes, 21);
+  const ema9Series = calculateEMASeries(closes, 9);
+  const ema21Series = calculateEMASeries(closes, 21);
+  const closesLen = closes.length;
+  const ema9 = ema9Series[closesLen - 1] ?? 0;
+  const ema21 = ema21Series[closesLen - 1] ?? 0;
+  const prevEma9 = closesLen >= 2 ? (ema9Series[closesLen - 2] ?? ema9) : ema9;
+  const prevEma21 = closesLen >= 2 ? (ema21Series[closesLen - 2] ?? ema21) : ema21;
+
+  // Genuine EMA Crossover Detection
+  let emaCrossover: "BULLISH_CROSSOVER" | "BEARISH_CROSSOVER" | "NO_CROSSOVER" = "NO_CROSSOVER";
+  if (prevEma9 <= prevEma21 && ema9 > ema21) {
+    emaCrossover = "BULLISH_CROSSOVER";
+  } else if (prevEma9 >= prevEma21 && ema9 < ema21) {
+    emaCrossover = "BEARISH_CROSSOVER";
+  }
+
   const sma50 = calculateSMA(closes, Math.min(50, closes.length));
   const macdData = calculateMACD(closes);
   const bb = calculateBollingerBands(closes, 20, 2);
@@ -909,13 +1071,8 @@ export async function analyzeInstrument(
   else if (ema9 < ema21 && currentPrice < ema9) emaTrend = "STRONG_BEARISH";
   else if (ema9 < ema21) emaTrend = "BEARISH";
 
-  // Determine MACD Trend
-  let macdTrend: TechnicalIndicators["macd"]["trend"] = "NEUTRAL";
-  if (macdData.histogram > 0 && macdData.macdLine > macdData.signalLine) {
-    macdTrend = macdData.histogram > 1 ? "BULLISH" : "BULLISH_CROSSOVER";
-  } else if (macdData.histogram < 0 && macdData.macdLine < macdData.signalLine) {
-    macdTrend = macdData.histogram < -1 ? "BEARISH" : "BEARISH_CROSSOVER";
-  }
+  // Determine MACD Trend from authentic MACD calculation
+  const macdTrend = macdData.trend;
 
   // Determine Bollinger Band Position
   let bbPosition: TechnicalIndicators["bollingerBands"]["position"] = "LOWER_HALF";
@@ -931,6 +1088,9 @@ export async function analyzeInstrument(
     ema21,
     sma50,
     emaTrend,
+    emaCrossover,
+    prevEma9,
+    prevEma21,
     macd: {
       ...macdData,
       trend: macdTrend,
@@ -1067,16 +1227,14 @@ export async function analyzeInstrument(
 
     if (symbol.startsWith("NIFTY")) {
       underlying = "NIFTY";
-      lotSize = 65;
     } else if (symbol.startsWith("BANKNIFTY")) {
       underlying = "BANKNIFTY";
-      lotSize = 30;
     } else if (symbol.startsWith("FINNIFTY")) {
       underlying = "FINNIFTY";
-      lotSize = 65;
-    } else {
-      lotSize = 25;
     }
+    lotSize = await getInstrumentLotSize(symbol, 1);
+  } else {
+    lotSize = await getInstrumentLotSize(symbol, 1);
   }
 
   // Open interest analysis
@@ -1108,10 +1266,11 @@ export async function analyzeInstrument(
       : `Neutral consolidation pattern for ${symbol} with ${confidence}% confidence. Await clear breakout above ₹${resistanceLevel} or breakdown below ₹${supportLevel}.`;
   }
 
-  const riskFactor =
-    action === "BUY"
-      ? `Broader index volatility or a break below crucial support at ₹${supportLevel}.`
-      : `Short-covering squeeze if price breaks above key resistance at ₹${resistanceLevel}.`;
+  const riskFactor = isSynthetic
+    ? "SYNTHETIC DATA WARNING: Indicators derived from fallback curve due to missing candle feed. Verify on live chart before trading."
+    : action === "BUY"
+    ? `Broader index volatility or a break below crucial support at ₹${supportLevel}.`
+    : `Short-covering squeeze if price breaks above key resistance at ₹${resistanceLevel}.`;
 
   const catalyst =
     action === "BUY"
@@ -1142,6 +1301,11 @@ export async function analyzeInstrument(
     netChange: Number(netChange.toFixed(2)),
     percentChange: Number(percentChange.toFixed(2)),
     indicators,
+    isSynthetic,
+    dataSource: isSynthetic ? "SYNTHETIC_FALLBACK" : "LIVE_EXCHANGE",
+    warning: isSynthetic
+      ? "⚠️ SYNTHETIC DATA: Historical candles were unavailable. Indicators are calculated from estimated curve. Do not use for live execution."
+      : undefined,
     aiThesis: {
       summary,
       rationale: rationaleList.slice(0, 4),
@@ -1306,7 +1470,8 @@ export async function findAndAnalyzeOptionStrike(params: {
   instruments.sort((a, b) => a.symbol.localeCompare(b.symbol));
   const chosen = instruments[0]!;
 
-  const lot = parseInt(chosen.lotsize) || (underUpper === "NIFTY" ? 65 : 30);
+  const parsedLot = parseInt(chosen.lotsize, 10);
+  const lot = !isNaN(parsedLot) && parsedLot > 0 ? parsedLot : await getInstrumentLotSize(chosen.symbol, 1);
   const signal = await analyzeInstrument(chosen.symbol, chosen.token, "NFO", undefined, false);
 
   signal.strike = strike;
@@ -1331,7 +1496,7 @@ export async function scanOptionChainSignals(params: {
   const chain = await getOptionChainData({ underlying, expiry: params.expiry, strikeCount: params.strikeCount ?? 8 });
 
   const signals: TradeSignal[] = [];
-  const lotSize = chain.lotSize || 65;
+  const lotSize = chain.lotSize || (await getInstrumentLotSize(underlying, 1));
   const spot = chain.spotPrice;
 
   for (const row of chain.rows) {
@@ -1408,9 +1573,12 @@ export async function scanOptionChainSignals(params: {
             `Delta ${delta.toFixed(3)} | Gamma ${gamma.toFixed(4)} | Theta/Premium ${thetaRatio.toFixed(3)}`,
             `OI ${oi} | Volume ${vol}${row.isAtm ? " | ATM strike" : ""}`,
           ],
-          riskFactor: `Theta decay if held; SL at ₹${sl}.`,
+          riskFactor: chain.isSynthetic ? "SIMULATED DATA WARNING: Live option contracts not found in DB." : `Theta decay if held; SL at ₹${sl}.`,
           catalyst: "Option chain momentum + greeks confluence.",
         },
+        isSynthetic: chain.isSynthetic,
+        dataSource: chain.dataSource || (chain.isSynthetic ? "SYNTHETIC_FALLBACK" : "LIVE_EXCHANGE"),
+        warning: chain.warningMessage,
         generatedAt: new Date().toISOString(),
         status: "ACTIVE",
       };
@@ -1442,6 +1610,67 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
   if (!autoPilotConfig.enabled) return;
   if (autoPilotConfig.executedToday >= autoPilotConfig.maxDailyTrades) {
     console.log(`[AI Auto-Pilot] Daily trade limit reached (${autoPilotConfig.executedToday}/${autoPilotConfig.maxDailyTrades}).`);
+    return;
+  }
+
+  // Risk Safeguard 1: Max Daily Loss Kill Switch
+  const maxLossLimit = autoPilotConfig.maxDailyLoss || 5000;
+  let todayRealizedPnL = 0;
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const exitedToday = await prisma.aiTradeLog.findMany({
+      where: {
+        status: "EXITED",
+        exitedAt: { gte: startOfDay },
+      },
+      select: { netPnl: true, pnl: true },
+    });
+    todayRealizedPnL = exitedToday.reduce((sum, t) => sum + (t.netPnl ?? t.pnl ?? 0), 0);
+  } catch {
+    todayRealizedPnL = 0;
+  }
+
+  const openUnrealizedPnL = Array.from(activeAiPositions.values())
+    .filter((p) => p.status === "OPEN")
+    .reduce((sum, p) => sum + (p.pnl || 0), 0);
+
+  const cumulativeTodayPnL = todayRealizedPnL + openUnrealizedPnL;
+
+  if (cumulativeTodayPnL <= -maxLossLimit) {
+    console.warn(
+      `[AI Auto-Pilot Kill Switch] Total daily loss ₹${cumulativeTodayPnL.toFixed(2)} breached threshold of -₹${maxLossLimit}. DISARMING AUTO-PILOT!`
+    );
+    autoPilotConfig.enabled = false;
+
+    await logAiErrorToDb({
+      source: "KILL_SWITCH",
+      action: "AUTO_PILOT_HALTED",
+      message: `Kill-switch activated: Today's loss ₹${cumulativeTodayPnL.toFixed(2)} exceeded ₹${maxLossLimit} limit. Auto-pilot disabled.`,
+      details: { cumulativeTodayPnL, maxLossLimit, todayRealizedPnL, openUnrealizedPnL },
+    }).catch(console.error);
+
+    broadcastSocketEvent("ai_kill_switch_triggered", {
+      message: `Kill-switch triggered! Cumulative loss ₹${cumulativeTodayPnL.toFixed(2)} breached max daily loss limit of ₹${maxLossLimit}. Auto-Pilot disarmed.`,
+      cumulativeLoss: cumulativeTodayPnL,
+      maxDailyLoss: maxLossLimit,
+      todayRealizedPnL,
+      openUnrealizedPnL,
+    });
+    return;
+  }
+
+  // Risk Safeguard 2: Max Concurrent Open Positions Cap
+  const openPositionsCount = Array.from(activeAiPositions.values()).filter((p) => p.status === "OPEN").length;
+  const maxOpenCap = autoPilotConfig.maxOpenPositions || 3;
+  if (openPositionsCount >= maxOpenCap) {
+    console.log(`[AI Auto-Pilot Risk] Open positions cap reached (${openPositionsCount}/${maxOpenCap}). Skipping new trade triggers.`);
+    return;
+  }
+
+  // Risk Safeguard 3: LIVE Broker Order Safety Confirmation Gate
+  if (autoPilotConfig.mode === "LIVE" && !autoPilotConfig.confirmedLiveTrading) {
+    console.warn(`[AI Auto-Pilot Safety] Mode is LIVE but user safety confirmation is missing. Refusing live trade execution.`);
     return;
   }
 
@@ -1500,15 +1729,36 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
     else if (autoPilotConfig.strategy === "EMA_9_21") {
       // Only trade NIFTY-based instruments for this strategy
       if (sig.underlying !== "NIFTY" && !sig.symbol.includes("NIFTY")) continue;
-      // Require strong EMA alignment: EMA9 above EMA21 for BUY, EMA9 below EMA21 for SELL
-      if (sig.action === "BUY" && sig.indicators && !(sig.indicators.emaTrend === "STRONG_BULLISH" || sig.indicators.emaTrend === "BULLISH")) continue;
-      if (sig.action === "SELL" && sig.indicators && !(sig.indicators.emaTrend === "STRONG_BEARISH" || sig.indicators.emaTrend === "BEARISH")) continue;
+      // Require real EMA crossover or strong EMA trend alignment:
+      if (sig.action === "BUY" && sig.indicators) {
+        const hasCross = sig.indicators.emaCrossover === "BULLISH_CROSSOVER";
+        const hasTrend = sig.indicators.emaTrend === "STRONG_BULLISH" || sig.indicators.emaTrend === "BULLISH";
+        if (!hasCross && !hasTrend) continue;
+      }
+      if (sig.action === "SELL" && sig.indicators) {
+        const hasCross = sig.indicators.emaCrossover === "BEARISH_CROSSOVER";
+        const hasTrend = sig.indicators.emaTrend === "STRONG_BEARISH" || sig.indicators.emaTrend === "BEARISH";
+        if (!hasCross && !hasTrend) continue;
+      }
       // Price must be above EMA9 for BUY, below EMA9 for SELL
       if (sig.action === "BUY" && sig.indicators && sig.currentPrice < sig.indicators.ema9) continue;
       if (sig.action === "SELL" && sig.indicators && sig.currentPrice > sig.indicators.ema9) continue;
     }
 
-    const lotSize = sig.lotSize || 65;
+    // Safety Gate: Never auto-execute trades based on synthetic/fallback data
+    if (sig.isSynthetic) {
+      console.warn(`[AI Auto-Pilot] Refusing execution on synthetic data for ${sig.symbol}`);
+      await logAiErrorToDb({
+        source: "AUTO_PILOT",
+        action: "REJECT_SYNTHETIC_SIGNAL",
+        symbol: sig.symbol,
+        token: sig.token,
+        message: `Auto-pilot rejected trade for ${sig.symbol}: synthetic candle data detected.`,
+      });
+      continue;
+    }
+
+    const lotSize = sig.lotSize || (await getInstrumentLotSize(sig.symbol, 1));
     const lots = autoPilotConfig.defaultQuantity || 1;
     const finalQty = isFno ? lotSize * lots : lots;
     const estimatedCost = finalQty * sig.currentPrice;
@@ -1574,8 +1824,11 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
         timeoutMins = 90; // Hold intraday EMA trend longer
       }
 
-      const targetPrice = sig.target1 > 0 ? sig.target1 : Number((sig.currentPrice * (1 + targetPct / 100)).toFixed(2));
-      const stopLossPrice = sig.stopLoss > 0 ? sig.stopLoss : Number((sig.currentPrice * (1 - slPct / 100)).toFixed(2));
+      // Apply realistic simulated slippage on paper trade fills (0.15% adverse slippage)
+      const fillPrice = isPaper ? getSlippageAdjustedPrice(sig.currentPrice, sig.action) : sig.currentPrice;
+
+      const targetPrice = sig.target1 > 0 ? sig.target1 : Number((fillPrice * (1 + targetPct / 100)).toFixed(2));
+      const stopLossPrice = sig.stopLoss > 0 ? sig.stopLoss : Number((fillPrice * (1 - slPct / 100)).toFixed(2));
 
       const position: ActiveAiPosition = {
         id: posId,
@@ -1584,9 +1837,9 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
         token: sig.token,
         exchange: sig.exchange || (isFno ? "NFO" : "NSE"),
         strategy: autoPilotConfig.strategy || (isFno ? "GREEK_SNIPER" : "STANDARD"),
-        entryPrice: sig.currentPrice,
-        currentPrice: sig.currentPrice,
-        highestPrice: sig.currentPrice,
+        entryPrice: fillPrice,
+        currentPrice: fillPrice,
+        highestPrice: fillPrice,
         quantity: finalQty,
         lots: isFno ? Math.max(1, Math.round(finalQty / lotSize)) : 1,
         action: sig.action,
@@ -1600,6 +1853,7 @@ async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise<void> 
         pnl: 0,
         pnlPercent: 0,
         greeks: sig.greeks,
+        exitRetryCount: 0,
       };
       activeAiPositions.set(posId, position);
       logTradeEntryToDb(position, sig).catch(console.error);
@@ -1706,7 +1960,7 @@ export async function addCustomUniverseScrip(scrip: AddScripInput): Promise<Scri
     contractType: scrip.contractType || (scrip.symbol.endsWith("CE") ? "CE" : scrip.symbol.endsWith("PE") ? "PE" : scrip.symbol.endsWith("FUT") ? "FUT" : "EQ"),
     strike: resolvedStrike,
     expiry: resolvedExpiry,
-    lotSize: resolvedLotSize || (isFno ? (scrip.symbol.startsWith("BANKNIFTY") ? 30 : 65) : 1),
+    lotSize: resolvedLotSize || (isFno ? (await getInstrumentLotSize(scrip.symbol, 1)) : 1),
     underlying: scrip.underlying,
     source: "CUSTOM",
   };
@@ -1799,6 +2053,7 @@ export async function executeSignalOrder(
     orderType?: "MARKET" | "LIMIT" | undefined;
     limitPrice?: number | undefined;
     mode?: "PAPER" | "LIVE" | undefined;
+    confirmed?: boolean | undefined;
   } = {}
 ) {
   try {
@@ -1809,7 +2064,7 @@ export async function executeSignalOrder(
     }
 
   const isFno = signal.exchange === "NFO" || signal.segment === "FNO";
-  const lotSize = signal.lotSize || (signal.symbol.startsWith("BANKNIFTY") ? 30 : 65);
+  const lotSize = signal.lotSize || (await getInstrumentLotSize(signal.symbol, 1));
 
   let finalQty = 1;
   if (isFno) {
@@ -1823,6 +2078,10 @@ export async function executeSignalOrder(
   const pType = options.productType || defaultPType;
 
   const isPaper = options.mode ? options.mode === "PAPER" : autoPilotConfig.mode === "PAPER";
+  if (!isPaper && !autoPilotConfig.confirmedLiveTrading && !options.confirmed) {
+    throw new Error("LIVE trading requires explicit confirmation before executing real orders with Angel One.");
+  }
+
   const oType = options.orderType || "MARKET";
   const price = oType === "LIMIT" ? options.limitPrice || signal.currentPrice : 0;
 
@@ -1842,12 +2101,17 @@ export async function executeSignalOrder(
   const res = await placeSmartApiOrder(orderReq, isPaper);
   signal.status = "EXECUTED";
 
-  // Register active AI position for auto-exit monitoring (Target, StopLoss, 45-Min Theta Timeout)
+  // Register active AI position for auto-exit monitoring (Target, StopLoss, Theta Timeout)
   const posId = `pos_${res.orderid || Date.now()}`;
   const targetPct = autoPilotConfig.profitTargetPct || 50;
   const slPct = autoPilotConfig.stopLossPct || 22;
-  const targetPrice = signal.target1 > 0 ? signal.target1 : Number((signal.currentPrice * (1 + targetPct / 100)).toFixed(2));
-  const stopLossPrice = signal.stopLoss > 0 ? signal.stopLoss : Number((signal.currentPrice * (1 - slPct / 100)).toFixed(2));
+
+  // Apply realistic simulated slippage on paper trade fills (0.15% adverse slippage)
+  const actionToUse = (signal.action === "HOLD" ? "BUY" : signal.action) as "BUY" | "SELL";
+  const fillPrice = isPaper ? getSlippageAdjustedPrice(signal.currentPrice, actionToUse) : signal.currentPrice;
+
+  const targetPrice = signal.target1 > 0 ? signal.target1 : Number((fillPrice * (1 + targetPct / 100)).toFixed(2));
+  const stopLossPrice = signal.stopLoss > 0 ? signal.stopLoss : Number((fillPrice * (1 - slPct / 100)).toFixed(2));
 
   const position: ActiveAiPosition = {
     id: posId,
@@ -1856,12 +2120,12 @@ export async function executeSignalOrder(
     token: signal.token,
     exchange: signal.exchange || (isFno ? "NFO" : "NSE"),
     strategy: autoPilotConfig.strategy || (isFno ? "GREEK_SNIPER" : "STANDARD"),
-    entryPrice: signal.currentPrice,
-    currentPrice: signal.currentPrice,
-    highestPrice: signal.currentPrice,
+    entryPrice: fillPrice,
+    currentPrice: fillPrice,
+    highestPrice: fillPrice,
     quantity: finalQty,
     lots: isFno ? Math.max(1, Math.round(finalQty / lotSize)) : 1,
-    action: (signal.action === "HOLD" ? "BUY" : signal.action) as "BUY" | "SELL",
+    action: actionToUse,
     targetPrice,
     stopLossPrice,
     enteredAt: Date.now(),
@@ -1872,6 +2136,7 @@ export async function executeSignalOrder(
     pnl: 0,
     pnlPercent: 0,
     greeks: signal.greeks,
+    exitRetryCount: 0,
   };
   activeAiPositions.set(posId, position);
   logTradeEntryToDb(position, signal).catch(console.error);
@@ -2043,6 +2308,8 @@ async function logTradeExitToDb(
         exitReason: reason,
         pnl: position.pnl,
         pnlPercent: position.pnlPercent,
+        charges: position.charges || 0,
+        netPnl: position.netPnl || position.pnl,
         holdingMinutes: position.holdingMinutes,
         exitedAt: new Date(),
       },
@@ -2528,8 +2795,9 @@ export async function logStrategyScheduleEvent(params: {
 }
 
 /**
- * Auto-Exit Position Monitor
- * Continuously checks open AI positions against Target, Stop-Loss, and 45-Minute Theta Timeout
+ * Auto-Exit Position Monitor with Realistic Cost Model, Retries & Critical Escalation
+ * Continuously checks open AI positions against Target, Stop-Loss, and Theta Timeout.
+ * Retries failed exit orders with backoff and sounds critical alarms if execution fails.
  */
 export async function checkActivePositionsForExit(): Promise<void> {
   const openPositions = Array.from(activeAiPositions.values()).filter((p) => p.status === "OPEN");
@@ -2553,10 +2821,20 @@ export async function checkActivePositionsForExit(): Promise<void> {
       }
     }
 
-    // Calculate P&L
-    const diff = pos.action === "BUY" ? (pos.currentPrice - pos.entryPrice) : (pos.entryPrice - pos.currentPrice);
-    pos.pnl = Number((diff * pos.quantity).toFixed(2));
-    pos.pnlPercent = Number(((diff / pos.entryPrice) * 100).toFixed(1));
+    // 2. Calculate realistic net P&L incorporating Indian transaction costs & slippage
+    const isFno = pos.exchange === "NFO";
+    const costBreakdown = calculateIndianMarketCosts({
+      segment: isFno ? "FNO" : "EQUITY",
+      buyPrice: pos.action === "BUY" ? pos.entryPrice : pos.currentPrice,
+      sellPrice: pos.action === "BUY" ? pos.currentPrice : pos.entryPrice,
+      quantity: pos.quantity,
+      isMarketOrder: true,
+    });
+
+    pos.charges = costBreakdown.totalCost;
+    pos.netPnl = costBreakdown.netPnl;
+    pos.pnl = costBreakdown.netPnl; // Record net PnL after brokerage, STT, and slippage
+    pos.pnlPercent = costBreakdown.netPnlPercent;
 
     // Calculate holding duration in minutes
     const holdingMins = (now - pos.enteredAt) / 60000;
@@ -2568,74 +2846,132 @@ export async function checkActivePositionsForExit(): Promise<void> {
     let reason: "TARGET" | "STOP_LOSS" | "THETA_TIMEOUT" | "MANUAL" = "TARGET";
     let exitMessage = "";
 
-    const targetPct = autoPilotConfig.profitTargetPct || 50;
-    const slPct = autoPilotConfig.stopLossPct || 22;
+    const targetPct = autoPilotConfig.profitTargetPct || 35;
+    const slPct = autoPilotConfig.stopLossPct || 18;
     const timeoutMins = pos.timeoutMinutes || autoPilotConfig.thetaTimeoutMinutes || 45;
 
-    // Rule 1: Profit Target (+40% to +80%)
+    // Rule 1: Profit Target Hit
     if (pos.pnlPercent >= targetPct) {
       shouldExit = true;
       reason = "TARGET";
-      exitMessage = `Target Hit (+${pos.pnlPercent}%)`;
+      exitMessage = `Target Hit (+${pos.pnlPercent}% net)`;
     }
-    // Rule 2: Hard Stop-Loss (-20% to -25%)
+    // Rule 2: Hard Stop-Loss Triggered
     else if (pos.pnlPercent <= -slPct) {
       shouldExit = true;
       reason = "STOP_LOSS";
-      exitMessage = `Stop-Loss Triggered (${pos.pnlPercent}%)`;
+      exitMessage = `Stop-Loss Triggered (${pos.pnlPercent}% net)`;
     }
-    // Rule 3: Theta Timeout (Held > 45 mins with 0 momentum)
+    // Rule 3: Theta Timeout (Stagnant position held with minimal gain)
     else if (holdingMins >= timeoutMins && pos.pnlPercent < 8) {
       shouldExit = true;
       reason = "THETA_TIMEOUT";
-      exitMessage = `Theta Timeout (Held ${pos.holdingMinutes}m > ${timeoutMins}m with 0 momentum)`;
+      exitMessage = `Theta Timeout (Held ${pos.holdingMinutes}m > ${timeoutMins}m with stagnant momentum)`;
     }
 
     if (shouldExit) {
-      console.log(`[AI Auto-Exit] Executing ${exitMessage} for ${pos.symbol} (P&L: ₹${pos.pnl}, ${pos.pnlPercent}%)`);
-      try {
-        const exitAction: "BUY" | "SELL" = pos.action === "BUY" ? "SELL" : "BUY";
-        const orderReq: OrderPlacementRequest = {
-          variety: "NORMAL",
-          tradingsymbol: pos.symbol,
-          symboltoken: pos.token,
-          transactiontype: exitAction,
-          exchange: pos.exchange || "NFO",
-          ordertype: "MARKET",
-          producttype: pos.exchange === "NFO" ? "CARRYFORWARD" : "INTRADAY",
-          duration: "DAY",
-          price: 0,
-          quantity: pos.quantity,
-        };
+      // Prevent overlapping concurrent exit order attempts for the same position
+      if (pos.isExitPending) {
+        continue;
+      }
+      pos.isExitPending = true;
 
-        const isPaper = pos.mode === "PAPER";
-        const exitRes = await placeSmartApiOrder(orderReq, isPaper);
+      console.log(`[AI Auto-Exit] Executing ${exitMessage} for ${pos.symbol} (Net P&L: ₹${pos.pnl}, ${pos.pnlPercent}%)`);
 
+      const exitAction: "BUY" | "SELL" = pos.action === "BUY" ? "SELL" : "BUY";
+      const isPaper = pos.mode === "PAPER";
+      const orderReq: OrderPlacementRequest = {
+        variety: "NORMAL",
+        tradingsymbol: pos.symbol,
+        symboltoken: pos.token,
+        transactiontype: exitAction,
+        exchange: pos.exchange || (isFno ? "NFO" : "NSE"),
+        ordertype: "MARKET",
+        producttype: isFno ? "CARRYFORWARD" : "INTRADAY",
+        duration: "DAY",
+        price: 0,
+        quantity: pos.quantity,
+      };
+
+      // Auto-exit execution with 3 retries and exponential backoff
+      let exitSuccess = false;
+      let exitOrderResult: any = null;
+      let lastError: any = null;
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          pos.lastExitAttempt = Date.now();
+          exitOrderResult = await placeSmartApiOrder(orderReq, isPaper);
+          exitSuccess = true;
+          break;
+        } catch (attemptErr: any) {
+          lastError = attemptErr;
+          console.warn(
+            `[AI Auto-Exit] Attempt ${attempt}/${maxRetries} failed for ${pos.symbol}:`,
+            attemptErr?.message || attemptErr
+          );
+          if (attempt < maxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+
+      if (exitSuccess) {
         pos.status = "EXITED";
         pos.exitReason = reason;
+        pos.isExitPending = false;
+        pos.exitRetryCount = 0;
+        pos.lastExitError = undefined;
 
         await logTradeExitToDb(pos, reason);
 
         broadcastSocketEvent("ai_auto_exit_executed", {
           position: pos,
-          exitOrder: exitRes,
+          exitOrder: exitOrderResult,
           reason,
           exitMessage,
+          grossPnl: costBreakdown.grossPnl,
+          charges: costBreakdown.totalCost,
+          netPnl: costBreakdown.netPnl,
           pnl: pos.pnl,
           pnlPercent: pos.pnlPercent,
           holdingMinutes: pos.holdingMinutes,
         });
-      } catch (exitErr: any) {
-        console.error(`[AI Auto-Exit] Failed to execute exit for ${pos.symbol}:`, exitErr?.message || exitErr);
-        logAiErrorToDb({
-          source: "AUTO_EXIT",
-          action: `${reason}_EXIT`,
+
+        console.log(`[AI Auto-Exit] Successfully exited ${pos.symbol}. Net PnL: ₹${pos.pnl}`);
+      } else {
+        // All retries exhausted! Critical escalation
+        pos.isExitPending = false;
+        pos.exitRetryCount = (pos.exitRetryCount || 0) + 1;
+        pos.lastExitError = lastError?.message || "Auto-exit order failed after 3 attempts";
+
+        console.error(
+          `[AI Auto-Exit CRITICAL] ALL ${maxRetries} exit attempts failed for ${pos.symbol}! Alerting user.`
+        );
+
+        await logAiErrorToDb({
+          source: "AUTO_EXIT_CRITICAL",
+          action: `${reason}_EXIT_FAILED`,
           symbol: pos.symbol,
           token: pos.token,
-          message: exitErr?.message || "Auto-exit execution failed",
-          stack: exitErr?.stack,
-          details: { positionId: pos.id, reason, exitMessage },
+          message: `CRITICAL: Auto-exit failed after ${maxRetries} retries: ${pos.lastExitError}`,
+          stack: lastError?.stack,
+          details: { positionId: pos.id, orderId: pos.orderId, retryCount: pos.exitRetryCount, reason },
         }).catch(console.error);
+
+        // Broadcast high-priority emergency alert
+        broadcastSocketEvent("ai_critical_exit_failed", {
+          positionId: pos.id,
+          symbol: pos.symbol,
+          orderId: pos.orderId,
+          retryCount: pos.exitRetryCount,
+          reason,
+          error: pos.lastExitError,
+          actionRequired: "EMERGENCY_MANUAL_EXIT_REQUIRED",
+          pnl: pos.pnl,
+          pnlPercent: pos.pnlPercent,
+        });
       }
     }
   }
@@ -2652,60 +2988,78 @@ export function getActiveAiPositions(): ActiveAiPosition[] {
 export async function closeAiPositionManual(positionId: string): Promise<{ success: boolean; message: string; position: ActiveAiPosition }> {
   try {
     const pos = activeAiPositions.get(positionId);
-  if (!pos) {
-    throw new Error(`Position ${positionId} not found.`);
+    if (!pos) {
+      throw new Error(`Position ${positionId} not found.`);
+    }
+    if (pos.status === "EXITED") {
+      return { success: true, message: `Position already exited.`, position: pos };
+    }
+
+    const isFno = pos.exchange === "NFO";
+    const exitAction: "BUY" | "SELL" = pos.action === "BUY" ? "SELL" : "BUY";
+    const orderReq: OrderPlacementRequest = {
+      variety: "NORMAL",
+      tradingsymbol: pos.symbol,
+      symboltoken: pos.token,
+      transactiontype: exitAction,
+      exchange: pos.exchange || (isFno ? "NFO" : "NSE"),
+      ordertype: "MARKET",
+      producttype: isFno ? "CARRYFORWARD" : "INTRADAY",
+      duration: "DAY",
+      price: 0,
+      quantity: pos.quantity,
+    };
+
+    const isPaper = pos.mode === "PAPER";
+    const exitRes = await placeSmartApiOrder(orderReq, isPaper);
+
+    pos.status = "EXITED";
+    pos.exitReason = "MANUAL";
+    pos.exitRetryCount = 0;
+    pos.lastExitError = undefined;
+
+    // Calculate realistic net PnL after costs
+    const costBreakdown = calculateIndianMarketCosts({
+      segment: isFno ? "FNO" : "EQUITY",
+      buyPrice: pos.action === "BUY" ? pos.entryPrice : pos.currentPrice,
+      sellPrice: pos.action === "BUY" ? pos.currentPrice : pos.entryPrice,
+      quantity: pos.quantity,
+      isMarketOrder: true,
+    });
+    pos.charges = costBreakdown.totalCost;
+    pos.netPnl = costBreakdown.netPnl;
+    pos.pnl = costBreakdown.netPnl;
+    pos.pnlPercent = costBreakdown.netPnlPercent;
+
+    await logTradeExitToDb(pos, "MANUAL");
+
+    broadcastSocketEvent("ai_auto_exit_executed", {
+      position: pos,
+      exitOrder: exitRes,
+      reason: "MANUAL",
+      exitMessage: "Manually closed by user",
+      pnl: pos.pnl,
+      pnlPercent: pos.pnlPercent,
+      charges: pos.charges,
+      holdingMinutes: pos.holdingMinutes,
+    });
+    broadcastSocketEvent("ai_positions_update", Array.from(activeAiPositions.values()));
+
+    return {
+      success: true,
+      message: `Manually closed position ${pos.symbol}`,
+      position: pos,
+    };
+  } catch (err: any) {
+    logAiErrorToDb({
+      source: "MANUAL_CLOSE",
+      action: "CLOSE_POSITION",
+      message: err?.message || "Manual position close failed",
+      stack: err?.stack,
+      details: { positionId },
+    }).catch(console.error);
+    throw err;
   }
-  if (pos.status === "EXITED") {
-    return { success: true, message: `Position already exited.`, position: pos };
-  }
-
-  const exitAction: "BUY" | "SELL" = pos.action === "BUY" ? "SELL" : "BUY";
-  const orderReq: OrderPlacementRequest = {
-    variety: "NORMAL",
-    tradingsymbol: pos.symbol,
-    symboltoken: pos.token,
-    transactiontype: exitAction,
-    exchange: pos.exchange || "NFO",
-    ordertype: "MARKET",
-    producttype: pos.exchange === "NFO" ? "CARRYFORWARD" : "INTRADAY",
-    duration: "DAY",
-    price: 0,
-    quantity: pos.quantity,
-  };
-
-  const isPaper = pos.mode === "PAPER";
-  await placeSmartApiOrder(orderReq, isPaper);
-
-  pos.status = "EXITED";
-  pos.exitReason = "MANUAL";
-
-  await logTradeExitToDb(pos, "MANUAL");
-
-  broadcastSocketEvent("ai_auto_exit_executed", {
-    position: pos,
-    reason: "MANUAL",
-    exitMessage: "Manually closed by user",
-    pnl: pos.pnl,
-    pnlPercent: pos.pnlPercent,
-    holdingMinutes: pos.holdingMinutes,
-  });
-  broadcastSocketEvent("ai_positions_update", Array.from(activeAiPositions.values()));
-
-  return {
-    success: true,
-    message: `Manually closed position ${pos.symbol}`,
-    position: pos,
-  };
-} catch (err: any) {
-  logAiErrorToDb({
-    source: "MANUAL_CLOSE",
-    action: "CLOSE_POSITION",
-    message: err?.message || "Manual position close failed",
-    stack: err?.stack,
-    details: { positionId },
-  }).catch(console.error);
-  throw err;
-}
 }
 
 let positionMonitorInterval: ReturnType<typeof setInterval> | null = null;
@@ -2873,13 +3227,13 @@ export async function analyzeBudgetAndSuggestTrades(
     };
   });
 
-  const fnoMoverToSignal = (item: FnoMoverItem): TradeSignal => {
+  const fnoMoverToSignal = async (item: FnoMoverItem): Promise<TradeSignal> => {
     const ltp = item.ltp > 0 ? item.ltp : 50;
     const slPct = 0.30; // 30% risk limit on premium
     const stopLoss = Number((ltp * (1 - slPct)).toFixed(2));
     const target1 = Number((ltp * 1.50).toFixed(2));
     const target2 = Number((ltp * 2.20).toFixed(2));
-    const lotSize = item.tradingSymbol.startsWith("BANKNIFTY") ? 30 : 65;
+    const lotSize = (item as any).lotSize || (await getInstrumentLotSize(item.tradingSymbol, 1));
 
     return {
       id: `volatile_${item.symbolToken}_${Date.now()}`,
@@ -2945,8 +3299,8 @@ export async function analyzeBudgetAndSuggestTrades(
     };
   };
 
-  const volatileCallSignals = volatileCalls.slice(0, 10).map(fnoMoverToSignal);
-  const volatilePutSignals = volatilePuts.slice(0, 10).map(fnoMoverToSignal);
+  const volatileCallSignals = await Promise.all(volatileCalls.slice(0, 10).map(fnoMoverToSignal));
+  const volatilePutSignals = await Promise.all(volatilePuts.slice(0, 10).map(fnoMoverToSignal));
   const allVolatileOptionSignals = [...volatileCallSignals, ...volatilePutSignals];
 
   // 3. Aggregate candidate pool based on requested segment
@@ -3024,7 +3378,7 @@ export async function analyzeBudgetAndSuggestTrades(
       sig.symbol.endsWith("PE");
 
     const lotSize = isFno 
-      ? (sig.lotSize && sig.lotSize > 0 ? sig.lotSize : (sig.symbol.includes("BANK") ? 15 : 65))
+      ? (sig.lotSize && sig.lotSize > 0 ? sig.lotSize : await getInstrumentLotSize(sig.symbol, 1))
       : 1;
 
     const price = sig.entryPrice > 0 ? sig.entryPrice : sig.currentPrice;

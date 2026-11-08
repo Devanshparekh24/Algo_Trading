@@ -26,6 +26,7 @@ import {
   getGoldenHoursController,
   getStrategyScheduleController,
   logStrategyScheduleController,
+  runBacktestController,
 } from "../controllers/aiTrading.controller.js";
 
 const router = Router();
@@ -79,6 +80,9 @@ router.get("/golden-hours", getGoldenHoursController);
 // Strategy Schedule & Dynamic Live IST Suggestion
 router.get("/strategy-schedule", getStrategyScheduleController);
 router.post("/strategy-schedule/log", logStrategyScheduleController);
+
+// Strategy Historical Backtesting with Institutional Indian Cost Model
+router.post("/backtest", runBacktestController);
 
 export default router;
 

@@ -12,8 +12,16 @@ import {
   TrendingUp,
   Sun,
   BarChart3,
+  AlertTriangle,
+  Play,
+  RotateCcw,
 } from 'lucide-react';
-import type { AutoPilotConfig, AutoPilotStrategy } from '../../services/aiTradingService';
+import {
+  type AutoPilotConfig,
+  type AutoPilotStrategy,
+  runStrategyBacktest,
+  type BacktestResult,
+} from '../../services/aiTradingService';
 
 interface AiAutoPilotModalProps {
   isOpen: boolean;
@@ -98,7 +106,45 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
     thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
     enforceGoldenHours: config.enforceGoldenHours !== false,
     maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
+    maxDailyLoss: config.maxDailyLoss || 5000,
+    maxOpenPositions: config.maxOpenPositions || 3,
+    confirmedLiveTrading: config.confirmedLiveTrading || false,
   });
+
+  const [isRunningBacktest, setIsRunningBacktest] = useState(false);
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+
+  const handleRunBacktest = async () => {
+    setIsRunningBacktest(true);
+    setBacktestError(null);
+    setBacktestResult(null);
+    try {
+      const now = new Date();
+      const toDate = now.toISOString().slice(0, 10) + ' 15:30';
+      const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const fromDate = past.toISOString().slice(0, 10) + ' 09:15';
+
+      const res = await runStrategyBacktest({
+        strategy: localConfig.strategy,
+        symbol: 'NIFTY',
+        token: '99926000',
+        exchange: 'NSE',
+        fromDate,
+        toDate,
+        interval: 'FIVE_MINUTE',
+        initialCapital: 100000,
+        targetPct: localConfig.profitTargetPct,
+        stopLossPct: localConfig.stopLossPct,
+        lotSize: 25,
+      });
+      setBacktestResult(res);
+    } catch (err: any) {
+      setBacktestError(err?.message || 'Failed to complete historical backtest');
+    } finally {
+      setIsRunningBacktest(false);
+    }
+  };
 
   useEffect(() => {
     setLocalConfig({
@@ -109,6 +155,9 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
       thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
       enforceGoldenHours: config.enforceGoldenHours !== false,
       maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
+      maxDailyLoss: config.maxDailyLoss || 5000,
+      maxOpenPositions: config.maxOpenPositions || 3,
+      confirmedLiveTrading: config.confirmedLiveTrading || false,
     });
     setPricingMode(config.maxBudgetPerTrade && config.maxBudgetPerTrade > 0 ? 'BUDGET_CAP' : 'DYNAMIC');
   }, [config]);
@@ -234,6 +283,31 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               <option value="PAPER">🟢 Paper Simulation (Safe Virtual Capital - Recommended)</option>
               <option value="LIVE">🔴 Live SmartAPI Broker (Real Capital via Angel Broking)</option>
             </select>
+
+            {localConfig.mode === 'LIVE' && (
+              <div className="mt-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-500/60 text-xs space-y-2 animate-in fade-in">
+                <div className="flex items-start space-x-2 text-rose-800 dark:text-rose-200">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-xs">⚠️ REAL MONEY TRADING SAFETY GATE</div>
+                    <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">
+                      Live SmartAPI broker orders will place real financial transactions on Angel One with your live trading balance.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-center space-x-2 pt-1 border-t border-rose-200 dark:border-rose-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={localConfig.confirmedLiveTrading === true}
+                    onChange={(e) => setLocalConfig((p) => ({ ...p, confirmedLiveTrading: e.target.checked }))}
+                    className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                  />
+                  <span className="text-[11px] font-semibold text-rose-900 dark:text-rose-100">
+                    I confirm that I accept full financial risk and authorize live automated orders.
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Auto-Exit Rules: Target & Stop-Loss */}
@@ -483,6 +557,53 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             </div>
           </div>
 
+          {/* Global Risk Management Safeguards */}
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-3">
+            <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
+              <Shield className="w-4 h-4 text-rose-500" />
+              <span>Global Risk Safeguards & Kill Switches</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-gray-600 dark:text-gray-400 block mb-1">Daily Loss Kill-Switch (₹):</label>
+                <input
+                  type="number"
+                  min="1000"
+                  max="100000"
+                  step="500"
+                  value={localConfig.maxDailyLoss || 5000}
+                  onChange={(e) =>
+                    setLocalConfig((p) => ({
+                      ...p,
+                      maxDailyLoss: Math.max(500, parseInt(e.target.value) || 5000),
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-rose-600 dark:text-rose-400 font-mono font-bold focus:outline-none focus:border-rose-500 text-xs"
+                />
+                <span className="text-[10px] text-gray-500">Auto-halts bot if loss breaches limit</span>
+              </div>
+
+              <div>
+                <label className="text-gray-600 dark:text-gray-400 block mb-1">Max Open Positions Cap:</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={localConfig.maxOpenPositions || 3}
+                  onChange={(e) =>
+                    setLocalConfig((p) => ({
+                      ...p,
+                      maxOpenPositions: Math.max(1, parseInt(e.target.value) || 3),
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500 text-xs"
+                />
+                <span className="text-[10px] text-gray-500">Max concurrent open trades</span>
+              </div>
+            </div>
+          </div>
+
           {/* Strategy Rules Reference */}
           <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-[11px] text-gray-600 dark:text-gray-400 space-y-1">
             <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1 mb-1">
@@ -542,13 +663,81 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                 <>
                   <div>• Indicators: EMA 9 / EMA 21 Crossover</div>
                   <div>• Underlying: NIFTY (Intraday 5m)</div>
-                  <div>• Buy: EMA9 > EMA21 & Price > EMA9</div>
-                  <div>• Sell: EMA9 < EMA21 & Price < EMA9</div>
+                  <div>• Buy: EMA9 &gt; EMA21 &amp; Price &gt; EMA9</div>
+                  <div>• Sell: EMA9 &lt; EMA21 &amp; Price &lt; EMA9</div>
                   <div>• Target: +25% | Stop-Loss: -12%</div>
                   <div>• Auto-Exit: 90 min theta timeout</div>
                 </>
               )}
             </div>
+          </div>
+
+          {/* Pre-Arming Strategy Historical Backtest with Realistic Indian Fees */}
+          <div className="p-3.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 space-y-2.5 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-gray-800 dark:text-gray-200 flex items-center space-x-1.5 text-xs">
+                <BarChart3 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span>Pre-Arming Backtest ({localConfig.strategy.replace('_', ' ')})</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRunBacktest}
+                disabled={isRunningBacktest}
+                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs flex items-center space-x-1 disabled:opacity-50 transition-all"
+              >
+                {isRunningBacktest ? (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Testing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Run Backtest</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+              Simulates over historical 5m candles with realistic Indian costs (₹20/order brokerage, STT 0.1%, GST 18%, exchange fees, and 0.15% slippage).
+            </p>
+
+            {backtestError && (
+              <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-[11px]">
+                {backtestError}
+              </div>
+            )}
+
+            {backtestResult && (
+              <div className="p-2.5 rounded-xl bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800/80 space-y-2 text-xs animate-in fade-in">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
+                    <span className="text-[10px] text-gray-500 block">Win Rate</span>
+                    <span className={`font-bold font-mono text-xs ${backtestResult.winRate >= 50 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {backtestResult.winRate}% ({backtestResult.winningTrades}/{backtestResult.totalTrades})
+                    </span>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
+                    <span className="text-[10px] text-gray-500 block">Net P&L (After Costs)</span>
+                    <span className={`font-bold font-mono text-xs ${backtestResult.netPnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {backtestResult.netPnl >= 0 ? '+' : ''}₹{backtestResult.netPnl.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
+                    <span className="text-[10px] text-gray-500 block">Max Drawdown</span>
+                    <span className="font-bold font-mono text-xs text-rose-500">
+                      -{backtestResult.maxDrawdownPercent}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 px-1 border-t border-gray-100 dark:border-gray-800 pt-1.5">
+                  <span>Gross: ₹{backtestResult.grossPnl}</span>
+                  <span>Taxes &amp; Slippage: ₹{(backtestResult.totalTaxesAndCharges + backtestResult.totalSlippage).toFixed(1)}</span>
+                  <span>Profit Factor: {backtestResult.profitFactor}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -563,14 +752,19 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </button>
           <button
             type="button"
+            disabled={localConfig.mode === 'LIVE' && !localConfig.confirmedLiveTrading}
             onClick={() => {
+              if (localConfig.mode === 'LIVE' && !localConfig.confirmedLiveTrading) {
+                alert('Please check the safety confirmation box before enabling LIVE trading.');
+                return;
+              }
               onSave({
                 ...localConfig,
                 maxBudgetPerTrade: pricingMode === 'DYNAMIC' ? 0 : localConfig.maxBudgetPerTrade || 5000,
               });
               onClose();
             }}
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center space-x-1.5"
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Zap className="w-4 h-4" />
             <span>Apply Sniper Auto-Pilot</span>

@@ -11,6 +11,9 @@ export interface TechnicalIndicators {
   ema21: number;
   sma50: number;
   emaTrend: 'STRONG_BULLISH' | 'BULLISH' | 'BEARISH' | 'STRONG_BEARISH' | 'NEUTRAL';
+  emaCrossover?: 'BULLISH_CROSSOVER' | 'BEARISH_CROSSOVER' | 'NO_CROSSOVER';
+  prevEma9?: number;
+  prevEma21?: number;
   macd: {
     macdLine: number;
     signalLine: number;
@@ -185,6 +188,9 @@ export interface TradeSignal {
   percentChange: number;
   indicators: TechnicalIndicators;
   greeks?: OptionGreeks;
+  isSynthetic?: boolean;
+  dataSource?: 'LIVE_EXCHANGE' | 'SYNTHETIC_FALLBACK';
+  warning?: string;
   aiThesis: {
     summary: string;
     rationale: string[];
@@ -218,6 +224,9 @@ export interface AutoPilotConfig {
   maxDailyTrades: number;
   executedToday: number;
   minConfidence?: number;
+  maxDailyLoss?: number;
+  maxOpenPositions?: number;
+  confirmedLiveTrading?: boolean;
 }
 
 export interface ActiveAiPosition {
@@ -244,6 +253,12 @@ export interface ActiveAiPosition {
   pnlPercent: number;
   exitReason?: 'TARGET' | 'STOP_LOSS' | 'THETA_TIMEOUT' | 'MANUAL';
   greeks?: OptionGreeks;
+  exitRetryCount?: number;
+  lastExitAttempt?: number;
+  lastExitError?: string;
+  isExitPending?: boolean;
+  charges?: number;
+  netPnl?: number;
 }
 
 export interface AiTradeLogItem {
@@ -270,6 +285,8 @@ export interface AiTradeLogItem {
   exitReason?: string;
   pnl?: number;
   pnlPercent?: number;
+  charges?: number;
+  netPnl?: number;
   holdingMinutes?: number;
   delta?: number;
   gamma?: number;
@@ -659,6 +676,82 @@ export async function logStrategySchedule(payload: Partial<StrategyScheduleRecor
   });
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to log strategy schedule');
+  return json.data;
+}
+
+export interface BacktestTrade {
+  entryTime: string;
+  exitTime: string;
+  symbol: string;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+  grossPnl: number;
+  charges: number;
+  slippage: number;
+  netPnl: number;
+  netPnlPercent: number;
+  exitReason: 'TARGET' | 'STOP_LOSS' | 'TIMEOUT' | 'END_OF_DAY';
+  barsHeld: number;
+}
+
+export interface BacktestResult {
+  symbol: string;
+  strategy: string;
+  interval: string;
+  fromDate: string;
+  toDate: string;
+  totalBars: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  grossPnl: number;
+  totalBrokerage: number;
+  totalStt: number;
+  totalTaxesAndCharges: number;
+  totalSlippage: number;
+  netPnl: number;
+  totalPnl: number;
+  totalPnlPercent: number;
+  avgWin: number;
+  avgLoss: number;
+  maxDrawdown: number;
+  maxDrawdownPercent: number;
+  profitFactor: number;
+  expectancy: number;
+  equityCurve: Array<{ time: string; equity: number }>;
+  trades: BacktestTrade[];
+  initialCapital: number;
+  finalCapital: number;
+}
+
+export interface StrategyBacktestParams {
+  strategy?: AutoPilotStrategy;
+  symbol: string;
+  token: string;
+  exchange: string;
+  fromDate: string;
+  toDate: string;
+  interval?: string;
+  initialCapital?: number;
+  targetPct?: number;
+  stopLossPct?: number;
+  lotSize?: number;
+}
+
+/**
+ * Execute real historical strategy backtest with institutional Indian cost model
+ */
+export async function runStrategyBacktest(params: StrategyBacktestParams): Promise<BacktestResult> {
+  const res = await fetch(`${API_BASE}/backtest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Strategy backtest failed');
   return json.data;
 }
 
