@@ -7,6 +7,11 @@
 import { getCandleData } from "../smartapi/api/historical.js";
 import type { CandleData } from "../smartapi/types.js";
 import { calculateIndianMarketCosts } from "./costModel.service.js";
+import type {
+  BacktestTrade,
+  BacktestResult,
+  StrategyBacktestParams,
+} from "../../types/aiTrading.types.js";
 
 export type BacktestSignal = "BUY" | "SELL" | "HOLD";
 export type BacktestStrategy =
@@ -17,71 +22,9 @@ export type BacktestStrategy =
   | "ORB_15M"
   | "STANDARD";
 
-export interface BacktestTrade {
-  entryTime: string;
-  exitTime: string;
-  symbol: string;
-  action: BacktestSignal;
-  entryPrice: number;
-  exitPrice: number;
-  quantity: number;
-  grossPnl: number;
-  charges: number;
-  slippage: number;
-  netPnl: number;
-  netPnlPercent: number;
-  exitReason: "TARGET" | "STOP_LOSS" | "TIMEOUT" | "END_OF_DAY";
-  barsHeld: number;
-}
-
 export interface BacktestEquityPoint {
   time: string;
   equity: number;
-}
-
-export interface BacktestResult {
-  symbol: string;
-  strategy: string;
-  interval: string;
-  fromDate: string;
-  toDate: string;
-  totalBars: number;
-  totalTrades: number;
-  winningTrades: number;
-  losingTrades: number;
-  winRate: number;
-  grossPnl: number;
-  totalBrokerage: number;
-  totalStt: number;
-  totalTaxesAndCharges: number;
-  totalSlippage: number;
-  netPnl: number;
-  totalPnl: number; // Alias for netPnl
-  totalPnlPercent: number;
-  avgWin: number;
-  avgLoss: number;
-  maxDrawdown: number;
-  maxDrawdownPercent: number;
-  profitFactor: number;
-  expectancy: number;
-  equityCurve: BacktestEquityPoint[];
-  trades: BacktestTrade[];
-  initialCapital: number;
-  finalCapital: number;
-}
-
-export interface StrategyBacktestParams {
-  strategy?: BacktestStrategy | undefined;
-  symbol: string;
-  token: string;
-  exchange: string;
-  fromDate: string;
-  toDate: string;
-  interval?: string | undefined;
-  initialCapital?: number | undefined;
-  targetPct?: number | undefined;
-  stopLossPct?: number | undefined;
-  lotSize?: number | undefined;
 }
 
 /**
