@@ -31,6 +31,7 @@ import {
   fetchAiAnalysisLogs,
   fetchAiErrorLogs,
   clearAiErrorLogs,
+  resetAutoPilotKillSwitch,
   fetchActivePositions,
   type AiTradeLogItem,
   type AiAnalysisLogItem,
@@ -264,44 +265,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
 
   return (
     <div className="space-y-8 mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-7xl font-sans">
-      {/* Welcome Banner */}
-      <div className="flex md:flex-row flex-col justify-between items-start md:items-center gap-6 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-xl p-6 sm:p-8 rounded-3xl text-white">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full font-semibold text-white text-xs uppercase tracking-wider">
-              Algorithmic Trading Workspace
-            </span>
-            <span className="flex items-center gap-1.5 bg-purple-500/30 backdrop-blur-md px-3 py-1 border border-purple-300/30 rounded-full font-semibold text-purple-100 text-xs">
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>AI Auto-Pilot Active</span>
-            </span>
-          </div>
-          <h2 className="mt-3 font-extrabold text-2xl sm:text-3xl">
-            Welcome to Angel One SmartAPI Trading Console
-          </h2>
-          <p className="mt-2 max-w-xl text-blue-100 text-sm">
-            Monitor real-time market positions, manage live strategy orders, and track your equity and F&O derivatives portfolio seamlessly.
-          </p>
-        </div>
-
-        <div className="flex sm:flex-row flex-col items-stretch sm:items-center gap-3 w-full md:w-auto">
-          <button
-            onClick={() => setActiveView('ai-trading')}
-            className="flex flex-shrink-0 justify-center items-center space-x-2 bg-purple-500/30 hover:bg-purple-500/40 shadow-md px-5 py-3 border border-purple-300/40 rounded-2xl font-bold text-white text-sm transition-all"
-          >
-            <Zap className="w-4 h-4 text-amber-300" />
-            <span>AI Sniper Suite</span>
-          </button>
-          <button
-            onClick={handleNavigatePositions}
-            className="flex flex-shrink-0 justify-center items-center space-x-2 bg-white hover:bg-blue-50 shadow-lg px-6 py-3 rounded-2xl font-bold text-blue-600 text-sm transition-all hover:-translate-y-0.5 transform"
-          >
-            <span>View Portfolio</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
       {/* ==================================================================== */}
       {/* AI OPERATIONS & TELEMETRY DECK (AiTradeLog & AiErrorLog) */}
       {/* ==================================================================== */}
@@ -355,7 +318,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <span>All Modes (Both)</span>
+                <span>All Trades</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white">
                   {tradeLogs.length}
                 </span>
@@ -1124,6 +1087,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
                             </span>
                             {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                           </button>
+
+                          {err.source === 'KILL_SWITCH' && (
+                            <div className="pt-2 flex items-center justify-between border-t border-rose-200/60 dark:border-rose-900/40">
+                              <span className="text-[11px] text-rose-700 dark:text-rose-300 font-medium">Daily loss limit halt</span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await resetAutoPilotKillSwitch();
+                                    await loadErrorLogs();
+                                  } catch (e) {
+                                    console.error(e);
+                                  }
+                                }}
+                                className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] shadow-xs transition-all"
+                              >
+                                Reset Kill-Switch
+                              </button>
+                            </div>
+                          )}
 
                           {isExpanded && (
                             <div className="space-y-1 bg-gray-950 mt-2 p-2.5 rounded-lg overflow-x-auto font-mono text-[10px] text-gray-300">

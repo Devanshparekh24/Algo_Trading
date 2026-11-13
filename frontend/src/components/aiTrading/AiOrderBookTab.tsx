@@ -1136,6 +1136,22 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
               <span className="text-xs text-gray-500 font-mono">
                 {tradeLogs.length} Executed Trade{tradeLogs.length === 1 ? '' : 's'}
               </span>
+              {tradeLogs.some((t) => t.mode === 'PAPER') && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm('Delete all historical simulated paper trade logs? Real broker logs will not be touched.')) {
+                      await clearAiTradeLogs('PAPER');
+                      loadTradeLogs();
+                    }
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-800/40 transition-all"
+                  title="Clear obsolete simulated paper trade logs from database"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear Paper Logs</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={loadTradeLogs}
