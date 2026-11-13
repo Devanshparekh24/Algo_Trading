@@ -73,6 +73,42 @@ model AiTradeLog {
   @@index([enteredAt])
 }
 
+model AiAnalysisLog {
+  id              BigInt   @id @default(autoincrement())
+  symbol          String
+  token           String
+  exchange        String
+  segment         String   @default("EQUITY") // EQUITY, FNO
+  contractType    String?  // CE, PE, FUT, EQ
+  strike          Float?
+  expiry          String?
+  action          String   // BUY, SELL, HOLD, NEUTRAL
+  confidence      Float    @default(50)
+  timeframe       String   @default("INTRADAY")
+  currentPrice    Float
+  entryPrice      Float?
+  target1         Float?
+  target2         Float?
+  stopLoss        Float?
+  riskReward      String?
+  rsi             Float?
+  emaTrend        String?
+  macdTrend       String?
+  delta           Float?
+  gamma           Float?
+  theta           Float?
+  iv              Float?
+  pcr             Float?
+  aiThesisSummary String?
+  source          String   @default("SCANNER") // SCANNER, STRIKE_ANALYZER, MANUAL
+  createdAt       DateTime @default(now())
+
+  @@index([symbol])
+  @@index([action])
+  @@index([segment])
+  @@index([createdAt])
+}
+
 model AiErrorLog {
   id        BigInt   @id @default(autoincrement())
   source    String   // AUTO_PILOT, ORDER_EXECUTION, AUTO_EXIT, SCANNER, BUDGET_ADVISOR, SMART_API

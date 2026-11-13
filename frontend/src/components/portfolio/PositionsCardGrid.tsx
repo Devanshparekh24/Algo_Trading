@@ -29,14 +29,20 @@ export const PositionsCardGrid: React.FC<PositionsCardGridProps> = ({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
       {positions.map((pos: Position, idx: number) => {
-        const pnlVal = parseNum(pos.pnl || pos.m2m);
-        const netQtyVal = parseNum(pos.netqty || pos.quantity);
-        const isBuy = netQtyVal >= 0;
-        const posLtp = parseNum(pos.lp || pos.ltp);
-        const avgPrice = parseNum(pos.averageprice);
-
         const symbolKey = pos.tradingsymbol || pos.symbol || pos.symboltoken || '';
         const flash = flashes[symbolKey] || (pos.symboltoken ? flashes[pos.symboltoken] : undefined);
+        const netQtyVal = parseNum(pos.netqty || pos.quantity);
+        const isBuy = netQtyVal >= 0;
+        const posLtp = flash && flash.ltp > 0 ? flash.ltp : parseNum(pos.lp || pos.ltp);
+        const avgPrice = parseNum(pos.averageprice);
+
+        // Dynamically compute real-time M2M PnL when live tick is available
+        const rawPnl = parseNum(pos.pnl || pos.m2m);
+        const computedPnl = netQtyVal !== 0 && posLtp > 0 && avgPrice > 0
+          ? (posLtp - avgPrice) * netQtyVal
+          : rawPnl;
+        const pnlVal = isNaN(computedPnl) ? rawPnl : computedPnl;
+
         const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
         const isPnlPositive = pnlVal >= 0;
 

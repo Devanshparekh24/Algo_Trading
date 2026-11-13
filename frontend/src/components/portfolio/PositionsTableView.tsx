@@ -41,14 +41,20 @@ export const PositionsTableView: React.FC<PositionsTableViewProps> = ({
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60 text-gray-800 dark:text-gray-200 font-medium">
             {positions.map((pos: Position, idx: number) => {
-              const pnlVal = parseNum(pos.pnl || pos.m2m);
-              const netQtyVal = parseNum(pos.netqty || pos.quantity);
-              const isBuy = netQtyVal >= 0;
-              const posLtp = parseNum(pos.lp || pos.ltp);
-
               const symbolKey = pos.tradingsymbol || pos.symbol || pos.symboltoken || '';
               const flash = flashes[symbolKey] || (pos.symboltoken ? flashes[pos.symboltoken] : undefined);
               const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
+
+              // Use live real-time WebSocket tick if available
+              const posLtp = flash && flash.ltp > 0 ? flash.ltp : parseNum(pos.lp || pos.ltp);
+              const netQtyVal = parseNum(pos.netqty || pos.quantity);
+              const avgPriceVal = parseNum(pos.averageprice || (pos as any).buyavgprice);
+              const isBuy = netQtyVal >= 0;
+
+              // Recompute live PnL with fresh tick
+              const pnlVal = flash && netQtyVal !== 0 && avgPriceVal > 0
+                ? parseNum(pos.realised || (pos as any).realisedpnl || 0) + (posLtp - avgPriceVal) * netQtyVal
+                : parseNum(pos.pnl || pos.m2m);
 
               return (
                 <tr

@@ -106,7 +106,7 @@ export type AutoPilotStrategy =
 
 export interface AutoPilotConfig {
   enabled: boolean;
-  mode: "PAPER" | "LIVE";
+  mode: "PAPER" | "LIVE" | "BOTH";
   strategy: AutoPilotStrategy;
   enforceGoldenHours?: boolean | undefined;
   profitTargetPct: number;

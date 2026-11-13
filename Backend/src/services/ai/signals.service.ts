@@ -10,6 +10,7 @@ import type { FullMode } from "../smartapi/types.js";
 import { broadcastSocketEvent } from "../websocket/socketService.js";
 import prisma from "../../config/prisma.js";
 import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
+import { isContractExpired, parseExpiryDate } from "../../utils/expiryUtils.js";
 import {
   calculateRSI,
   calculateEMASeries,
@@ -20,7 +21,7 @@ import {
 } from "./indicators.service.js";
 import { getDynamicUniverse } from "./universe.service.js";
 import { getAutoPilotConfig, evaluateAutoPilotTriggers, setScanUniverseFn } from "./autoPilot.service.js";
-import { setSignalResolver, setQuoteResolver, logAiErrorToDb } from "./execution.service.js";
+import { setSignalResolver, setQuoteResolver, logAiErrorToDb, logAnalysisEntryToDb } from "./execution.service.js";
 import type {
   MarketSegment,
   ContractType,
@@ -70,7 +71,7 @@ export async function resolveSignalByIdAsync(id: string): Promise<TradeSignal | 
           const isCall = sym.endsWith("CE");
           const isPut = sym.endsWith("PE");
           const strikeMatch = sym.match(/(\d{4,6})(CE|PE)$/i);
-          const strike = strikeMatch ? parseFloat(strikeMatch[1]) : parseFloat(inst.strike) || 0;
+          const strike = strikeMatch && strikeMatch[1] ? parseFloat(strikeMatch[1]) : parseFloat(inst.strike) || 0;
           const lotSize = parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1));
           const quote = getCachedQuote(token) || getCachedQuote(sym);
           const ltp = quote?.ltp && quote.ltp > 0 ? quote.ltp : 50;
@@ -97,6 +98,27 @@ export async function resolveSignalByIdAsync(id: string): Promise<TradeSignal | 
             riskReward: "1:2.0",
             netChange: 0,
             percentChange: 0,
+            indicators: {
+              rsi: 60,
+              rsiSignal: "BULLISH_MOMENTUM",
+              ema9: ltp,
+              ema21: ltp * 0.98,
+              sma50: ltp * 0.95,
+              emaTrend: "BULLISH",
+              macd: { macdLine: 1, signalLine: 0.8, histogram: 0.2, trend: "BULLISH" },
+              bollingerBands: { upper: ltp * 1.1, middle: ltp, lower: ltp * 0.9, bandwidth: 20, percentB: 0.6, position: "UPPER_HALF" },
+              atr: ltp * 0.05,
+              volumeRatio: 1.2,
+              supportLevel: ltp * 0.78,
+              resistanceLevel: ltp * 1.5,
+              orderBookImbalance: 0.2,
+            },
+            aiThesis: {
+              summary: `Recovered dynamic signal for ${sym} strike ${strike}`,
+              action: "BUY",
+              rationale: [`Recovered from DB instrument: ${sym}`],
+              catalyst: "Option chain execution recovery",
+            },
             generatedAt: new Date().toISOString(),
             status: "ACTIVE",
           };
@@ -601,9 +623,12 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     console.warn(`[AI Engine] Batch quote fetch warning:`, err?.message || err);
   }
 
-  // 2. Parallel analysis using live quotes
+  // 2. Parallel analysis using live quotes (skipping expired derivative contracts)
   const freshSignals: TradeSignal[] = [];
   for (const c of candidates) {
+    if ((segment === "FNO" || c.exchange === "NFO") && isContractExpired(c.expiry, c.symbol)) {
+      continue;
+    }
     try {
       const prefetched =
         quotesMap.get(`${c.exchange}_${c.token}`) ||
@@ -667,6 +692,10 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     activeFnoSignals = freshSignals;
     lastFnoScanTime = new Date().toISOString();
 
+    for (const sig of freshSignals) {
+      logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+    }
+
     broadcastSocketEvent("ai_fno_signals_update", {
       signals: activeFnoSignals,
       scannedAt: lastFnoScanTime,
@@ -681,6 +710,10 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
   } else {
     activeEquitySignals = freshSignals;
     lastEquityScanTime = new Date().toISOString();
+
+    for (const sig of freshSignals) {
+      logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+    }
 
     broadcastSocketEvent("ai_signals_update", {
       signals: activeEquitySignals,
@@ -723,7 +756,7 @@ export async function findAndAnalyzeOptionStrike(params: {
         contains: String(strike),
       },
     },
-    take: 10,
+    take: 30,
   });
 
   if (instruments.length === 0) {
@@ -732,9 +765,12 @@ export async function findAndAnalyzeOptionStrike(params: {
         exch_seg: "NFO",
         symbol: { contains: `${strike}${optUpper}` },
       },
-      take: 10,
+      take: 30,
     });
   }
+
+  // Filter out any expired contracts
+  instruments = instruments.filter((inst) => !isContractExpired(inst.expiry, inst.symbol));
 
   if (instruments.length === 0) {
     throw new Error(
@@ -742,7 +778,13 @@ export async function findAndAnalyzeOptionStrike(params: {
     );
   }
 
-  instruments.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  // Sort chronologically by nearest active expiry
+  instruments.sort((a, b) => {
+    const aDate = parseExpiryDate(a.expiry, a.symbol);
+    const bDate = parseExpiryDate(b.expiry, b.symbol);
+    if (aDate && bDate) return aDate.getTime() - bDate.getTime();
+    return a.symbol.localeCompare(b.symbol);
+  });
   const chosen = instruments[0]!;
 
   const parsedLot = parseInt(chosen.lotsize, 10);
@@ -754,6 +796,8 @@ export async function findAndAnalyzeOptionStrike(params: {
   signal.underlying = underUpper;
   signal.segment = "FNO";
   signal.contractType = optUpper as "CE" | "PE";
+
+  logAnalysisEntryToDb(signal, "STRIKE_ANALYZER").catch(() => {});
 
   return signal;
 }
@@ -885,7 +929,10 @@ export function getActiveSignals(segment: MarketSegment = "EQUITY"): {
   count: number;
 } {
   const isFno = segment === "FNO";
-  const signals = isFno ? activeFnoSignals : activeEquitySignals;
+  const rawSignals = isFno ? activeFnoSignals : activeEquitySignals;
+  const signals = isFno
+    ? rawSignals.filter((s) => !isContractExpired(s.expiry, s.symbol))
+    : rawSignals;
   const lastScan = isFno ? lastFnoScanTime : lastEquityScanTime;
   return {
     signals,

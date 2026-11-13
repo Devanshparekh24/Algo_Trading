@@ -415,11 +415,20 @@ export async function logTradeExitToDb(
 }
 
 /**
- * Retrieve Historical AI Trade Logs from PostgreSQL
+ * Retrieve Historical AI Trade Logs from PostgreSQL (strictly actual BUY orders and SELL execution exits)
  */
-export async function getAiTradeLogs(limit = 100): Promise<any[]> {
+export async function getAiTradeLogs(limit = 100, action?: string, mode?: string): Promise<any[]> {
   try {
+    const whereClause: any = {};
+    if (action && action !== "ALL") {
+      whereClause.action = action.toUpperCase();
+    }
+    if (mode && mode !== "ALL" && mode !== "BOTH") {
+      whereClause.mode = mode.toUpperCase();
+    }
+
     const logs = await prisma.aiTradeLog.findMany({
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
       orderBy: { enteredAt: "desc" },
       take: limit,
     });
@@ -430,6 +439,140 @@ export async function getAiTradeLogs(limit = 100): Promise<any[]> {
   } catch (err: any) {
     console.error("[Database] Error fetching AI trade logs:", err?.message || err);
     return [];
+  }
+}
+
+/**
+ * Clear historical AI trade logs from database
+ * Supports filtering by mode (PAPER, LIVE, or ALL)
+ */
+export async function clearAiTradeLogs(mode: "PAPER" | "LIVE" | "ALL" = "PAPER"): Promise<number> {
+  try {
+    const whereClause: any = {};
+    if (mode !== "ALL") {
+      whereClause.mode = mode.toUpperCase();
+    }
+    const res = await prisma.aiTradeLog.deleteMany({
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+    });
+
+    // Also clean exited positions from in-memory map
+    for (const [key, pos] of activeAiPositions.entries()) {
+      if (pos.status === "EXITED") {
+        if (mode === "ALL" || pos.mode === mode) {
+          activeAiPositions.delete(key);
+        }
+      }
+    }
+
+    broadcastSocketEvent("ai_trade_logs_cleared", {
+      mode,
+      count: res.count,
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log(`[Database] Cleared ${res.count} AI trade logs (mode: ${mode}).`);
+    return res.count;
+  } catch (err: any) {
+    console.error("[Database] Error clearing AI trade logs:", err?.message || err);
+    throw err;
+  }
+}
+
+/**
+ * Database Persistence: Record AI technical analysis / scanner evaluation into PostgreSQL AiAnalysisLog table
+ */
+export async function logAnalysisEntryToDb(
+  signal: TradeSignal,
+  source = "SCANNER"
+): Promise<void> {
+  try {
+    await prisma.aiAnalysisLog.create({
+      data: {
+        symbol: signal.symbol,
+        token: signal.token,
+        exchange: signal.exchange || "NSE",
+        segment: signal.segment || (signal.exchange === "NFO" ? "FNO" : "EQUITY"),
+        contractType: signal.contractType || null,
+        strike: signal.strike || null,
+        expiry: signal.expiry || null,
+        action: signal.action,
+        confidence: signal.confidence || 50,
+        timeframe: signal.timeframe || "INTRADAY",
+        currentPrice: signal.currentPrice || signal.entryPrice || 0,
+        entryPrice: signal.entryPrice || null,
+        target1: signal.target1 || null,
+        target2: signal.target2 || null,
+        stopLoss: signal.stopLoss || null,
+        riskReward: signal.riskReward || null,
+        rsi: signal.indicators?.rsi || null,
+        emaTrend: signal.indicators?.emaTrend || null,
+        macdTrend: signal.indicators?.macd?.trend || null,
+        delta: signal.greeks?.delta || null,
+        gamma: signal.greeks?.gamma || null,
+        theta: signal.greeks?.theta || null,
+        iv: signal.greeks?.iv || null,
+        pcr: null,
+        aiThesisSummary: signal.aiThesis?.summary || null,
+        source,
+      },
+    });
+    broadcastSocketEvent("ai_analysis_logged", {
+      symbol: signal.symbol,
+      action: signal.action,
+      confidence: signal.confidence,
+      source,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error(`[Database] Failed to log AI analysis entry:`, err?.message || err);
+  }
+}
+
+/**
+ * Retrieve Historical AI Analysis Logs from PostgreSQL (distinct from trade execution logs)
+ */
+export async function getAiAnalysisLogs(
+  limit = 100,
+  segment?: string,
+  action?: string
+): Promise<any[]> {
+  try {
+    const whereClause: any = {};
+    if (segment && segment !== "ALL") {
+      whereClause.segment = segment.toUpperCase();
+    }
+    if (action && action !== "ALL") {
+      whereClause.action = action.toUpperCase();
+    }
+
+    const logs = await prisma.aiAnalysisLog.findMany({
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    return logs.map((log) => ({
+      ...log,
+      id: String(log.id),
+    }));
+  } catch (err: any) {
+    console.error("[Database] Error fetching AI analysis logs:", err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * Clear all historical Analysis Logs from PostgreSQL
+ */
+export async function clearAiAnalysisLogs(): Promise<number> {
+  try {
+    const res = await prisma.aiAnalysisLog.deleteMany({});
+    broadcastSocketEvent("ai_analysis_logs_cleared", { timestamp: new Date().toISOString() });
+    return res.count;
+  } catch (err: any) {
+    console.error("[Database] Error clearing AI analysis logs:", err?.message || err);
+    throw err;
   }
 }
 
@@ -706,8 +849,12 @@ export async function checkActivePositionsForExit(config?: {
   }
 }
 
-export function getActiveAiPositions(): ActiveAiPosition[] {
-  return Array.from(activeAiPositions.values());
+export function getActiveAiPositions(mode?: string): ActiveAiPosition[] {
+  const all = Array.from(activeAiPositions.values());
+  if (mode && mode !== "ALL" && mode !== "BOTH") {
+    return all.filter((p) => p.mode === mode.toUpperCase());
+  }
+  return all;
 }
 
 export async function closeAiPositionManual(positionId: string): Promise<{ success: boolean; message: string; position: ActiveAiPosition }> {

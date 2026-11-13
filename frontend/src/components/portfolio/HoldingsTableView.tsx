@@ -46,27 +46,28 @@ export const HoldingsTableView: React.FC<HoldingsTableViewProps> = ({
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60 text-gray-800 dark:text-gray-200 font-medium">
             {holdings.map((h: Holding, idx: number) => {
+              const symbolKey = h.tradingsymbol || '';
+              const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
+              const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
+
               const qty = parseNum(h.quantity);
               const avgPrice = parseNum(h.averageprice);
-              const ltp = parseNum(h.ltp);
+              // Use real-time WebSocket tick price if available, otherwise fall back to cached quote
+              const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
               const close = parseNum(h.close) || ltp;
               const investedVal = avgPrice * qty;
               const curVal = ltp * qty;
-              const pnlVal = parseNum(h.profitandloss ?? (ltp - avgPrice) * qty);
+              const pnlVal = flash ? (ltp - avgPrice) * qty : parseNum(h.profitandloss ?? (ltp - avgPrice) * qty);
               const pnlPct =
-                h.pnlpercentage !== undefined
+                investedVal > 0
+                  ? ((pnlVal / investedVal) * 100)
+                  : h.pnlpercentage !== undefined
                   ? parseNum(h.pnlpercentage)
-                  : investedVal > 0
-                  ? (pnlVal / investedVal) * 100
                   : 0;
 
               const dayChange = (ltp - close) * qty;
               const dayChangePct = close > 0 ? ((ltp - close) / close) * 100 : 0;
               const weightPct = totalEquityValue > 0 ? (curVal / totalEquityValue) * 100 : 0;
-
-              const symbolKey = h.tradingsymbol || '';
-              const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
-              const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
 
               return (
                 <tr

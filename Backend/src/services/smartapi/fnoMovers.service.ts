@@ -1,6 +1,7 @@
 import prisma from "../../config/prisma.js";
 import { getFullModeData } from "./api/FullMode.js";
 import { getGainersLosersData } from "./api/gainersLosers.js";
+import { isContractExpired, parseExpiryDate } from "../../utils/expiryUtils.js";
 
 export interface FnoMoverItem {
   symbolToken: string;
@@ -185,17 +186,45 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
 
   // 2. Query PostgreSQL for active Call (CE) and Put (PE) options across NIFTY and BANKNIFTY
   try {
-    console.log("[FnoMoversService] Step 3: Querying DB for near-expiry options...");
-    const optionInstruments = await prisma.instrument.findMany({
+    console.log("[FnoMoversService] Step 3: Querying DB for active near-expiry options...");
+    const allExpiries = await prisma.instrument.findMany({
       where: {
         exch_seg: "NFO",
         instrumenttype: "OPTIDX",
         name: { in: ["NIFTY", "BANKNIFTY"] },
       },
-      take: 24,
-      orderBy: { expiry: "asc" },
+      select: { expiry: true, name: true },
+      distinct: ["expiry", "name"],
     });
-    console.log(`[FnoMoversService] Step 3 complete: Found ${optionInstruments.length} options in DB.`);
+
+    const activeNiftyExpiries = allExpiries
+      .filter((e) => e.name === "NIFTY" && !isContractExpired(e.expiry))
+      .map((e) => ({ raw: e.expiry, date: parseExpiryDate(e.expiry)! }))
+      .filter((e) => e.date !== null)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const activeBankNiftyExpiries = allExpiries
+      .filter((e) => e.name === "BANKNIFTY" && !isContractExpired(e.expiry))
+      .map((e) => ({ raw: e.expiry, date: parseExpiryDate(e.expiry)! }))
+      .filter((e) => e.date !== null)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const targetExpiries: string[] = [];
+    if (activeNiftyExpiries[0]) targetExpiries.push(activeNiftyExpiries[0].raw);
+    if (activeBankNiftyExpiries[0]) targetExpiries.push(activeBankNiftyExpiries[0].raw);
+
+    const optionInstruments = targetExpiries.length > 0
+      ? await prisma.instrument.findMany({
+          where: {
+            exch_seg: "NFO",
+            instrumenttype: "OPTIDX",
+            name: { in: ["NIFTY", "BANKNIFTY"] },
+            expiry: { in: targetExpiries },
+          },
+          take: 30,
+        })
+      : [];
+    console.log(`[FnoMoversService] Step 3 complete: Found ${optionInstruments.length} options in DB for active expiries [${targetExpiries.join(", ")}].`);
 
     if (optionInstruments.length > 0) {
       const tokens = optionInstruments.map((inst) => inst.token);
@@ -213,6 +242,8 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
         for (const item of fetched) {
           const instMeta = optionInstruments.find((i) => i.token === item.symbolToken);
           const symbol = item.tradingSymbol || instMeta?.symbol || "";
+          if (isContractExpired(instMeta?.expiry, symbol)) continue;
+
           const token = String(item.symbolToken);
           const rawStrike = instMeta?.strike;
           const { type, strike } = parseContractDetails(symbol, rawStrike);
@@ -245,7 +276,9 @@ export async function getTopFnoMovers(forceRefresh = false): Promise<FnoMoversRe
     console.warn("[FnoMoversService] DB option instruments query failed:", dbErr.message);
   }
 
-  const allItems = Array.from(itemsMap.values()).filter((item) => item.ltp > 0 || item.tradeVolume);
+  const allItems = Array.from(itemsMap.values()).filter(
+    (item) => (item.ltp > 0 || item.tradeVolume) && !isContractExpired(item.expiry, item.tradingSymbol)
+  );
 
   if (allItems.length === 0 && cachedData && cachedData.all.length > 0) {
     return cachedData;

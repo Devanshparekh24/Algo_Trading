@@ -228,6 +228,9 @@ export interface AutoPilotConfig {
   maxDailyLoss?: number;
   maxOpenPositions?: number;
   confirmedLiveTrading?: boolean;
+  sessionResetAt?: number;
+  killSwitchTripped?: boolean;
+  killSwitchReason?: string;
 }
 
 export interface ActiveAiPosition {
@@ -305,6 +308,37 @@ export interface AiTradeLogItem {
   exitedAt?: string;
 }
 
+export interface AiAnalysisLogItem {
+  id: string;
+  symbol: string;
+  token: string;
+  exchange: string;
+  segment: 'EQUITY' | 'FNO';
+  contractType?: 'CE' | 'PE' | 'FUT' | 'EQ';
+  strike?: number;
+  expiry?: string;
+  action: 'BUY' | 'SELL' | 'HOLD' | 'NEUTRAL';
+  confidence: number;
+  timeframe: string;
+  currentPrice: number;
+  entryPrice?: number;
+  target1?: number;
+  target2?: number;
+  stopLoss?: number;
+  riskReward?: string;
+  rsi?: number;
+  emaTrend?: string;
+  macdTrend?: string;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  iv?: number;
+  pcr?: number;
+  aiThesisSummary?: string;
+  source: string;
+  createdAt: string;
+}
+
 export interface AiErrorLogItem {
   id: string;
   source: string;
@@ -378,6 +412,7 @@ export interface OrderBookItem {
   price: number;
   triggerprice: number;
   quantity: string | number;
+  disclosedquantity?: string | number;
   tradingsymbol: string;
   transactiontype: 'BUY' | 'SELL';
   exchange: string;
@@ -385,10 +420,55 @@ export interface OrderBookItem {
   averageprice: number;
   filledshares: string | number;
   orderid: string;
+  uniqueorderid?: string;
   status: string;
   orderstatus: string;
   updatetime: string;
   text?: string;
+}
+
+export interface TradeBookItem {
+  exchange: string;
+  producttype: string;
+  tradingsymbol: string;
+  instrumenttype?: string;
+  symbolgroup?: string;
+  strikeprice?: string | number;
+  optiontype?: string;
+  expirydate?: string;
+  marketlot?: string | number;
+  tradevalue?: string | number;
+  transactiontype: 'BUY' | 'SELL';
+  fillprice: string | number;
+  fillsize: string | number;
+  orderid: string;
+  fillid?: string;
+  filltime?: string;
+  uniqueorderid?: string;
+}
+
+export interface IndividualOrderDetails {
+  variety: string;
+  ordertype: string;
+  producttype: string;
+  duration: string;
+  price: number | string;
+  triggerprice: number | string;
+  quantity: string | number;
+  disclosedquantity?: string | number;
+  tradingsymbol: string;
+  transactiontype: 'BUY' | 'SELL';
+  exchange: string;
+  symboltoken: string;
+  averageprice?: number | string;
+  filledshares?: string | number;
+  unfilledshares?: string | number;
+  orderid: string;
+  text?: string;
+  status: string;
+  orderstatus: string;
+  updatetime?: string;
+  uniqueorderid: string;
 }
 
 export interface SignalsResponse {
@@ -489,7 +569,9 @@ export async function fetchAutoPilotConfig(): Promise<AutoPilotConfig> {
 /**
  * Update Auto-Pilot Configuration
  */
-export async function updateAutoPilotConfig(config: Partial<AutoPilotConfig>): Promise<AutoPilotConfig> {
+export async function updateAutoPilotConfig(
+  config: Partial<AutoPilotConfig> & { resetKillSwitch?: boolean }
+): Promise<AutoPilotConfig> {
   const res = await fetch(`${API_BASE}/autopilot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -497,6 +579,18 @@ export async function updateAutoPilotConfig(config: Partial<AutoPilotConfig>): P
   });
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to update Auto-Pilot configuration');
+  return json.data;
+}
+
+/**
+ * Reset Auto-Pilot kill-switch and session loss baseline
+ */
+export async function resetAutoPilotKillSwitch(): Promise<AutoPilotConfig> {
+  const res = await fetch(`${API_BASE}/autopilot/reset-kill-switch`, {
+    method: 'POST',
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to reset Auto-Pilot kill-switch');
   return json.data;
 }
 
@@ -596,8 +690,13 @@ export async function scanOptionChain(params: ScanOptionChainParams = {}): Promi
 /**
  * Fetch all live active AI positions with live P&L and 45-min theta timeout countdown
  */
-export async function fetchActivePositions(): Promise<ActiveAiPosition[]> {
-  const res = await fetch(`${API_BASE}/positions`);
+export async function fetchActivePositions(mode?: 'PAPER' | 'LIVE' | 'ALL'): Promise<ActiveAiPosition[]> {
+  const query = new URLSearchParams();
+  if (mode && mode !== 'ALL') {
+    query.set('mode', mode);
+  }
+  const url = `${API_BASE}/positions${query.toString() ? `?${query.toString()}` : ''}`;
+  const res = await fetch(url);
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to fetch active positions');
   return json.data || [];
@@ -616,13 +715,71 @@ export async function closeActivePosition(id: string): Promise<ActiveAiPosition>
 }
 
 /**
- * Retrieve permanent historical database logs of executed AI trades
+ * Retrieve permanent historical database logs of executed AI trades (strictly BUY or SELL orders)
  */
-export async function fetchAiTradeLogs(limit = 100): Promise<AiTradeLogItem[]> {
-  const res = await fetch(`${API_BASE}/trade-logs?limit=${limit}`);
+export async function fetchAiTradeLogs(
+  limit = 100,
+  action?: 'BUY' | 'SELL' | 'ALL',
+  mode?: 'PAPER' | 'LIVE' | 'ALL'
+): Promise<AiTradeLogItem[]> {
+  const query = new URLSearchParams();
+  query.set('limit', String(limit));
+  if (action && action !== 'ALL') {
+    query.set('action', action);
+  }
+  if (mode && mode !== 'ALL') {
+    query.set('mode', mode);
+  }
+  const res = await fetch(`${API_BASE}/trade-logs?${query.toString()}`);
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to fetch trade logs');
   return json.data || [];
+}
+
+/**
+ * Clear historical AI trade logs from database (default mode: PAPER)
+ */
+export async function clearAiTradeLogs(mode: 'PAPER' | 'LIVE' | 'ALL' = 'PAPER'): Promise<number> {
+  const res = await fetch(`${API_BASE}/trade-logs?mode=${mode}`, {
+    method: 'DELETE',
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to clear AI trade logs');
+  return json.deletedCount || 0;
+}
+
+/**
+ * Retrieve permanent historical database logs of AI technical analysis & scanner evaluations
+ */
+export async function fetchAiAnalysisLogs(
+  limit = 100,
+  segment?: 'EQUITY' | 'FNO' | 'ALL',
+  action?: 'BUY' | 'SELL' | 'HOLD' | 'ALL'
+): Promise<AiAnalysisLogItem[]> {
+  const query = new URLSearchParams();
+  query.set('limit', String(limit));
+  if (segment && segment !== 'ALL') {
+    query.set('segment', segment);
+  }
+  if (action && action !== 'ALL') {
+    query.set('action', action);
+  }
+  const res = await fetch(`${API_BASE}/analysis-logs?${query.toString()}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch analysis logs');
+  return json.data || [];
+}
+
+/**
+ * Clear all historical Analysis Logs from PostgreSQL
+ */
+export async function clearAiAnalysisLogs(): Promise<number> {
+  const res = await fetch(`${API_BASE}/analysis-logs`, {
+    method: 'DELETE',
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to clear analysis logs');
+  return json.deletedCount || 0;
 }
 
 /**
@@ -756,4 +913,117 @@ export async function runStrategyBacktest(params: StrategyBacktestParams): Promi
   if (!json.status) throw new Error(json.message || 'Strategy backtest failed');
   return json.data;
 }
+
+// ---------------------------------------------------------------------------
+// Official Angel One Order APIs v1 Client Services
+// ---------------------------------------------------------------------------
+
+export interface OrderApiPlacePayload {
+  variety?: 'NORMAL' | 'STOPLOSS' | 'ROBO' | 'AMO' | string;
+  tradingsymbol: string;
+  symboltoken: string;
+  transactiontype: 'BUY' | 'SELL';
+  exchange?: 'NSE' | 'BSE' | 'NFO' | 'MCX' | 'BFO' | string;
+  ordertype?: 'MARKET' | 'LIMIT' | 'STOPLOSS_LIMIT' | 'STOPLOSS_MARKET' | string;
+  producttype?: 'DELIVERY' | 'INTRADAY' | 'MARGIN' | 'CARRYFORWARD' | 'BO' | string;
+  duration?: 'DAY' | 'IOC' | string;
+  price?: string | number;
+  triggerprice?: string | number;
+  squareoff?: string | number;
+  stoploss?: string | number;
+  trailingStopLoss?: string | number;
+  quantity: string | number;
+  disclosedquantity?: string | number;
+  ordertag?: string;
+  scripconsent?: 'yes' | 'no';
+  mode?: 'PAPER' | 'LIVE';
+}
+
+export interface OrderApiPlaceResult {
+  script: string;
+  orderid: string;
+  uniqueorderid: string;
+}
+
+/**
+ * Place Order via Official Angel One Order API
+ * POST /api/v1/order/placeOrder
+ */
+export async function placeOrderApi(payload: OrderApiPlacePayload): Promise<OrderApiPlaceResult> {
+  const res = await fetch(`/api/v1/order/placeOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to place order');
+  return json.data;
+}
+
+/**
+ * Modify Order via Official Angel One Order API
+ * POST /api/v1/order/modifyOrder
+ */
+export async function modifyOrderApi(payload: {
+  variety?: string;
+  orderid: string;
+  ordertype?: string;
+  producttype?: string;
+  duration?: string;
+  price?: string | number;
+  quantity?: string | number;
+  tradingsymbol?: string;
+  symboltoken?: string;
+  exchange?: string;
+  triggerprice?: string | number;
+  disclosedquantity?: string | number;
+  mode?: 'PAPER' | 'LIVE';
+}): Promise<{ orderid: string; uniqueorderid: string }> {
+  const res = await fetch(`/api/v1/order/modifyOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to modify order');
+  return json.data;
+}
+
+/**
+ * Cancel Order via Official Angel One Order API
+ * POST /api/v1/order/cancelOrder
+ */
+export async function cancelOrderApi(orderid: string, variety = 'NORMAL', mode?: 'PAPER' | 'LIVE'): Promise<{ orderid: string; uniqueorderid: string }> {
+  const res = await fetch(`/api/v1/order/cancelOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderid, variety, mode }),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to cancel order');
+  return json.data;
+}
+
+/**
+ * Get Trade Book via Official Angel One Order API
+ * GET /api/v1/order/getTradeBook
+ */
+export async function fetchTradeBookApi(): Promise<TradeBookItem[]> {
+  const res = await fetch(`/api/v1/order/getTradeBook`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch trade book');
+  return json.data;
+}
+
+/**
+ * Get Individual Order Status by Unique Order ID
+ * GET /api/v1/order/details/:uniqueorderid
+ */
+export async function fetchOrderDetailsApi(uniqueorderid: string): Promise<IndividualOrderDetails> {
+  const res = await fetch(`/api/v1/order/details/${encodeURIComponent(uniqueorderid)}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch order details');
+  return json.data;
+}
+
 

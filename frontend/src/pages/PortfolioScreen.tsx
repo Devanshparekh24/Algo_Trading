@@ -85,6 +85,11 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
     dismissWebhookBanner,
   } = useRealtimePortfolio();
 
+  // Trigger live refresh on mount so fresh data loads instantly
+  useEffect(() => {
+    requestImmediateRefresh();
+  }, [requestImmediateRefresh]);
+
   const parseNum = (val: string | number | undefined | null): number => {
     if (val === undefined || val === null || val === '') return 0;
     const num = typeof val === 'string' ? parseFloat(val) : val;
@@ -96,15 +101,26 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
   }, [positionsQuery.data]);
 
   const holdingsList: Holding[] = useMemo(() => {
-    return holdingsQuery.data?.holdings || [];
+    return holdingsQuery.data?.holdings || [];  
   }, [holdingsQuery.data]);
 
   const totalHoldingSummary = holdingsQuery.data?.totalholding;
 
-  // Aggregate stats calculations
+  // Aggregate stats calculations with real-time flash tickers overlay
   const totalPositionsPnL = useMemo(() => {
-    return positionsList.reduce((sum: number, pos: Position) => sum + parseNum(pos.pnl || pos.m2m), 0);
-  }, [positionsList]);
+    return positionsList.reduce((sum: number, pos: Position) => {
+      const symbolKey = pos.tradingsymbol || pos.symbol || pos.symboltoken || '';
+      const flash = flashes[symbolKey] || (pos.symboltoken ? flashes[pos.symboltoken] : undefined);
+      const netQtyVal = parseNum(pos.netqty || pos.quantity);
+      const posLtp = flash && flash.ltp > 0 ? flash.ltp : parseNum(pos.lp || pos.ltp);
+      const avgPrice = parseNum(pos.averageprice);
+      const rawPnl = parseNum(pos.pnl || pos.m2m);
+      const computedPnl = netQtyVal !== 0 && posLtp > 0 && avgPrice > 0
+        ? (posLtp - avgPrice) * netQtyVal
+        : rawPnl;
+      return sum + (isNaN(computedPnl) ? rawPnl : computedPnl);
+    }, 0);
+  }, [positionsList, flashes]);
 
   const totalEquityInvested = useMemo(() => {
     if (totalHoldingSummary?.totalinvvalue !== undefined) {
@@ -118,39 +134,41 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
   }, [totalHoldingSummary, holdingsList]);
 
   const totalEquityValue = useMemo(() => {
-    if (totalHoldingSummary?.totalholdingvalue !== undefined) {
-      return parseNum(totalHoldingSummary.totalholdingvalue);
-    }
     return holdingsList.reduce((sum: number, h: Holding) => {
+      const symbolKey = h.tradingsymbol || '';
+      const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
       const qty = parseNum(h.quantity);
-      const ltp = parseNum(h.ltp);
+      const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
       return sum + qty * ltp;
     }, 0);
-  }, [totalHoldingSummary, holdingsList]);
+  }, [holdingsList, flashes]);
 
   const totalEquityPnL = useMemo(() => {
-    if (totalHoldingSummary?.totalprofitandloss !== undefined) {
-      return parseNum(totalHoldingSummary.totalprofitandloss);
-    }
-    return holdingsList.reduce((sum: number, h: Holding) => sum + parseNum(h.profitandloss), 0);
-  }, [totalHoldingSummary, holdingsList]);
+    return holdingsList.reduce((sum: number, h: Holding) => {
+      const symbolKey = h.tradingsymbol || '';
+      const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
+      const qty = parseNum(h.quantity);
+      const avgPrice = parseNum(h.averageprice);
+      const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
+      return sum + (ltp - avgPrice) * qty;
+    }, 0);
+  }, [holdingsList, flashes]);
 
   const totalEquityPnlPercent = useMemo(() => {
-    if (totalHoldingSummary?.totalpnlpercentage !== undefined) {
-      return parseNum(totalHoldingSummary.totalpnlpercentage);
-    }
     return totalEquityInvested > 0 ? (totalEquityPnL / totalEquityInvested) * 100 : 0;
-  }, [totalHoldingSummary, totalEquityPnL, totalEquityInvested]);
+  }, [totalEquityPnL, totalEquityInvested]);
 
   // Today's Live Equity Gain/Loss
   const todayEquityPnL = useMemo(() => {
     return holdingsList.reduce((sum: number, h: Holding) => {
+      const symbolKey = h.tradingsymbol || '';
+      const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
       const qty = parseNum(h.quantity);
-      const ltp = parseNum(h.ltp);
+      const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
       const close = parseNum(h.close) || ltp;
       return sum + (ltp - close) * qty;
     }, 0);
-  }, [holdingsList]);
+  }, [holdingsList, flashes]);
 
   const todayEquityPnlPercent = useMemo(() => {
     const prevDayValue = totalEquityValue - todayEquityPnL;
@@ -160,8 +178,10 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
   // Stock allocation percentages
   const equityAllocations = useMemo(() => {
     return holdingsList.map((h: Holding, index: number) => {
+      const symbolKey = h.tradingsymbol || '';
+      const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
       const qty = parseNum(h.quantity);
-      const ltp = parseNum(h.ltp);
+      const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
       const curVal = qty * ltp;
       const weight = totalEquityValue > 0 ? (curVal / totalEquityValue) * 100 : 0;
       return {
@@ -171,7 +191,7 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
         color: PALETTE[index % PALETTE.length] || '#3B82F6',
       };
     });
-  }, [holdingsList, totalEquityValue]);
+  }, [holdingsList, flashes, totalEquityValue]);
 
   // Filter & Sort Holdings
   const filteredAndSortedHoldings = useMemo(() => {
@@ -185,27 +205,41 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
 
         if (!matchesQuery) return false;
 
-        const pnl = parseNum(h.profitandloss ?? (parseNum(h.ltp) - parseNum(h.averageprice)) * parseNum(h.quantity));
+        const symbolKey = h.tradingsymbol || '';
+        const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
+        const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
+        const avg = parseNum(h.averageprice);
+        const qty = parseNum(h.quantity);
+        const pnl = (ltp - avg) * qty;
+
         if (filterType === 'profit') return pnl > 0;
         if (filterType === 'loss') return pnl < 0;
         return true;
       })
       .sort((a: Holding, b: Holding) => {
-        const aVal = parseNum(a.ltp) * parseNum(a.quantity);
-        const bVal = parseNum(b.ltp) * parseNum(b.quantity);
-        const aPnl = parseNum(a.profitandloss);
-        const bPnl = parseNum(b.profitandloss);
+        const aFlash = flashes[a.tradingsymbol || ''] || (a.symboltoken ? flashes[a.symboltoken] : undefined);
+        const bFlash = flashes[b.tradingsymbol || ''] || (b.symboltoken ? flashes[b.symboltoken] : undefined);
+        const aLtp = aFlash && aFlash.ltp > 0 ? aFlash.ltp : parseNum(a.ltp);
+        const bLtp = bFlash && bFlash.ltp > 0 ? bFlash.ltp : parseNum(b.ltp);
+        const aQty = parseNum(a.quantity);
+        const bQty = parseNum(b.quantity);
+        const aVal = aLtp * aQty;
+        const bVal = bLtp * bQty;
+        const aPnl = (aLtp - parseNum(a.averageprice)) * aQty;
+        const bPnl = (bLtp - parseNum(b.averageprice)) * bQty;
 
         if (sortBy === 'value') return bVal - aVal;
         if (sortBy === 'pnl') return bPnl - aPnl;
         if (sortBy === 'dayChange') {
-          const aDay = (parseNum(a.ltp) - (parseNum(a.close) || parseNum(a.ltp))) * parseNum(a.quantity);
-          const bDay = (parseNum(b.ltp) - (parseNum(b.close) || parseNum(b.ltp))) * parseNum(b.quantity);
+          const aClose = parseNum(a.close) || aLtp;
+          const bClose = parseNum(b.close) || bLtp;
+          const aDay = (aLtp - aClose) * aQty;
+          const bDay = (bLtp - bClose) * bQty;
           return bDay - aDay;
         }
         return (a.tradingsymbol || '').localeCompare(b.tradingsymbol || '');
       });
-  }, [holdingsList, searchQuery, filterType, sortBy]);
+  }, [holdingsList, flashes, searchQuery, filterType, sortBy]);
 
   // Filter & Sort Positions
   const filteredAndSortedPositions = useMemo(() => {
@@ -218,18 +252,43 @@ export const PortfolioScreen: React.FC<PortfolioScreenProps> = ({ initialTab = '
 
         if (!matchesQuery) return false;
 
-        const pnl = parseNum(pos.pnl || pos.m2m);
+        const symbolKey = pos.tradingsymbol || pos.symbol || pos.symboltoken || '';
+        const flash = flashes[symbolKey] || (pos.symboltoken ? flashes[pos.symboltoken] : undefined);
+        const netQtyVal = parseNum(pos.netqty || pos.quantity);
+        const posLtp = flash && flash.ltp > 0 ? flash.ltp : parseNum(pos.lp || pos.ltp);
+        const avgPrice = parseNum(pos.averageprice);
+        const rawPnl = parseNum(pos.pnl || pos.m2m);
+        const computedPnl = netQtyVal !== 0 && posLtp > 0 && avgPrice > 0
+          ? (posLtp - avgPrice) * netQtyVal
+          : rawPnl;
+        const pnl = isNaN(computedPnl) ? rawPnl : computedPnl;
+
         if (filterType === 'profit') return pnl > 0;
         if (filterType === 'loss') return pnl < 0;
         return true;
       })
       .sort((a: Position, b: Position) => {
-        const aPnl = parseNum(a.pnl || a.m2m);
-        const bPnl = parseNum(b.pnl || b.m2m);
+        const aKey = a.tradingsymbol || a.symbol || a.symboltoken || '';
+        const bKey = b.tradingsymbol || b.symbol || b.symboltoken || '';
+        const aFlash = flashes[aKey] || (a.symboltoken ? flashes[a.symboltoken] : undefined);
+        const bFlash = flashes[bKey] || (b.symboltoken ? flashes[b.symboltoken] : undefined);
+        const aLtp = aFlash && aFlash.ltp > 0 ? aFlash.ltp : parseNum(a.lp || a.ltp);
+        const bLtp = bFlash && bFlash.ltp > 0 ? bFlash.ltp : parseNum(b.lp || b.ltp);
+        const aQty = parseNum(a.netqty || a.quantity);
+        const bQty = parseNum(b.netqty || b.quantity);
+        const aRawPnl = parseNum(a.pnl || a.m2m);
+        const bRawPnl = parseNum(b.pnl || b.m2m);
+        const aPnl = aQty !== 0 && aLtp > 0 && parseNum(a.averageprice) > 0
+          ? (aLtp - parseNum(a.averageprice)) * aQty
+          : aRawPnl;
+        const bPnl = bQty !== 0 && bLtp > 0 && parseNum(b.averageprice) > 0
+          ? (bLtp - parseNum(b.averageprice)) * bQty
+          : bRawPnl;
+
         if (sortBy === 'pnl') return bPnl - aPnl;
         return (a.tradingsymbol || '').localeCompare(b.tradingsymbol || '');
       });
-  }, [positionsList, searchQuery, filterType, sortBy]);
+  }, [positionsList, flashes, searchQuery, filterType, sortBy]);
 
   const handleManualRefresh = () => {
     requestImmediateRefresh();

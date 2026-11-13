@@ -31,26 +31,21 @@ export const HoldingsCardGrid: React.FC<HoldingsCardGridProps> = ({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
       {holdings.map((h: Holding, idx: number) => {
+        const symbolKey = h.tradingsymbol || '';
+        const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
         const qty = parseNum(h.quantity);
         const avgPrice = parseNum(h.averageprice);
-        const ltp = parseNum(h.ltp);
+        const ltp = flash && flash.ltp > 0 ? flash.ltp : parseNum(h.ltp);
         const close = parseNum(h.close) || ltp;
         const investedVal = avgPrice * qty;
         const curVal = ltp * qty;
-        const pnlVal = parseNum(h.profitandloss ?? (ltp - avgPrice) * qty);
-        const pnlPct =
-          h.pnlpercentage !== undefined
-            ? parseNum(h.pnlpercentage)
-            : investedVal > 0
-            ? (pnlVal / investedVal) * 100
-            : 0;
+        const pnlVal = (ltp - avgPrice) * qty;
+        const pnlPct = investedVal > 0 ? (pnlVal / investedVal) * 100 : 0;
 
         const dayChange = (ltp - close) * qty;
         const dayChangePct = close > 0 ? ((ltp - close) / close) * 100 : 0;
         const weightPct = totalEquityValue > 0 ? (curVal / totalEquityValue) * 100 : 0;
 
-        const symbolKey = h.tradingsymbol || '';
-        const flash = flashes[symbolKey] || (h.symboltoken ? flashes[h.symboltoken] : undefined);
         // eslint-disable-next-line react-hooks/purity
         const isRecentFlash = flash && Date.now() - flash.timestamp < 2500;
 

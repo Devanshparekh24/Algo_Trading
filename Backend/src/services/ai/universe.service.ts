@@ -9,6 +9,7 @@ import prisma from "../../config/prisma.js";
 import { getHoldings } from "../smartapi/api/holdings.js";
 import { getGainersLosersData } from "../smartapi/api/gainersLosers.js";
 import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
+import { isContractExpired, parseExpiryDate } from "../../utils/expiryUtils.js";
 import type {
   MarketSegment,
   ScripCandidate,
@@ -31,16 +32,16 @@ export const DEFAULT_UNIVERSE: ScripCandidate[] = [
   { symbol: "BHARTIARTL-EQ", token: "10604", exchange: "NSE", name: "Bharti Airtel", segment: "EQUITY", source: "CORE" },
 ];
 
-// Default High-Liquidity Futures & Options Universe
+// Default High-Liquidity Futures & Options Universe (Active 17-Nov-2026 and 23-Nov-2026 expiries)
 export const DEFAULT_FNO_UNIVERSE: FnoCandidate[] = [
-  { symbol: "NIFTY03NOV2625000PE", token: "54333", exchange: "NFO", name: "NIFTY 25000 PE", segment: "FNO", contractType: "PE", strike: 25000, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "NIFTY03NOV2625000CE", token: "54332", exchange: "NFO", name: "NIFTY 25000 CE", segment: "FNO", contractType: "CE", strike: 25000, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "NIFTY03NOV2624500PE", token: "54177", exchange: "NFO", name: "NIFTY 24500 PE", segment: "FNO", contractType: "PE", strike: 24500, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "NIFTY03NOV2624500CE", token: "54136", exchange: "NFO", name: "NIFTY 24500 CE", segment: "FNO", contractType: "CE", strike: 24500, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "NIFTY03NOV2625200PE", token: "54451", exchange: "NFO", name: "NIFTY 25200 PE", segment: "FNO", contractType: "PE", strike: 25200, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "NIFTY03NOV2625200CE", token: "54450", exchange: "NFO", name: "NIFTY 25200 CE", segment: "FNO", contractType: "CE", strike: 25200, expiry: "03NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
-  { symbol: "BANKNIFTY23NOV2653400PE", token: "62109", exchange: "NFO", name: "BANKNIFTY 53400 PE", segment: "FNO", contractType: "PE", strike: 53400, expiry: "23NOV2026", lotSize: 30, underlying: "BANKNIFTY", source: "CORE" },
-  { symbol: "BANKNIFTY29DEC2653100CE", token: "59517", exchange: "NFO", name: "BANKNIFTY 53100 CE", segment: "FNO", contractType: "CE", strike: 53100, expiry: "29DEC2026", lotSize: 30, underlying: "BANKNIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2624500PE", token: "45355", exchange: "NFO", name: "NIFTY 24500 PE", segment: "FNO", contractType: "PE", strike: 24500, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2624500CE", token: "45354", exchange: "NFO", name: "NIFTY 24500 CE", segment: "FNO", contractType: "CE", strike: 24500, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2625000PE", token: "45387", exchange: "NFO", name: "NIFTY 25000 PE", segment: "FNO", contractType: "PE", strike: 25000, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2625000CE", token: "45386", exchange: "NFO", name: "NIFTY 25000 CE", segment: "FNO", contractType: "CE", strike: 25000, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2625200PE", token: "45395", exchange: "NFO", name: "NIFTY 25200 PE", segment: "FNO", contractType: "PE", strike: 25200, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "NIFTY17NOV2625200CE", token: "45394", exchange: "NFO", name: "NIFTY 25200 CE", segment: "FNO", contractType: "CE", strike: 25200, expiry: "17NOV2026", lotSize: 65, underlying: "NIFTY", source: "CORE" },
+  { symbol: "BANKNIFTY23NOV2652000PE", token: "62109", exchange: "NFO", name: "BANKNIFTY 52000 PE", segment: "FNO", contractType: "PE", strike: 52000, expiry: "23NOV2026", lotSize: 30, underlying: "BANKNIFTY", source: "CORE" },
+  { symbol: "BANKNIFTY23NOV2652500CE", token: "59517", exchange: "NFO", name: "BANKNIFTY 52500 CE", segment: "FNO", contractType: "CE", strike: 52500, expiry: "23NOV2026", lotSize: 30, underlying: "BANKNIFTY", source: "CORE" },
 ];
 
 // Persistence for custom universe list
@@ -248,59 +249,98 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
       console.warn(`[AI Dynamic Universe] Could not fetch FNO OI movers:`, err?.message || err);
     }
 
-    // 3. Dynamically pull Core F&O Options from SmartAPI Instrument Database
+    // 3. Dynamically pull Core F&O Options from SmartAPI Instrument Database for ACTIVE NEAREST EXPIRIES
     try {
-      const dbOptions = await prisma.instrument.findMany({
+      const allExpiries = await prisma.instrument.findMany({
         where: {
           exch_seg: "NFO",
           instrumenttype: "OPTIDX",
           name: { in: ["NIFTY", "BANKNIFTY"] },
         },
-        take: 12,
-        orderBy: { expiry: "asc" },
+        select: { expiry: true, name: true },
+        distinct: ["expiry", "name"],
       });
 
-      for (const inst of dbOptions) {
-        if (!universeMap.has(inst.token)) {
-          const sym = inst.symbol;
-          const isCall = sym.endsWith("CE");
-          const isPut = sym.endsWith("PE");
-          const contractType: ContractType = isCall ? "CE" : isPut ? "PE" : "FUT";
-          const rawStrike = parseFloat(inst.strike);
-          const strike = isNaN(rawStrike) ? undefined : rawStrike > 100000 ? rawStrike / 100 : rawStrike;
+      const activeNiftyExpiries = allExpiries
+        .filter((e) => e.name === "NIFTY" && !isContractExpired(e.expiry))
+        .map((e) => ({ raw: e.expiry, date: parseExpiryDate(e.expiry)! }))
+        .filter((e) => e.date !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-          universeMap.set(inst.token, {
-            symbol: inst.symbol,
-            token: inst.token,
-            exchange: "NFO",
-            name: `${inst.name} ${strike || ""} ${contractType}`,
-            segment: "FNO",
-            contractType,
-            strike,
-            expiry: inst.expiry,
-            lotSize: parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1)),
-            underlying: inst.name,
-            source: "CORE",
-          });
+      const activeBankNiftyExpiries = allExpiries
+        .filter((e) => e.name === "BANKNIFTY" && !isContractExpired(e.expiry))
+        .map((e) => ({ raw: e.expiry, date: parseExpiryDate(e.expiry)! }))
+        .filter((e) => e.date !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      const targetExpiries: string[] = [];
+      if (activeNiftyExpiries[0]) targetExpiries.push(activeNiftyExpiries[0].raw);
+      if (activeBankNiftyExpiries[0]) targetExpiries.push(activeBankNiftyExpiries[0].raw);
+
+      if (targetExpiries.length > 0) {
+        const dbOptions = await prisma.instrument.findMany({
+          where: {
+            exch_seg: "NFO",
+            instrumenttype: "OPTIDX",
+            name: { in: ["NIFTY", "BANKNIFTY"] },
+            expiry: { in: targetExpiries },
+          },
+          take: 30,
+        });
+
+        for (const inst of dbOptions) {
+          if (isContractExpired(inst.expiry, inst.symbol)) continue;
+          if (!universeMap.has(inst.token)) {
+            const sym = inst.symbol;
+            const isCall = sym.endsWith("CE");
+            const isPut = sym.endsWith("PE");
+            const contractType: ContractType = isCall ? "CE" : isPut ? "PE" : "FUT";
+            const rawStrike = parseFloat(inst.strike);
+            const strike = isNaN(rawStrike) ? undefined : rawStrike > 100000 ? rawStrike / 100 : rawStrike;
+
+            universeMap.set(inst.token, {
+              symbol: inst.symbol,
+              token: inst.token,
+              exchange: "NFO",
+              name: `${inst.name} ${strike || ""} ${contractType}`,
+              segment: "FNO",
+              contractType,
+              strike,
+              expiry: inst.expiry,
+              lotSize: parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1)),
+              underlying: inst.name,
+              source: "CORE",
+            });
+          }
         }
       }
     } catch (err: any) {
       console.warn(`[AI Dynamic Universe] Could not load core F&O options from SmartAPI Instrument table:`, err?.message || err);
     }
 
-    // Fallback if DB empty
-    for (const core of DEFAULT_FNO_UNIVERSE) {
-      if (!universeMap.has(core.token)) {
-        universeMap.set(core.token, {
-          ...core,
-          segment: "FNO",
-          source: "CORE",
-        });
+    // Fallback if universeMap has few FNO candidates: only add non-expired core contracts
+    if (universeMap.size < 6) {
+      for (const core of DEFAULT_FNO_UNIVERSE) {
+        if (!isContractExpired(core.expiry, core.symbol) && !universeMap.has(core.token)) {
+          universeMap.set(core.token, {
+            ...core,
+            segment: "FNO",
+            source: "CORE",
+          });
+        }
       }
     }
   }
 
-  return Array.from(universeMap.values());
+  // Strict Safeguard: Exclude ANY expired derivative contracts from the active scanning universe
+  const validUniverse = Array.from(universeMap.values()).filter((item) => {
+    if (item.segment === "FNO" || item.exchange === "NFO") {
+      return !isContractExpired(item.expiry, item.symbol);
+    }
+    return true;
+  });
+
+  return validUniverse;
 }
 
 /**

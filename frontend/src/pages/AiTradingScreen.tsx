@@ -20,6 +20,7 @@ import {
   fetchOrderHistory,
   fetchAutoPilotConfig,
   updateAutoPilotConfig,
+  resetAutoPilotKillSwitch,
   fetchScanUniverse,
   addUniverseScrip,
   removeUniverseScrip,
@@ -136,21 +137,25 @@ export const AiTradingScreen: React.FC = () => {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Auto-Pilot State: Greek Momentum Sniper
+  // Auto-Pilot State: Greek Momentum Sniper (Optimal 25-12-25 Rule)
   const [autoPilot, setAutoPilot] = useState<AutoPilotConfig>({
     enabled: false,
     mode: 'PAPER',
     strategy: 'GREEK_SNIPER',
     enforceGoldenHours: true,
-    profitTargetPct: 50,
-    stopLossPct: 22,
-    thetaTimeoutMinutes: 45,
+    profitTargetPct: 25,
+    stopLossPct: 12,
+    thetaTimeoutMinutes: 25,
     maxDailyTrades: 5,
     defaultQuantity: 1,
+    maxBudgetPerTrade: 15000,
+    maxDailyLoss: 3000,
+    maxOpenPositions: 3,
+    confirmedLiveTrading: true,
     productType: 'INTRADAY',
     executedToday: 0,
   });
-  const [hudSlab, setHudSlab] = useState<number>(5000);
+  const [hudSlab, setHudSlab] = useState<number>(15000);
   const [isAutoPilotModalOpen, setIsAutoPilotModalOpen] = useState(false);
 
   // Live Strategy Schedule & IST Timetable State
@@ -216,7 +221,7 @@ export const AiTradingScreen: React.FC = () => {
     try {
       const cfg = await fetchAutoPilotConfig();
       setAutoPilot(cfg);
-      setExecMode(cfg.mode);
+      setExecMode(cfg.mode === 'LIVE' ? 'LIVE' : 'PAPER');
     } catch (err) {
       console.warn('Could not load autopilot config:', err);
     }
@@ -633,11 +638,47 @@ export const AiTradingScreen: React.FC = () => {
       loadOrders();
     };
 
+    const handleAutoPilotConfigUpdate = (newConfig: AutoPilotConfig) => {
+      if (newConfig) setAutoPilot(newConfig);
+    };
+
+    const handleKillSwitchTriggered = (payload: any) => {
+      setAutoPilot((prev) => ({
+        ...prev,
+        enabled: false,
+        killSwitchTripped: true,
+        killSwitchReason: payload?.message || "Kill-switch activated due to max daily loss limit.",
+      }));
+      setExecutionToast({
+        type: 'error',
+        message: `KILL-SWITCH ACTIVATED: ${payload?.message || "Auto-pilot disarmed."}`,
+      });
+    };
+
+    const handleKillSwitchReset = (payload: any) => {
+      if (payload?.config) {
+        setAutoPilot(payload.config);
+      } else {
+        setAutoPilot((prev) => ({
+          ...prev,
+          killSwitchTripped: false,
+          killSwitchReason: undefined,
+        }));
+      }
+      setExecutionToast({
+        type: 'success',
+        message: 'Auto-Pilot kill-switch reset! Fresh session loss tracking active.',
+      });
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('ai_signals_update', handleAiSignalsUpdate);
     socket.on('ai_auto_trade_executed', handleAiAutoTradeExecuted);
     socket.on('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
+    socket.on('ai_autopilot_config_update', handleAutoPilotConfigUpdate);
+    socket.on('ai_kill_switch_triggered', handleKillSwitchTriggered);
+    socket.on('ai_kill_switch_reset', handleKillSwitchReset);
     socket.on('ai_scanner_activity', handleScannerActivity);
     socket.on('ai_auto_exit_executed', handleAiAutoExitExecuted);
     socket.on('ai_signal_executed', handleSignalExecuted);
@@ -656,6 +697,9 @@ export const AiTradingScreen: React.FC = () => {
       socket.off('ai_signals_update', handleAiSignalsUpdate);
       socket.off('ai_auto_trade_executed', handleAiAutoTradeExecuted);
       socket.off('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
+      socket.off('ai_autopilot_config_update', handleAutoPilotConfigUpdate);
+      socket.off('ai_kill_switch_triggered', handleKillSwitchTriggered);
+      socket.off('ai_kill_switch_reset', handleKillSwitchReset);
       socket.off('ai_scanner_activity', handleScannerActivity);
       socket.off('ai_auto_exit_executed', handleAiAutoExitExecuted);
       socket.off('ai_signal_executed', handleSignalExecuted);
@@ -717,7 +761,7 @@ export const AiTradingScreen: React.FC = () => {
     setExecProductType(isFno ? 'CARRYFORWARD' : autoPilot.productType || 'INTRADAY');
     setExecOrderType('MARKET');
     setExecLimitPrice(signal.currentPrice);
-    setExecMode(autoPilot.mode);
+    setExecMode(autoPilot.mode === 'LIVE' ? 'LIVE' : 'PAPER');
   };
 
   // Submit Order Execution
@@ -990,6 +1034,21 @@ export const AiTradingScreen: React.FC = () => {
         isScanning={isScanning}
         onRefreshLivePrices={() => requestAiPricesRefresh()}
         onChangeAutoPilotMode={(mode) => handleSaveAutoPilot({ mode })}
+        onResetKillSwitch={async () => {
+          try {
+            const updated = await resetAutoPilotKillSwitch();
+            setAutoPilot(updated);
+            setExecutionToast({
+              type: 'success',
+              message: 'Kill-switch has been reset! Session loss limit refreshed.',
+            });
+          } catch (err: any) {
+            setExecutionToast({
+              type: 'error',
+              message: err?.message || 'Failed to reset kill-switch',
+            });
+          }
+        }}
         onOpenAutoPilotModal={() => setIsAutoPilotModalOpen(true)}
         onOpenUniverseModal={() => {
           setIsUniverseModalOpen(true);

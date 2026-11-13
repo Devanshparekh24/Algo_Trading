@@ -512,8 +512,9 @@ export function startRealtimeBroadcaster(): void {
       console.warn("[SmartAPI Streamer] Live quote polling:", err?.message || err);
     } finally {
       isBroadcasting = false;
-      // Schedule the next cycle only AFTER the current one is completely finished
-      streamTimeout = setTimeout(runTick, 2000);
+      // Schedule next cycle (1000ms for active connected clients, 2500ms if idle)
+      const delayMs = io && io.engine.clientsCount > 0 ? 1000 : 2500;
+      streamTimeout = setTimeout(runTick, delayMs);
     }
   };
 

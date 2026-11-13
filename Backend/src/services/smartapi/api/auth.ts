@@ -10,6 +10,7 @@ import { getStore, setStore, clearStore } from "../store.js";
 import type { LoginResponse } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
 import { executeSmartApiRequest } from "../rateLimiter.js";
+import { clearProfileCache } from "./profile.js";
 
 /**
  * Log in to Angel One SmartAPI using client code, password, and TOTP.
@@ -197,7 +198,8 @@ export async function logoutSmartAPI(): Promise<boolean> {
       } finally {
         // Always clear the local token store on logout
         clearStore();
-        console.log("[SmartAPI] Local session tokens cleared.");
+        clearProfileCache();
+        console.log("[SmartAPI] Local session tokens and profile cache cleared.");
       }
 
       return true;

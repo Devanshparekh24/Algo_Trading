@@ -22,15 +22,20 @@ import {
   Trash2,
   Bot,
   Wallet,
+  FileText,
 } from 'lucide-react';
 import UserProfileCard from '../components/common/UserProfileCard';
 import { useAppStore } from '../store';
 import {
   fetchAiTradeLogs,
+  fetchAiAnalysisLogs,
   fetchAiErrorLogs,
   clearAiErrorLogs,
+  fetchActivePositions,
   type AiTradeLogItem,
+  type AiAnalysisLogItem,
   type AiErrorLogItem,
+  type ActiveAiPosition,
 } from '../services/aiTradingService';
 import { getSocket } from '../services/socketService';
 import { formatINR } from '../utils/formatters';
@@ -42,8 +47,11 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPortfolio }) => {
   const setActiveView = useAppStore((state) => state.setActiveView);
 
-  // AI Logs State
+  // AI Logs & Active Positions State
+  const [logTab, setLogTab] = useState<'TRADES' | 'ANALYSIS'>('TRADES');
   const [tradeLogs, setTradeLogs] = useState<AiTradeLogItem[]>([]);
+  const [analysisLogs, setAnalysisLogs] = useState<AiAnalysisLogItem[]>([]);
+  const [activePositions, setActivePositions] = useState<ActiveAiPosition[]>([]);
   const [errorLogs, setErrorLogs] = useState<AiErrorLogItem[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
@@ -58,20 +66,40 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
     }
   };
 
-  // Fetch Trade Logs from PostgreSQL
+  // Fetch Trade Logs from PostgreSQL (BUY/SELL Executions)
   const loadTradeLogs = useCallback(async () => {
     try {
-      const logs = await fetchAiTradeLogs(30);
+      const logs = await fetchAiTradeLogs(50);
       setTradeLogs(logs || []);
     } catch (err) {
       console.warn('Dashboard: Failed to load AiTradeLogs:', err);
     }
   }, []);
 
+  // Fetch Analysis Logs from PostgreSQL (Market Evaluations)
+  const loadAnalysisLogs = useCallback(async () => {
+    try {
+      const logs = await fetchAiAnalysisLogs(50);
+      setAnalysisLogs(logs || []);
+    } catch (err) {
+      console.warn('Dashboard: Failed to load AiAnalysisLogs:', err);
+    }
+  }, []);
+
+  // Fetch Active AI Positions (Live Open Positions)
+  const loadActivePositions = useCallback(async () => {
+    try {
+      const pos = await fetchActivePositions();
+      setActivePositions(pos || []);
+    } catch (err) {
+      console.warn('Dashboard: Failed to load active positions:', err);
+    }
+  }, []);
+
   // Fetch Error Logs from PostgreSQL
   const loadErrorLogs = useCallback(async () => {
     try {
-      const errs = await fetchAiErrorLogs(30);
+      const errs = await fetchAiErrorLogs(50);
       setErrorLogs(errs || []);
     } catch (err) {
       console.warn('Dashboard: Failed to load AiErrorLogs:', err);
@@ -82,11 +110,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
   const handleRefreshTelemetry = useCallback(async () => {
     setIsLoadingLogs(true);
     try {
-      await Promise.all([loadTradeLogs(), loadErrorLogs()]);
+      await Promise.all([loadTradeLogs(), loadAnalysisLogs(), loadActivePositions(), loadErrorLogs()]);
     } finally {
       setIsLoadingLogs(false);
     }
-  }, [loadTradeLogs, loadErrorLogs]);
+  }, [loadTradeLogs, loadAnalysisLogs, loadActivePositions, loadErrorLogs]);
 
   // Initial load
   useEffect(() => {
@@ -100,14 +128,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
 
     const onAutoTrade = () => {
       loadTradeLogs();
+      loadActivePositions();
     };
 
     const onAutoExit = () => {
       loadTradeLogs();
+      loadActivePositions();
     };
 
     const onTradeLogged = () => {
       loadTradeLogs();
+    };
+
+    const onAnalysisLogged = () => {
+      loadAnalysisLogs();
+    };
+
+    const onPositionsUpdate = (positions: ActiveAiPosition[]) => {
+      if (Array.isArray(positions)) {
+        setActivePositions(positions);
+      }
     };
 
     const onErrorLogged = () => {
@@ -118,9 +158,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
       setErrorLogs([]);
     };
 
+    socket.on('ai_positions_update', onPositionsUpdate);
+    socket.on('ai_position_opened', loadActivePositions);
     socket.on('ai_auto_trade_executed', onAutoTrade);
     socket.on('ai_auto_exit_executed', onAutoExit);
     socket.on('ai_trade_logged', onTradeLogged);
+    socket.on('ai_analysis_logged', onAnalysisLogged);
+    socket.on('ai_analysis_logs_cleared', () => setAnalysisLogs([]));
     socket.on('ai_error_logged', onErrorLogged);
     socket.on('ai_error_logs_cleared', onErrorLogsCleared);
     socket.on('ai_audit_event_logged', onErrorLogged);
@@ -128,16 +172,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
     socket.on('ai_scanner_activity', onErrorLogged);
 
     return () => {
+      socket.off('ai_positions_update', onPositionsUpdate);
+      socket.off('ai_position_opened', loadActivePositions);
       socket.off('ai_auto_trade_executed', onAutoTrade);
       socket.off('ai_auto_exit_executed', onAutoExit);
       socket.off('ai_trade_logged', onTradeLogged);
+      socket.off('ai_analysis_logged', onAnalysisLogged);
       socket.off('ai_error_logged', onErrorLogged);
       socket.off('ai_error_logs_cleared', onErrorLogsCleared);
       socket.off('ai_audit_event_logged', onErrorLogged);
       socket.off('ai_autopilot_status_changed', onErrorLogged);
       socket.off('ai_scanner_activity', onErrorLogged);
     };
-  }, [loadTradeLogs, loadErrorLogs]);
+  }, [loadTradeLogs, loadAnalysisLogs, loadActivePositions, loadErrorLogs]);
 
   const handleClearErrors = async () => {
     try {
@@ -149,13 +196,52 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
   };
 
   // Metric Computations
-  const totalTrades = tradeLogs.length;
-  const closedTrades = tradeLogs.filter((t) => t.status === 'EXITED');
-  const openTrades = tradeLogs.filter((t) => t.status === 'OPEN');
-  const realizedPnL = closedTrades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
-  const winningTrades = closedTrades.filter((t) => (Number(t.pnl) || 0) > 0);
+  const isClosed = (status?: string) => {
+    const s = status?.toUpperCase();
+    return s === 'EXITED' || s === 'CLOSED';
+  };
+  const isOpen = (status?: string) => {
+    const s = status?.toUpperCase();
+    return s === 'OPEN';
+  };
+
+  // Dashboard Telemetry Mode Filter
+  const [dashboardModeFilter, setDashboardModeFilter] = useState<'ALL' | 'PAPER' | 'LIVE'>('ALL');
+
+  // Filter trades and active positions by dashboardModeFilter
+  const relevantTradeLogs = tradeLogs.filter((t) => {
+    if (dashboardModeFilter === 'ALL') return true;
+    return t.mode === dashboardModeFilter;
+  });
+  const relevantActivePositions = activePositions.filter((p) => {
+    if (dashboardModeFilter === 'ALL') return true;
+    return p.mode === dashboardModeFilter;
+  });
+
+  const totalTrades = relevantTradeLogs.length;
+  const closedTrades = relevantTradeLogs.filter((t) => isClosed(t.status));
+  const openTrades = relevantTradeLogs.filter((t) => isOpen(t.status));
+
+  // Cumulative Realized Net P&L (strictly from exited/closed trades)
+  const realizedPnL = closedTrades.reduce((sum, t) => sum + (Number(t.netPnl ?? t.pnl) || 0), 0);
+  const winningTrades = closedTrades.filter((t) => (Number(t.netPnl ?? t.pnl) || 0) > 0);
   const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
-  const isOverallProfit = realizedPnL >= 0;
+  const isOverallProfit = realizedPnL > 0;
+  const isNeutral = realizedPnL === 0;
+
+  // Active / Unrealized Live P&L from open active positions
+  const openPositionsCount = relevantActivePositions.filter((p) => p.status === 'OPEN').length;
+  const unrealizedPnL = relevantActivePositions
+    .filter((p) => p.status === 'OPEN')
+    .reduce((sum, p) => sum + (Number(p.netPnl ?? p.pnl) || 0), 0);
+
+  // Breakdown metrics for BOTH mode
+  const paperClosedTrades = tradeLogs.filter((t) => isClosed(t.status) && t.mode === 'PAPER');
+  const liveClosedTrades = tradeLogs.filter((t) => isClosed(t.status) && t.mode === 'LIVE');
+  const paperRealizedPnL = paperClosedTrades.reduce((sum, t) => sum + (Number(t.netPnl ?? t.pnl) || 0), 0);
+  const liveRealizedPnL = liveClosedTrades.reduce((sum, t) => sum + (Number(t.netPnl ?? t.pnl) || 0), 0);
+  const paperOpenCount = activePositions.filter((p) => p.status === 'OPEN' && p.mode === 'PAPER').length;
+  const liveOpenCount = activePositions.filter((p) => p.status === 'OPEN' && p.mode === 'LIVE').length;
 
   // Categorize Error / Telemetry Logs
   const isAuditLog = (err: AiErrorLogItem) =>
@@ -255,6 +341,81 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
           </div>
         </div>
 
+        {/* Mode Filter Strip */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700/80 shadow-2xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">P&amp;L Telemetry Mode:</span>
+            <div className="flex items-center p-0.5 rounded-xl bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setDashboardModeFilter('ALL')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  dashboardModeFilter === 'ALL'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <span>All Modes (Both)</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white">
+                  {tradeLogs.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDashboardModeFilter('PAPER')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  dashboardModeFilter === 'PAPER'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Paper Sim</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                  {tradeLogs.filter((t) => t.mode === 'PAPER').length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDashboardModeFilter('LIVE')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  dashboardModeFilter === 'LIVE'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Live Broker</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  {tradeLogs.filter((t) => t.mode === 'LIVE').length}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-mono">
+            {dashboardModeFilter === 'ALL' && (
+              <>
+                <span className="text-amber-600 dark:text-amber-400 font-bold">
+                  Live: {liveRealizedPnL >= 0 ? '+' : ''}{formatINR(liveRealizedPnL)}
+                </span>
+                <span className="text-gray-300 dark:text-gray-700">•</span>
+                <span className="text-sky-600 dark:text-sky-400 font-bold">
+                  Paper: {paperRealizedPnL >= 0 ? '+' : ''}{formatINR(paperRealizedPnL)}
+                </span>
+              </>
+            )}
+            {dashboardModeFilter === 'LIVE' && (
+              <span className="text-amber-600 dark:text-amber-400 font-bold">
+                Live Broker (Angel One Real Capital)
+              </span>
+            )}
+            {dashboardModeFilter === 'PAPER' && (
+              <span className="text-sky-600 dark:text-sky-400 font-bold">
+                Paper Simulation (Safe Virtual Capital)
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* 4 Top Metric Cards */}
         <div className="gap-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {/* Card 1: Total AI Trades */}
@@ -287,24 +448,55 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
               </span>
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  isOverallProfit
+                  isNeutral
+                    ? 'bg-gray-100 dark:bg-gray-750 text-gray-500 dark:text-gray-400'
+                    : isOverallProfit
                     ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
                     : 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {isOverallProfit ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                {isNeutral ? (
+                  <Database className="w-4 h-4" />
+                ) : isOverallProfit ? (
+                  <TrendingUp className="w-4 h-4" />
+                ) : (
+                  <TrendingDown className="w-4 h-4" />
+                )}
               </div>
             </div>
             <div
               className={`text-2xl font-black font-mono mt-2 ${
-                isOverallProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                isNeutral
+                  ? 'text-gray-900 dark:text-white'
+                  : isOverallProfit
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-rose-600 dark:text-rose-400'
               }`}
             >
-              {isOverallProfit ? '+' : ''}{formatINR(realizedPnL)}
+              {isNeutral ? '' : isOverallProfit ? '+' : ''}{formatINR(realizedPnL)}
             </div>
-            <div className="mt-2 text-gray-500 dark:text-gray-400 text-xs">
-              Cumulative from {closedTrades.length} closed trades
+            <div className="mt-2 text-gray-500 dark:text-gray-400 text-xs flex flex-wrap items-center justify-between gap-1">
+              <span>
+                {closedTrades.length > 0
+                  ? `From ${closedTrades.length} closed trade${closedTrades.length === 1 ? '' : 's'}`
+                  : '0 closed trades'}
+              </span>
+              {openPositionsCount > 0 && (
+                <span className={`font-mono font-semibold ${unrealizedPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                  Live: {unrealizedPnL >= 0 ? '+' : ''}{formatINR(unrealizedPnL)} ({openPositionsCount} open)
+                </span>
+              )}
             </div>
+            {dashboardModeFilter === 'ALL' && (closedTrades.length > 0 || openPositionsCount > 0) && (
+              <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between text-[10px] font-mono">
+                <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                  Live: {liveRealizedPnL >= 0 ? '+' : ''}{formatINR(liveRealizedPnL)} ({liveClosedTrades.length} exited, {liveOpenCount} open)
+                </span>
+                <span className="text-sky-600 dark:text-sky-400 font-semibold">
+                  Paper: {paperRealizedPnL >= 0 ? '+' : ''}{formatINR(paperRealizedPnL)} ({paperClosedTrades.length} exited, {paperOpenCount} open)
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Card 3: Win Rate */}
@@ -366,30 +558,52 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
 
         {/* 2-Column Split: Recent Trade Executions & Error Telemetry */}
         <div className="items-start gap-6 grid grid-cols-1 lg:grid-cols-12">
-          {/* Left Column: Recent AI Trade Executions (AiTradeLog) - 7 cols */}
+          {/* Left Column: Recent AI Trade Executions / Market Analysis - 7 cols */}
           <div className="space-y-4 lg:col-span-7 bg-white dark:bg-gray-800 shadow-xs p-5 border border-gray-200 dark:border-gray-700/80 rounded-2xl">
-            <div className="flex justify-between items-center pb-3 border-gray-100 dark:border-gray-700/70 border-b">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-gray-100 dark:border-gray-700/70 border-b gap-2">
               <div className="flex items-center gap-2">
-                <div className="flex justify-center items-center bg-emerald-100 dark:bg-emerald-900/40 rounded-lg w-7 h-7 text-emerald-600 dark:text-emerald-400">
-                  <TrendingUp className="w-4 h-4" />
+                <div className="flex justify-center items-center bg-purple-100 dark:bg-purple-900/40 rounded-lg w-7 h-7 text-purple-600 dark:text-purple-400">
+                  {logTab === 'TRADES' ? <TrendingUp className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900 dark:text-white text-sm">
-                    Recent AI Trade Executions
+                    {logTab === 'TRADES' ? 'Recent AI Trade Executions' : 'AI Market Analysis Records'}
                   </h4>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                    PostgreSQL <code className="font-mono text-purple-600 dark:text-purple-400">AiTradeLog</code> table
+                    PostgreSQL <code className="font-mono text-purple-600 dark:text-purple-400">{logTab === 'TRADES' ? 'AiTradeLog' : 'AiAnalysisLog'}</code> table
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full font-mono text-[11px] text-gray-600 dark:text-gray-300">
-                  {tradeLogs.length} total
-                </span>
+                <div className="flex items-center p-0.5 rounded-lg bg-gray-100 dark:bg-gray-700/60 text-[11px] font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setLogTab('TRADES')}
+                    className={`px-2.5 py-1 rounded-md transition-all ${
+                      logTab === 'TRADES'
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Trades ({tradeLogs.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogTab('ANALYSIS')}
+                    className={`px-2.5 py-1 rounded-md transition-all ${
+                      logTab === 'ANALYSIS'
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Analysis ({analysisLogs.length})
+                  </button>
+                </div>
+
                 <button
                   onClick={() => setActiveView('ai-trading')}
-                  className="flex items-center gap-1 font-semibold text-purple-600 hover:text-purple-700 dark:hover:text-purple-300 dark:text-purple-400 text-xs"
+                  className="flex items-center gap-1 font-semibold text-purple-600 hover:text-purple-700 dark:hover:text-purple-300 dark:text-purple-400 text-xs shrink-0"
                 >
                   <span>View All</span>
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -397,11 +611,119 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
               </div>
             </div>
 
-            {tradeLogs.length === 0 ? (
+            {logTab === 'ANALYSIS' ? (
+              analysisLogs.length === 0 ? (
+                <div className="bg-gray-50 dark:bg-gray-900/40 py-12 border border-gray-200 dark:border-gray-800 border-dashed rounded-xl text-center">
+                  <FileText className="mx-auto mb-2 w-10 h-10 text-gray-400 dark:text-gray-600" />
+                  <h5 className="font-semibold text-gray-800 dark:text-gray-200 text-sm">
+                    No Database Analysis Logs Found
+                  </h5>
+                  <p className="mx-auto mt-1 max-w-sm text-gray-500 dark:text-gray-400 text-xs">
+                    Multi-factor scanner evaluations from F&O and Equity universes are recorded in the AiAnalysisLog PostgreSQL table.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {analysisLogs.slice(0, visibleTradeLimit).map((item) => {
+                    const isBuy = item.action === 'BUY';
+                    const isSell = item.action === 'SELL';
+                    const dateStr = new Date(item.createdAt).toLocaleTimeString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="space-y-2 bg-gray-50 dark:bg-gray-900/60 p-3.5 border border-gray-200 hover:border-indigo-300 dark:border-gray-700/60 dark:hover:border-indigo-500/40 rounded-xl transition-all"
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                                  isBuy
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : isSell
+                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                }`}
+                              >
+                                {item.action}
+                              </span>
+                              <span className="font-bold text-gray-900 dark:text-white text-sm">
+                                {item.symbol}
+                              </span>
+                              {item.contractType && (
+                                <span className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.2 rounded font-mono text-[10px] text-gray-700 dark:text-gray-300">
+                                  {item.contractType} {item.strike || ''}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-gray-400 font-mono">
+                                {item.segment}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400 line-clamp-1">
+                              {item.aiThesisSummary || 'Technical confluence evaluation.'}
+                            </p>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-bold font-mono text-gray-900 dark:text-white text-sm">
+                              ₹{item.currentPrice?.toFixed(2)}
+                            </div>
+                            <div className="text-[10px] text-gray-400 font-mono">
+                              {dateStr}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap justify-between items-center pt-1.5 border-t border-gray-200/60 dark:border-gray-700 text-[10px] text-gray-500 font-mono">
+                          <div className="flex items-center gap-2">
+                            <span>Conf: <strong className="text-gray-900 dark:text-white">{item.confidence}%</strong></span>
+                            {item.rsi && <span>RSI: {item.rsi.toFixed(1)}</span>}
+                          </div>
+                          {item.delta != null && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-emerald-600 dark:text-emerald-400">Δ{item.delta.toFixed(2)}</span>
+                              <span className="text-blue-600 dark:text-blue-400">Γ{item.gamma?.toFixed(3) || '0'}</span>
+                              <span className="text-rose-600 dark:text-rose-400">Θ{item.theta?.toFixed(1) || '0'}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {analysisLogs.length > 5 && (
+                    <div className="flex justify-between items-center pt-2 text-xs">
+                      {visibleTradeLimit < analysisLogs.length ? (
+                        <button
+                          onClick={() => setVisibleTradeLimit((prev) => Math.min(prev + 5, analysisLogs.length))}
+                          className="font-semibold text-purple-600 dark:text-purple-400 hover:underline"
+                        >
+                          Show 5 More ({analysisLogs.length - visibleTradeLimit} remaining)
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setVisibleTradeLimit(5)}
+                          className="font-semibold text-gray-500 hover:underline"
+                        >
+                          Show Less
+                        </button>
+                      )}
+                      <span className="text-gray-400 font-mono text-[10px]">
+                        Showing {Math.min(visibleTradeLimit, analysisLogs.length)} of {analysisLogs.length}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : relevantTradeLogs.length === 0 ? (
               <div className="bg-gray-50 dark:bg-gray-900/40 py-12 border border-gray-200 dark:border-gray-800 border-dashed rounded-xl text-center">
                 <Database className="mx-auto mb-2 w-10 h-10 text-gray-400 dark:text-gray-600" />
                 <h5 className="font-semibold text-gray-800 dark:text-gray-200 text-sm">
-                  No Database Trade Logs Found
+                  No {dashboardModeFilter !== 'ALL' ? `${dashboardModeFilter} ` : ''}Trade Logs Found
                 </h5>
                 <p className="mx-auto mt-1 max-w-sm text-gray-500 dark:text-gray-400 text-xs">
                   Trades executed by the Greek Momentum Sniper or Auto-Pilot will be permanently audited here with Greeks, entry/exit prices, and exit triggers.
@@ -416,9 +738,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
               </div>
             ) : (
               <div className="space-y-2.5">
-                {tradeLogs.slice(0, visibleTradeLimit).map((trade) => {
+                {relevantTradeLogs.slice(0, visibleTradeLimit).map((trade) => {
                   const isBuy = trade.action === 'BUY';
-                  const isProfit = (Number(trade.pnl) || 0) >= 0;
+                  const pnlVal = trade.netPnl ?? trade.pnl;
+                  const isProfit = (Number(pnlVal) || 0) >= 0;
                   const dateStr = new Date(trade.enteredAt).toLocaleTimeString('en-IN', {
                     hour: '2-digit',
                     minute: '2-digit',
@@ -447,8 +770,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
                             <span className="bg-purple-100 dark:bg-purple-950 px-1.5 py-0.2 rounded font-mono text-[10px] text-purple-800 dark:text-purple-300">
                               {trade.strategy || 'GREEK_SNIPER'}
                             </span>
-                            <span className="bg-gray-200 dark:bg-gray-800 px-1.5 py-0.2 rounded font-mono text-[10px] text-gray-600 dark:text-gray-400">
-                              {trade.mode}
+                            <span
+                              className={`px-1.5 py-0.2 rounded font-mono font-bold text-[10px] ${
+                                trade.mode === 'LIVE'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60'
+                                  : 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300 dark:border-sky-700/60'
+                              }`}
+                            >
+                              {trade.mode === 'LIVE' ? 'LIVE' : 'PAPER'}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">
@@ -465,7 +794,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
 
                         {/* P&L Badge */}
                         <div className="text-right shrink-0">
-                          {trade.pnl !== null && trade.pnl !== undefined ? (
+                          {pnlVal !== null && pnlVal !== undefined ? (
                             <div>
                               <div
                                 className={`text-xs sm:text-sm font-bold font-mono ${
@@ -474,7 +803,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigateToPo
                                     : 'text-rose-600 dark:text-rose-400'
                                 }`}
                               >
-                                {isProfit ? '+' : ''}₹{Number(trade.pnl).toLocaleString('en-IN')}
+                                {isProfit ? '+' : ''}₹{Number(pnlVal).toLocaleString('en-IN')}
                               </div>
                               {trade.pnlPercent !== null && trade.pnlPercent !== undefined && (
                                 <div

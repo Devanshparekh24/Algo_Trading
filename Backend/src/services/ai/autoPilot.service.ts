@@ -9,6 +9,7 @@ import { placeSmartApiOrder } from "../smartapi/api/order.js";
 import { broadcastSocketEvent } from "../websocket/socketService.js";
 import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
 import { checkGoldenHours } from "../smartapi/greeks.service.js";
+import { isContractExpired } from "../../utils/expiryUtils.js";
 import {
   activeAiPositions,
   logTradeEntryToDb,
@@ -30,17 +31,20 @@ let autoPilotConfig: AutoPilotConfig = {
   mode: "PAPER",
   strategy: "GREEK_SNIPER",
   enforceGoldenHours: true,
-  profitTargetPct: 35,
-  stopLossPct: 18,
-  thetaTimeoutMinutes: 45,
+  profitTargetPct: 25,
+  stopLossPct: 12,
+  thetaTimeoutMinutes: 25,
   defaultQuantity: 1,
-  maxBudgetPerTrade: 0, // 0 = Dynamic sizing (no fixed price limit, trades by lot)
+  maxBudgetPerTrade: 15000, // ₹15,000 Slab: Strictly prevents deep ITM & high-turnover tax traps
   productType: "INTRADAY",
   maxDailyTrades: 5,
   executedToday: 0,
-  maxDailyLoss: 5000, // ₹5,000 daily loss kill-switch threshold
+  maxDailyLoss: 3000, // ₹3,000 daily loss kill-switch
   maxOpenPositions: 3, // Max concurrent open positions
-  confirmedLiveTrading: false, // Mandatory confirmation before placing LIVE broker orders
+  confirmedLiveTrading: false,
+  sessionResetAt: Date.now(),
+  killSwitchTripped: false,
+  killSwitchReason: undefined,
 };
 
 // Pluggable scanner function to avoid circular dependency with signals.service
@@ -89,8 +93,48 @@ export function getAutoPilotConfig(): AutoPilotConfig {
   return { ...autoPilotConfig };
 }
 
-export function updateAutoPilotConfig(newConfig: Partial<AutoPilotConfig>): AutoPilotConfig {
+/**
+ * Reset Auto-Pilot kill-switch and start a fresh session loss baseline
+ */
+export function resetAutoPilotKillSwitch(): AutoPilotConfig {
+  autoPilotConfig.sessionResetAt = Date.now();
+  autoPilotConfig.killSwitchTripped = false;
+  autoPilotConfig.killSwitchReason = undefined;
+  autoPilotConfig.executedToday = 0;
+  console.log(`[AI Auto-Pilot] Kill-switch explicitly reset. Session loss tracking refreshed for mode: [${autoPilotConfig.mode}].`);
+
+  broadcastSocketEvent("ai_kill_switch_reset", {
+    message: `Kill-switch reset. Fresh session loss tracking active for [${autoPilotConfig.mode}] mode.`,
+    mode: autoPilotConfig.mode,
+    timestamp: new Date().toISOString(),
+    config: autoPilotConfig,
+  });
+
+  broadcastSocketEvent("ai_autopilot_config_update", autoPilotConfig);
+  return { ...autoPilotConfig };
+}
+
+export function updateAutoPilotConfig(
+  newConfig: Partial<AutoPilotConfig> & { resetKillSwitch?: boolean }
+): AutoPilotConfig {
   const previousConfig = { ...autoPilotConfig };
+
+  if (newConfig.resetKillSwitch) {
+    autoPilotConfig.sessionResetAt = Date.now();
+    autoPilotConfig.killSwitchTripped = false;
+    autoPilotConfig.killSwitchReason = undefined;
+    autoPilotConfig.executedToday = 0;
+    console.log(`[AI Auto-Pilot] Kill-switch reset triggered via config update.`);
+  }
+
+  // When user explicitly re-enables Auto-Pilot after a kill-switch trip, auto-refresh session baseline
+  if (newConfig.enabled === true && (autoPilotConfig.killSwitchTripped || !previousConfig.enabled)) {
+    autoPilotConfig.sessionResetAt = Date.now();
+    autoPilotConfig.killSwitchTripped = false;
+    autoPilotConfig.killSwitchReason = undefined;
+    console.log(`[AI Auto-Pilot] Auto-Pilot re-armed by user; refreshing session baseline.`);
+  }
+
   autoPilotConfig = {
     ...autoPilotConfig,
     ...newConfig,
@@ -158,44 +202,67 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
   try {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
+    const baselineDate =
+      autoPilotConfig.sessionResetAt && autoPilotConfig.sessionResetAt > startOfDay.getTime()
+        ? new Date(autoPilotConfig.sessionResetAt)
+        : startOfDay;
+
+    // Strictly mode-separated loss accounting:
+    // When mode is LIVE, ONLY count real broker trades (mode: "LIVE"). Simulated paper trades never trip live broker risk!
+    // When mode is PAPER, ONLY count paper trades (mode: "PAPER") exited within current session.
     const exitedToday = await prisma.aiTradeLog.findMany({
       where: {
         status: "EXITED",
-        exitedAt: { gte: startOfDay },
+        exitedAt: { gte: baselineDate },
+        mode: autoPilotConfig.mode,
       },
       select: { netPnl: true, pnl: true },
     });
     todayRealizedPnL = exitedToday.reduce((sum, t) => sum + (t.netPnl ?? t.pnl ?? 0), 0);
-  } catch {
+  } catch (err: any) {
+    console.error("[AI Auto-Pilot Kill Switch] Error querying realized PnL:", err?.message || err);
     todayRealizedPnL = 0;
   }
 
   const openUnrealizedPnL = Array.from(activeAiPositions.values())
-    .filter((p) => p.status === "OPEN")
+    .filter((p) => p.status === "OPEN" && p.mode === autoPilotConfig.mode)
     .reduce((sum, p) => sum + (p.pnl || 0), 0);
 
   const cumulativeTodayPnL = todayRealizedPnL + openUnrealizedPnL;
 
   if (cumulativeTodayPnL <= -maxLossLimit) {
-    console.warn(
-      `[AI Auto-Pilot Kill Switch] Total daily loss ₹${cumulativeTodayPnL.toFixed(2)} breached threshold of -₹${maxLossLimit}. DISARMING AUTO-PILOT!`
-    );
+    const haltMessage = `Kill-switch activated: Today's [${autoPilotConfig.mode}] loss ₹${cumulativeTodayPnL.toFixed(2)} exceeded ₹${maxLossLimit} limit. Auto-pilot disabled.`;
+    console.warn(`[AI Auto-Pilot Kill Switch] ${haltMessage}`);
+    
     autoPilotConfig.enabled = false;
+    autoPilotConfig.killSwitchTripped = true;
+    autoPilotConfig.killSwitchReason = haltMessage;
 
     await logAiErrorToDb({
       source: "KILL_SWITCH",
       action: "AUTO_PILOT_HALTED",
-      message: `Kill-switch activated: Today's loss ₹${cumulativeTodayPnL.toFixed(2)} exceeded ₹${maxLossLimit} limit. Auto-pilot disabled.`,
-      details: { cumulativeTodayPnL, maxLossLimit, todayRealizedPnL, openUnrealizedPnL },
+      message: haltMessage,
+      details: { 
+        mode: autoPilotConfig.mode,
+        cumulativeTodayPnL, 
+        maxLossLimit, 
+        todayRealizedPnL, 
+        openUnrealizedPnL,
+        sessionResetAt: autoPilotConfig.sessionResetAt,
+      },
     }).catch(console.error);
 
     broadcastSocketEvent("ai_kill_switch_triggered", {
-      message: `Kill-switch triggered! Cumulative loss ₹${cumulativeTodayPnL.toFixed(2)} breached max daily loss limit of ₹${maxLossLimit}. Auto-Pilot disarmed.`,
+      message: `Kill-switch triggered! Cumulative [${autoPilotConfig.mode}] loss ₹${cumulativeTodayPnL.toFixed(2)} breached max daily loss limit of ₹${maxLossLimit}. Auto-Pilot disarmed.`,
+      mode: autoPilotConfig.mode,
       cumulativeLoss: cumulativeTodayPnL,
       maxDailyLoss: maxLossLimit,
       todayRealizedPnL,
       openUnrealizedPnL,
+      timestamp: new Date().toISOString(),
     });
+
+    broadcastSocketEvent("ai_autopilot_config_update", autoPilotConfig);
     return;
   }
 
@@ -228,11 +295,28 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
 
     const isFno = sig.exchange === "NFO" || sig.segment === "FNO";
 
+    // Expiry Guard: Never execute trades on expired derivative contracts
+    if (isFno && isContractExpired(sig.expiry, sig.symbol)) {
+      console.warn(`[AI Auto-Pilot Guard] Refusing trade on expired contract: ${sig.symbol} (${sig.expiry || "unknown"})`);
+      continue;
+    }
+
     // 1. GREEK_SNIPER Strategy Pipeline
     if (autoPilotConfig.strategy === "GREEK_SNIPER") {
       if (!isFno) continue;
+      // Strike & Premium Sweet Spot Guard: Prevent Deep ITM Tax Trap (> ₹350) and Illiquid Penny Options (< ₹15)
+      if (sig.contractType === "CE" || sig.contractType === "PE") {
+        if (sig.currentPrice > 350) {
+          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} > ₹350 ceiling (avoids deep ITM tax drag).`);
+          continue;
+        }
+        if (sig.currentPrice < 15) {
+          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} < ₹15 floor (avoids illiquid penny decay).`);
+          continue;
+        }
+      }
       if (sig.greeks) {
-        if (sig.greeks.delta < 0.15 || sig.greeks.delta > 0.75) continue;
+        if (sig.greeks.delta < 0.35 || sig.greeks.delta > 0.65) continue;
         if (sig.greeks.thetaPremiumRatio > 0.25) continue;
       }
     }
@@ -329,19 +413,17 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         quantity: finalQty,
       };
 
-      const isPaper = autoPilotConfig.mode === "PAPER";
+      const targetMode: "PAPER" | "LIVE" = autoPilotConfig.mode === "LIVE" ? "LIVE" : "PAPER";
+      const isPaper = targetMode === "PAPER";
       const result = await placeSmartApiOrder(orderReq, isPaper);
-
-      sig.status = "EXECUTED";
-      autoPilotConfig.executedToday += 1;
 
       // Register active AI position for auto-exit monitoring
       const posId = `pos_${result.orderid || Date.now()}`;
       
-      // Dynamic Target & Stop Loss tailored by Strategy
-      let targetPct = autoPilotConfig.profitTargetPct || 35;
-      let slPct = autoPilotConfig.stopLossPct || 18;
-      let timeoutMins = autoPilotConfig.thetaTimeoutMinutes || 45;
+      // Dynamic Target & Stop Loss tailored by Strategy (Optimal 25-12-25 Rule)
+      let targetPct = autoPilotConfig.profitTargetPct || 25;
+      let slPct = autoPilotConfig.stopLossPct || 12;
+      let timeoutMins = autoPilotConfig.thetaTimeoutMinutes || 25;
 
       if (autoPilotConfig.strategy === "GAMMA_BLAST") {
         targetPct = Math.max(targetPct, 75);
@@ -378,7 +460,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         enteredAt: Date.now(),
         holdingMinutes: 0,
         timeoutMinutes: timeoutMins,
-        mode: autoPilotConfig.mode,
+        mode: targetMode,
         status: "OPEN",
         pnl: 0,
         pnlPercent: 0,
@@ -390,7 +472,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       logTradeEntryToDb(position, sig).catch(console.error);
 
       console.log(
-        `[AI Auto-Pilot Execution] [${autoPilotConfig.mode}] ORDER PLACED: ${sig.action} ${sig.symbol} (${result.orderid}) | Qty: ${finalQty} @ ₹${sig.currentPrice} | Invested: ₹${estimatedCost.toFixed(2)}`
+        `[AI Auto-Pilot Execution] [${targetMode}] ORDER PLACED: ${sig.action} ${sig.symbol} (${result.orderid}) | Qty: ${finalQty} @ ₹${sig.currentPrice} | Invested: ₹${estimatedCost.toFixed(2)}`
       );
 
       broadcastSocketEvent("ai_auto_trade_executed", {
@@ -398,7 +480,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         symbol: sig.symbol,
         order: result,
         position,
-        mode: autoPilotConfig.mode,
+        mode: targetMode,
         strategy: autoPilotConfig.strategy,
         investedCost: estimatedCost,
         timestamp: new Date().toISOString(),
@@ -409,11 +491,13 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         symbol: sig.symbol,
         order: result,
         position,
-        mode: autoPilotConfig.mode,
+        mode: targetMode,
         strategy: autoPilotConfig.strategy,
       });
 
-      console.log(`[AI Auto-Pilot] Successfully executed auto-trade for ${sig.symbol} (${result.orderid})`);
+      sig.status = "EXECUTED";
+      autoPilotConfig.executedToday += 1;
+      console.log(`[AI Auto-Pilot] Successfully executed auto-trade for ${sig.symbol} in [${autoPilotConfig.mode}] mode`);
     } catch (err: any) {
       console.error(`[AI Auto-Pilot] Failed to place order for ${sig.symbol}:`, err?.message || err);
       logAiErrorToDb({
@@ -484,11 +568,11 @@ export const STATIC_STRATEGY_SCHEDULES: Omit<StrategyScheduleRecord, "isActiveNo
     timeWindowLabel: "09:35 AM – 03:15 PM IST",
     daysActive: "ALL",
     marketCondition: "Directional High-Delta Momentum",
-    description: "High Delta (0.35–0.50), top Gamma, and strict 45-minute theta decay protection timeout.",
-    targetProfitPct: 35,
-    stopLossPct: 18,
-    suggestedBudget: 0,
-    sizingLabel: "Dynamic Market Sizing (By Lots)",
+    description: "ATM/Near-OTM Delta (0.35–0.55), ₹90–₹250 premium sweet spot, and strict 25-minute theta timeout.",
+    targetProfitPct: 25,
+    stopLossPct: 12,
+    suggestedBudget: 15000,
+    sizingLabel: "₹15,000 Investment Slab (ATM Sweet Spot)",
   },
   {
     strategy: "PCR_REVERSAL",

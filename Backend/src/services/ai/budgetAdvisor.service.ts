@@ -13,6 +13,7 @@ import {
 } from "../smartapi/greeks.service.js";
 import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
 import { scanMarketUniverse, getActiveSignals } from "./signals.service.js";
+import { isContractExpired } from "../../utils/expiryUtils.js";
 import type {
   BudgetAdvisorParams,
   BudgetAnalysisResult,
@@ -278,6 +279,9 @@ export async function analyzeBudgetAndSuggestTrades(
       pool = segment === "ALL" ? [...eq, ...fno] : segment === "FNO" ? [...fno] : [...eq];
     }
   }
+
+  // Expiry guard: Filter out any expired derivative contracts from candidate pool
+  pool = pool.filter((sig) => !isContractExpired(sig.expiry, sig.symbol));
 
   // 4. Filter for actionable trade setups (BUY or SELL)
   const actionable = pool.filter((s) => s.action === "BUY" || s.action === "SELL");

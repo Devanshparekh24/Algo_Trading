@@ -569,7 +569,7 @@ export const AiSignalsTab: React.FC<AiSignalsTabProps> = ({
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   Mode:{' '}
                   <strong className={autoPilotMode === 'LIVE' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
-                    {autoPilotMode === 'LIVE' ? 'Angel One Broker' : 'Paper Trade'}
+                    {autoPilotMode === 'LIVE' ? 'Angel One Broker (LIVE)' : 'Paper Trade (Virtual)'}
                   </strong>
                 </span>
 

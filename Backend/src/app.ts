@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes/index.js";
+import orderRoutes from "./routes/order.routes.js";
 import { handleWebhook, simulateWebhook } from "./controllers/webhook.controller.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import {
@@ -136,6 +137,11 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 // Root-level Webhook endpoints for external integrations / TradingView / Angel One postbacks
 app.post("/webhook", handleWebhook);
 app.post("/webhook/simulate", simulateWebhook);
+
+// Root-level and Angel One official path compatibility for Order APIs
+app.use("/order", orderRoutes);
+app.use("/orders", orderRoutes);
+app.use("/rest/secure/angelbroking/order/v1", orderRoutes);
 
 // Register API routes
 app.use("/api/v1", router);

@@ -6,8 +6,9 @@ import { getUserProfile, getRMS, logoutSmartAPI } from "../services/smartapi/ind
 /**
  * Get user profile details from Angel One SmartAPI.
  */
-export const getProfile = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
-  const profile = await getUserProfile();
+export const getProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
+  const profile = await getUserProfile(forceRefresh);
   res.status(200).json(
     new ApiResponse(200, profile, "User profile fetched successfully")
   );

@@ -13,6 +13,7 @@ import {
   getOrderHistory,
   getAutoPilotConfig,
   updateAutoPilotConfig,
+  resetAutoPilotKillSwitch,
   getUniverseScrips,
   addCustomUniverseScrip,
   removeCustomUniverseScrip,
@@ -22,6 +23,9 @@ import {
   getActiveAiPositions,
   closeAiPositionManual,
   getAiTradeLogs,
+  clearAiTradeLogs,
+  getAiAnalysisLogs,
+  clearAiAnalysisLogs,
   getAiErrorLogs,
   clearAiErrorLogs,
   getStrategySchedules,
@@ -311,6 +315,27 @@ export function updateAutoPilotController(req: Request, res: Response): void {
 }
 
 /**
+ * POST /api/v1/ai/autopilot/reset-kill-switch
+ * Explicitly reset the daily kill-switch baseline and re-enable session trading
+ */
+export function resetKillSwitchController(_req: Request, res: Response): void {
+  try {
+    const updated = resetAutoPilotKillSwitch();
+    res.json({
+      status: true,
+      message: "AI Auto-Pilot kill-switch has been reset successfully. Session loss baseline is refreshed.",
+      data: updated,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error resetting kill switch:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to reset kill-switch",
+    });
+  }
+}
+
+/**
  * GET /api/v1/ai/universe
  * Retrieve dynamic scanning universe (Equities and/or F&O)
  */
@@ -506,14 +531,16 @@ export async function scanOptionChainController(req: Request, res: Response): Pr
  * GET /api/v1/ai/positions
  * Retrieve all currently active AI sniper and auto-pilot positions with real-time P&L
  */
-export function getActivePositionsController(_req: Request, res: Response): void {
+export function getActivePositionsController(req: Request, res: Response): void {
   try {
-    const positions = getActiveAiPositions();
+    const mode = req.query.mode ? String(req.query.mode) : undefined;
+    const positions = getActiveAiPositions(mode);
     res.json({
       status: true,
       message: "Active AI positions fetched successfully",
       data: positions,
       totalPositions: positions.length,
+      mode: mode || "ALL",
     });
   } catch (error: any) {
     console.error("[AiController] Error fetching active positions:", error);
@@ -553,23 +580,96 @@ export async function closePositionController(req: Request, res: Response): Prom
 
 /**
  * GET /api/v1/ai/trade-logs
- * Retrieve permanent historical database logs of executed AI trades, Greeks & PnL
+ * Retrieve permanent historical database logs of executed AI trades (BUY or SELL orders)
  */
 export async function getAiTradeLogsController(req: Request, res: Response): Promise<void> {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 100;
-    const logs = await getAiTradeLogs(limit);
+    const action = req.query.action ? String(req.query.action) : undefined;
+    const mode = req.query.mode ? String(req.query.mode) : undefined;
+    const logs = await getAiTradeLogs(limit, action, mode);
     res.json({
       status: true,
       message: "AI trade logs retrieved from database",
       data: logs,
       totalLogs: logs.length,
+      mode: mode || "ALL",
     });
   } catch (error: any) {
     console.error("[AiController] Error fetching trade logs:", error);
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to fetch AI trade logs",
+    });
+  }
+}
+
+/**
+ * DELETE /api/v1/ai/trade-logs
+ * Clear historical AI trade logs from database (supports ?mode=PAPER | LIVE | ALL)
+ */
+export async function clearAiTradeLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const rawMode = req.query.mode ? String(req.query.mode).toUpperCase() : "PAPER";
+    const mode = (rawMode === "LIVE" || rawMode === "ALL" || rawMode === "PAPER") ? rawMode : "PAPER";
+    const deletedCount = await clearAiTradeLogs(mode);
+    res.json({
+      status: true,
+      message: `Cleared ${deletedCount} ${mode} trade logs from database`,
+      deletedCount,
+      mode,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error clearing trade logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to clear AI trade logs",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/analysis-logs
+ * Retrieve permanent historical database logs of AI technical analysis & scanner evaluations
+ */
+export async function getAiAnalysisLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const segment = req.query.segment ? String(req.query.segment) : undefined;
+    const action = req.query.action ? String(req.query.action) : undefined;
+    const logs = await getAiAnalysisLogs(limit, segment, action);
+    res.json({
+      status: true,
+      message: "AI analysis logs retrieved from database",
+      data: logs,
+      totalLogs: logs.length,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching analysis logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch AI analysis logs",
+    });
+  }
+}
+
+/**
+ * DELETE /api/v1/ai/analysis-logs
+ * Clear all historical AI analysis logs from database
+ */
+export async function clearAiAnalysisLogsController(req: Request, res: Response): Promise<void> {
+  try {
+    const deletedCount = await clearAiAnalysisLogs();
+    res.json({
+      status: true,
+      message: `Cleared ${deletedCount} analysis logs from database`,
+      deletedCount,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error clearing analysis logs:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to clear AI analysis logs",
     });
   }
 }

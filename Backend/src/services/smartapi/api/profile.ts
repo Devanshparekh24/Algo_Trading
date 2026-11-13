@@ -11,24 +11,32 @@ import type { UserProfile } from "../types.js";
 import { handleApiError } from "./errorHandler.js";
 import { executeSmartApiRequest } from "../rateLimiter.js";
 
-// In-Memory Profile Cache
+// In-Memory Profile Cache (Persisted once fetched; static for the session)
 let cachedProfile: UserProfile | null = null;
 let lastProfileFetchTime = 0;
-const PROFILE_CACHE_TTL_MS = 60000; // 60s cache
+
+/**
+ * Clear profile cache (invoked upon logout)
+ */
+export function clearProfileCache(): void {
+  cachedProfile = null;
+  lastProfileFetchTime = 0;
+  console.log("[SmartAPI] Profile cache cleared.");
+}
 
 /**
  * Fetch the user profile / account details.
  * Requires a valid JWT token.
- * Uses 60s in-memory cache and central rate-limiter queue.
+ * Fetched ONCE and cached indefinitely for the active session.
+ * Supports forceRefresh = true to bypass cache if explicitly demanded.
  */
-export async function getUserProfile(): Promise<UserProfile> {
-  const now = Date.now();
-  if (cachedProfile && now - lastProfileFetchTime < PROFILE_CACHE_TTL_MS) {
+export async function getUserProfile(forceRefresh = false): Promise<UserProfile> {
+  if (!forceRefresh && cachedProfile) {
     return cachedProfile;
   }
 
   return executeSmartApiRequest(async () => {
-    if (cachedProfile && Date.now() - lastProfileFetchTime < PROFILE_CACHE_TTL_MS) {
+    if (!forceRefresh && cachedProfile) {
       return cachedProfile;
     }
 

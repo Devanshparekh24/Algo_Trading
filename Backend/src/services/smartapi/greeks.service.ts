@@ -2,6 +2,8 @@
 // Black-Scholes Greeks Engine & Greek Momentum Sniper Filters
 // ---------------------------------------------------------------------------
 
+import { isContractExpired } from "../../utils/expiryUtils.js";
+
 export interface OptionGreeks {
   delta: number;
   gamma: number;
@@ -368,6 +370,9 @@ export function filterAndRankGreekSniperStrikes(params: {
   const enriched: GreekEnrichedOption[] = [];
 
   for (const item of candidates) {
+    // Expiry Guard: Never analyze or rank expired option contracts
+    if (isContractExpired(item.expiry, item.tradingSymbol)) continue;
+
     // Only analyze options
     if (item.instrumentType !== "CE" && item.instrumentType !== "PE") continue;
     if (!item.strike || item.strike <= 0) continue;
@@ -408,12 +413,12 @@ export function filterAndRankGreekSniperStrikes(params: {
       isCall,
     });
 
-    // Rule 1: Delta between 0.30 and 0.50
+    // Rule 1: Delta between 0.30 and 0.50 (with tolerance 0.25 - 0.55)
     const absDelta = Math.abs(greeks.delta);
-    if (absDelta < 0.28 || absDelta > 0.52) continue;
+    if (absDelta < 0.25 || absDelta > 0.55) continue;
 
-    // Rule 3: Theta / Premium ratio < 0.15
-    if (greeks.thetaPremiumRatio > 0.16) continue;
+    // Rule 3: Theta / Premium ratio < 0.25 (caps daily theta bleed)
+    if (greeks.thetaPremiumRatio > 0.25) continue;
 
     enriched.push({
       ...item,

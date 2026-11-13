@@ -5,6 +5,7 @@ import marketRoutes from "./market.routes.js";
 import scripRoutes from "./scrip.routes.js";
 import webhookRoutes from "./webhook.routes.js";
 import aiTradingRoutes from "./aiTrading.routes.js";
+import orderRoutes from "./order.routes.js";
 
 const router = Router();
 
@@ -16,5 +17,7 @@ router.use("/scrips", scripRoutes);
 router.use("/scrip", scripRoutes);
 router.use("/webhook", webhookRoutes);
 router.use("/ai", aiTradingRoutes);
+router.use("/order", orderRoutes);
+router.use("/orders", orderRoutes);
 
 export default router;

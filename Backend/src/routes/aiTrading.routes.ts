@@ -12,6 +12,7 @@ import {
   getOrderBookController,
   getAutoPilotController,
   updateAutoPilotController,
+  resetKillSwitchController,
   getUniverseController,
   addUniverseScripController,
   removeUniverseScripController,
@@ -21,6 +22,9 @@ import {
   getActivePositionsController,
   closePositionController,
   getAiTradeLogsController,
+  clearAiTradeLogsController,
+  getAiAnalysisLogsController,
+  clearAiAnalysisLogsController,
   getAiErrorLogsController,
   clearAiErrorLogsController,
   getGoldenHoursController,
@@ -64,13 +68,17 @@ router.get("/orders", getOrderBookController);
 // Auto-Pilot Configuration & Controls
 router.get("/autopilot", getAutoPilotController);
 router.post("/autopilot", updateAutoPilotController);
+router.post("/autopilot/reset-kill-switch", resetKillSwitchController);
 
 // Active AI Positions & Auto-Exit Management
 router.get("/positions", getActivePositionsController);
 router.post("/positions/:id/close", closePositionController);
 
-// Database Trade Logs & Error Logs
+// Database Trade Logs, Analysis Logs & Error Logs
 router.get("/trade-logs", getAiTradeLogsController);
+router.delete("/trade-logs", clearAiTradeLogsController);
+router.get("/analysis-logs", getAiAnalysisLogsController);
+router.delete("/analysis-logs", clearAiAnalysisLogsController);
 router.get("/error-logs", getAiErrorLogsController);
 router.delete("/error-logs", clearAiErrorLogsController);
 

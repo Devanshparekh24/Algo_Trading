@@ -8,6 +8,7 @@ import {
   Columns,
   LayoutGrid,
   Radio,
+  AlertTriangle,
 } from 'lucide-react';
 import type { AutoPilotConfig } from '../../services/aiTradingService';
 import type { MarketStatusInfo } from '../../types';
@@ -25,6 +26,7 @@ export interface AiTradingHeaderProps {
   onOpenUniverseModal: () => void;
   onScanMarket: () => void;
   onPauseAutoPilot: () => void;
+  onResetKillSwitch?: () => void;
   marketStatus?: MarketStatusInfo | null;
   layoutMode?: 'STUDIO' | 'TABS';
   onToggleLayoutMode?: (mode: 'STUDIO' | 'TABS') => void;
@@ -44,6 +46,7 @@ export const AiTradingHeader: React.FC<AiTradingHeaderProps> = ({
   onOpenUniverseModal,
   onScanMarket,
   onPauseAutoPilot,
+  onResetKillSwitch,
   marketStatus,
   layoutMode = 'STUDIO',
   onToggleLayoutMode,
@@ -144,7 +147,7 @@ export const AiTradingHeader: React.FC<AiTradingHeaderProps> = ({
 
           {/* Quick Actions & Controls */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Paper / Live Broker Switch */}
+            {/* Paper / Live Mode Switch (Strictly 2 Options) */}
             <div className="flex items-center bg-gray-950 p-1 rounded-xl border border-gray-800">
               <button
                 type="button"
@@ -154,8 +157,9 @@ export const AiTradingHeader: React.FC<AiTradingHeaderProps> = ({
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
                     : 'text-gray-400 hover:text-white'
                 }`}
+                title="Paper Trading simulation (Virtual Risk-Free Capital)"
               >
-                Paper Mode
+                Paper
               </button>
               <button
                 type="button"
@@ -165,10 +169,24 @@ export const AiTradingHeader: React.FC<AiTradingHeaderProps> = ({
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
                     : 'text-gray-400 hover:text-white'
                 }`}
+                title="Live Broker orders on Angel One SmartAPI"
               >
-                Live Broker
+                Live
               </button>
             </div>
+
+            {/* Kill-Switch Warning & 1-Click Reset Pill if Tripped */}
+            {autoPilot.killSwitchTripped && onResetKillSwitch && (
+              <button
+                type="button"
+                onClick={onResetKillSwitch}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/60 shadow-lg animate-pulse transition-all"
+                title="Kill switch was activated due to daily loss limit. Click to reset session and re-arm Auto-Pilot."
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                <span>Kill-Switch Tripped • Click to Reset</span>
+              </button>
+            )}
 
             {/* Auto-Pilot Trigger Button */}
             <button

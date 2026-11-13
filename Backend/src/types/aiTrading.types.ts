@@ -121,6 +121,9 @@ export interface AutoPilotConfig {
   maxDailyLoss?: number | undefined;
   maxOpenPositions?: number | undefined;
   confirmedLiveTrading?: boolean | undefined;
+  sessionResetAt?: number | undefined;
+  killSwitchTripped?: boolean | undefined;
+  killSwitchReason?: string | undefined;
 }
 
 export interface ActiveAiPosition {

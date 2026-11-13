@@ -416,6 +416,16 @@ export const OFFICIAL_NSE_HOLIDAYS: OfficialHolidaySeedItem[] = [
 
   // ── 2026 NSE Trading Holidays (Circular Ref: NSE/CMTR/71842) ──────────────────
   {
+    date: "2026-01-15",
+    holidayName: "Municipal Corporation Election - Maharashtra",
+    description: "Maharashtra Municipal Corporation Election Holiday (State-specific)",
+    year: 2026,
+    dayOfWeek: "Thursday",
+    isWeekendHoliday: false,
+    isMuhuratTrading: false,
+    circularRef: "NSE/CMTR/71842",
+  },
+  {
     date: "2026-01-26",
     holidayName: "Republic Day",
     description: "National Holiday celebrating Republic Day of India",

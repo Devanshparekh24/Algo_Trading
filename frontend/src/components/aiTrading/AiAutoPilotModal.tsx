@@ -42,7 +42,7 @@ const STRATEGIES: Array<{
     name: 'Greek Sniper',
     badge: '⭐ Recommended',
     icon: Zap,
-    desc: 'Δ 0.30–0.50, Top Gamma, Θ/Prem < 0.18, 45m exit',
+    desc: 'ATM Δ 0.35–0.55, ₹90–₹250 sweet spot, 25% target, 25m exit',
   },
   {
     id: 'GAMMA_BLAST',
@@ -101,12 +101,12 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   const [localConfig, setLocalConfig] = useState<AutoPilotConfig>({
     ...config,
     strategy: config.strategy || 'GREEK_SNIPER',
-    profitTargetPct: config.profitTargetPct || 35,
-    stopLossPct: config.stopLossPct || 18,
-    thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
+    profitTargetPct: config.profitTargetPct || 25,
+    stopLossPct: config.stopLossPct || 12,
+    thetaTimeoutMinutes: config.thetaTimeoutMinutes || 25,
     enforceGoldenHours: config.enforceGoldenHours !== false,
-    maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
-    maxDailyLoss: config.maxDailyLoss || 5000,
+    maxBudgetPerTrade: config.maxBudgetPerTrade !== undefined && config.maxBudgetPerTrade > 0 ? config.maxBudgetPerTrade : 15000,
+    maxDailyLoss: config.maxDailyLoss || 3000,
     maxOpenPositions: config.maxOpenPositions || 3,
     confirmedLiveTrading: config.confirmedLiveTrading || false,
   });
@@ -150,16 +150,16 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
     setLocalConfig({
       ...config,
       strategy: config.strategy || 'GREEK_SNIPER',
-      profitTargetPct: config.profitTargetPct || 35,
-      stopLossPct: config.stopLossPct || 18,
-      thetaTimeoutMinutes: config.thetaTimeoutMinutes || 45,
+      profitTargetPct: config.profitTargetPct || 25,
+      stopLossPct: config.stopLossPct || 12,
+      thetaTimeoutMinutes: config.thetaTimeoutMinutes || 25,
       enforceGoldenHours: config.enforceGoldenHours !== false,
-      maxBudgetPerTrade: config.maxBudgetPerTrade || 0,
-      maxDailyLoss: config.maxDailyLoss || 5000,
+      maxBudgetPerTrade: config.maxBudgetPerTrade !== undefined && config.maxBudgetPerTrade > 0 ? config.maxBudgetPerTrade : 15000,
+      maxDailyLoss: config.maxDailyLoss || 3000,
       maxOpenPositions: config.maxOpenPositions || 3,
       confirmedLiveTrading: config.confirmedLiveTrading || false,
     });
-    setPricingMode(config.maxBudgetPerTrade && config.maxBudgetPerTrade > 0 ? 'BUDGET_CAP' : 'DYNAMIC');
+    setPricingMode(config.maxBudgetPerTrade && config.maxBudgetPerTrade > 0 ? 'BUDGET_CAP' : 'BUDGET_CAP');
   }, [config]);
 
   if (!isOpen) return null;
@@ -231,6 +231,28 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             </button>
           </div>
 
+          {/* Kill-Switch Tripped Warning & Reset */}
+          {localConfig.killSwitchTripped && (
+            <div className="flex items-center justify-between p-3.5 rounded-xl border border-rose-300 dark:border-rose-500/50 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200">
+              <div className="flex items-start space-x-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-bold text-xs">Kill-Switch Tripped</div>
+                  <div className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                    {localConfig.killSwitchReason || "Auto-pilot was halted because daily loss exceeded threshold."}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocalConfig((p) => ({ ...p, killSwitchTripped: false, killSwitchReason: undefined, enabled: true }))}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shrink-0 shadow-sm transition-all"
+              >
+                Reset &amp; Arm
+              </button>
+            </div>
+          )}
+
           {/* Strategy Selection */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
@@ -277,11 +299,11 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             <label className="block mb-1 font-semibold text-gray-700 dark:text-gray-300">Execution Mode:</label>
             <select
               value={localConfig.mode}
-              onChange={(e) => setLocalConfig((p) => ({ ...p, mode: e.target.value as any }))}
+              onChange={(e) => setLocalConfig((p) => ({ ...p, mode: e.target.value as 'PAPER' | 'LIVE' }))}
               className="bg-gray-50 dark:bg-gray-950 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-medium text-gray-900 dark:text-white"
             >
-              <option value="PAPER">🟢 Paper Simulation (Safe Virtual Capital - Recommended)</option>
-              <option value="LIVE">🔴 Live SmartAPI Broker (Real Capital via Angel Broking)</option>
+              <option value="PAPER">🟢 Paper Trading (Safe Virtual Capital - Recommended)</option>
+              <option value="LIVE">🔴 Live Trading (Real Capital via Angel One SmartAPI)</option>
             </select>
 
             {localConfig.mode === 'LIVE' && (

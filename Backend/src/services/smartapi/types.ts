@@ -87,21 +87,55 @@ export interface OrderPlacementRequest {
   tradingsymbol: string;
   symboltoken: string;
   transactiontype: "BUY" | "SELL";
-  exchange: "NSE" | "BSE" | "NFO" | "MCX" | string;
+  exchange: "NSE" | "BSE" | "NFO" | "MCX" | "BFO" | string;
   ordertype: "MARKET" | "LIMIT" | "STOPLOSS_LIMIT" | "STOPLOSS_MARKET" | string;
   producttype: "DELIVERY" | "INTRADAY" | "MARGIN" | "CARRYFORWARD" | "BO" | string;
   duration: "DAY" | "IOC" | string;
   price: string | number;
+  triggerprice?: string | number | undefined;
   squareoff?: string | number | undefined;
   stoploss?: string | number | undefined;
+  trailingStopLoss?: string | number | undefined;
   quantity: string | number;
-  triggerprice?: string | number | undefined;
+  disclosedquantity?: string | number | undefined;
+  ordertag?: string | undefined;
+  scripconsent?: "yes" | "no" | string | undefined;
 }
 
 export interface OrderPlacementResponse {
   script: string;
   orderid: string;
-  uniqueorderid?: string;
+  uniqueorderid: string;
+}
+
+export interface OrderModifyRequest {
+  variety: "NORMAL" | "STOPLOSS" | "ROBO" | string;
+  orderid: string;
+  ordertype: "MARKET" | "LIMIT" | "STOPLOSS_LIMIT" | "STOPLOSS_MARKET" | string;
+  producttype: "DELIVERY" | "INTRADAY" | "MARGIN" | "CARRYFORWARD" | "BO" | string;
+  duration: "DAY" | "IOC" | string;
+  price: string | number;
+  quantity: string | number;
+  tradingsymbol: string;
+  symboltoken: string;
+  exchange: "NSE" | "BSE" | "NFO" | "MCX" | "BFO" | string;
+  triggerprice?: string | number | undefined;
+  disclosedquantity?: string | number | undefined;
+}
+
+export interface OrderModifyResponse {
+  orderid: string;
+  uniqueorderid: string;
+}
+
+export interface OrderCancelRequest {
+  variety: "NORMAL" | "STOPLOSS" | "ROBO" | string;
+  orderid: string;
+}
+
+export interface OrderCancelResponse {
+  orderid: string;
+  uniqueorderid: string;
 }
 
 export interface OrderBookItem {
@@ -140,6 +174,68 @@ export interface OrderBookItem {
   filltime?: string | undefined;
   parentorderid?: string | undefined;
   uniqueorderid?: string | undefined;
+  ordertag?: string | undefined;
+}
+
+export interface TradeBookItem {
+  exchange: string;
+  producttype: string;
+  tradingsymbol: string;
+  instrumenttype?: string | undefined;
+  symbolgroup?: string | undefined;
+  strikeprice?: string | number | undefined;
+  optiontype?: string | undefined;
+  expirydate?: string | undefined;
+  marketlot?: string | number | undefined;
+  precision?: string | number | undefined;
+  multiplier?: string | number | undefined;
+  tradevalue?: string | number | undefined;
+  transactiontype: "BUY" | "SELL";
+  fillprice: string | number;
+  fillsize: string | number;
+  orderid: string;
+  fillid?: string | undefined;
+  filltime?: string | undefined;
+  uniqueorderid?: string | undefined;
+}
+
+export interface IndividualOrderDetails {
+  variety: string;
+  ordertype: string;
+  producttype: string;
+  duration: string;
+  price: number | string;
+  triggerprice: number | string;
+  quantity: string | number;
+  disclosedquantity?: string | number | undefined;
+  squareoff?: number | string | undefined;
+  stoploss?: number | string | undefined;
+  trailingstoploss?: number | string | undefined;
+  tradingsymbol: string;
+  transactiontype: "BUY" | "SELL";
+  exchange: string;
+  symboltoken: string;
+  instrumenttype?: string | undefined;
+  strikeprice?: number | string | undefined;
+  optiontype?: string | undefined;
+  expirydate?: string | undefined;
+  lotsize?: string | number | undefined;
+  cancelsize?: string | number | undefined;
+  averageprice?: number | string | undefined;
+  filledshares?: string | number | undefined;
+  unfilledshares?: string | number | undefined;
+  orderid: string;
+  text?: string | undefined;
+  status: string;
+  orderstatus: string;
+  updatetime?: string | undefined;
+  exchtime?: string | undefined;
+  exchorderupdatetime?: string | undefined;
+  fillid?: string | undefined;
+  filltime?: string | undefined;
+  parentorderid?: string | undefined;
+  ordertag?: string | undefined;
+  uniqueorderid: string;
 }
 
 export interface TokenStore {

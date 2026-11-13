@@ -26,7 +26,13 @@ export type {
   UnFetched,
   OrderPlacementRequest,
   OrderPlacementResponse,
+  OrderModifyRequest,
+  OrderModifyResponse,
+  OrderCancelRequest,
+  OrderCancelResponse,
   OrderBookItem,
+  TradeBookItem,
+  IndividualOrderDetails,
   HoldingsPayload,
 } from "./types.js";
 
@@ -36,6 +42,7 @@ export {
   refreshSmartAPISession,
   logoutSmartAPI,
   getUserProfile,
+  clearProfileCache,
   getRMS,
   getPositions,
   getKnownPositions,
@@ -49,8 +56,11 @@ export {
   getFullModeData,
   getGainersLosersData,
   placeSmartApiOrder,
-  getSmartApiOrderBook,
+  modifySmartApiOrder,
   cancelSmartApiOrder,
+  getSmartApiOrderBook,
+  getSmartApiTradeBook,
+  getIndividualOrderDetails,
 } from "./api/index.js";
 
 

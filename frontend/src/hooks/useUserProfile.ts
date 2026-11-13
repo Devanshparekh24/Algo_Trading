@@ -3,13 +3,23 @@ import { getUserProfile, getRMSLimit } from '../services/authService';
 import { queryKeys } from '../constants/queryKeys';
 
 /**
- * Hook to fetch Angel One connected client profile
+ * Hook to fetch Angel One connected client profile.
+ * Configured for ONE-TIME ONLY fetch per session:
+ * - staleTime: Infinity (never expires during the session)
+ * - gcTime: Infinity (never removed from query cache)
+ * - refetchOnMount: false (never refetches on route changes or component mounting)
+ * - refetchOnWindowFocus: false (never refetches on tab focus)
+ * - refetchOnReconnect: false (never refetches on network reconnection)
  */
 export const useUserProfile = () => {
   return useQuery({
     queryKey: queryKeys.user.profile(),
     queryFn: getUserProfile,
-    staleTime: 1000 * 60 * 5, // Profile is stable for 5 minutes
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 };
 

@@ -207,6 +207,7 @@ export async function getFullModeData(
           },
         };
       } catch (error: any) {
+        // ── Re-throw errors that the rate limiter needs to handle ────────────
         if (error?.isRateLimitStatus) {
           throw error;
         }
@@ -216,11 +217,54 @@ export async function getFullModeData(
         ) {
           throw error;
         }
-        handleApiError(error, "Full Mode quote fetch");
+
+        // ── Classify the error ───────────────────────────────────────────────
+        const errMsg: string = error?.message || String(error) || "";
+        const errCode: string =
+          error?.errorCode ||
+          error?.response?.data?.errorcode ||
+          (typeof errMsg === "string" ? (errMsg.match(/\[([A-Z]{2}\d{4})\]/i)?.[1] ?? "") : "") ||
+          "";
+
+        // AB2000 "stream has been aborted" / "Error not specified"  →  transient
+        // network blip from Angel One.  Treat as a soft skip so the WebSocket
+        // tick loop is NOT crashed.
+        const isStreamAbort =
+          errCode === "AB2000" ||
+          errMsg.toLowerCase().includes("stream has been aborted") ||
+          errMsg.toLowerCase().includes("stream aborted") ||
+          errMsg.toLowerCase().includes("econnreset") ||
+          errMsg.toLowerCase().includes("econnaborted") ||
+          errMsg.toLowerCase().includes("socket hang up") ||
+          errMsg.toLowerCase().includes("network error") ||
+          error?.code === "ECONNRESET" ||
+          error?.code === "ECONNABORTED" ||
+          error?.code === "ERR_CANCELED";
+
+        if (isStreamAbort) {
+          // Log at debug level only – this is very common during market hours
+          console.debug(
+            `[FullMode] Transient stream abort (${errCode || error?.code || "unknown"}): ${errMsg.substring(0, 120)} – returning cached/empty quotes`
+          );
+          return {
+            status: false,
+            message: errMsg,
+            errorcode: errCode || "AB2000",
+            data: { fetched: [], unfetched: [] },
+          };
+        }
+
+        // All other unexpected errors: log to DB but do NOT throw so the caller
+        // (WebSocket tick loop) stays alive.
+        try {
+          handleApiError(error, "Full Mode quote fetch");
+        } catch {
+          // handleApiError re-throws; swallow here to keep the stream alive
+        }
         return {
           status: false,
-          message: error?.message || "Quote fetch error",
-          errorcode: "",
+          message: errMsg || "Quote fetch error",
+          errorcode: errCode || "",
           data: { fetched: [], unfetched: [] },
         };
       }
