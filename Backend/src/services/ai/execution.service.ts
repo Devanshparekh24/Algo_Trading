@@ -23,10 +23,10 @@ import type { OrderPlacementRequest, OrderBookItem } from "../smartapi/types.js"
 export const activeAiPositions: Map<string, ActiveAiPosition> = new Map();
 
 // Pluggable signal resolver to avoid circular dependency with signals.service
-let signalResolver: ((id: string) => TradeSignal | undefined) | null = null;
+let signalResolver: ((id: string) => Promise<TradeSignal | undefined> | TradeSignal | undefined) | null = null;
 let quoteResolver: ((token: string, symbol: string) => { ltp?: number } | undefined) | null = null;
 
-export function setSignalResolver(fn: (id: string) => TradeSignal | undefined): void {
+export function setSignalResolver(fn: (id: string) => Promise<TradeSignal | undefined> | TradeSignal | undefined): void {
   signalResolver = fn;
 }
 
@@ -139,7 +139,7 @@ export async function executeSignalOrder(
   try {
     let signal = options.signal;
     if (!signal && signalResolver) {
-      signal = signalResolver(signalId);
+      signal = await signalResolver(signalId);
     }
 
     if (!signal) {
@@ -457,11 +457,28 @@ export async function logAiErrorToDb(params: {
         details: params.details || null,
       },
     });
-    console.log(`[Error Logged to DB] [${params.source}] ${params.message}`);
-    broadcastSocketEvent("ai_error_logged", {
-      ...params,
-      createdAt: new Date().toISOString(),
-    });
+    const isAuditEvent =
+      params.source === "AUTOPILOT_STATUS" ||
+      params.source === "SCANNER" ||
+      params.action === "ORDER_EXECUTED" ||
+      params.action === "SLAB_CONFIG_UPDATED" ||
+      params.action === "SLAB_EXCEEDED" ||
+      params.action === "AUTOPILOT_ENABLED" ||
+      params.action === "AUTOPILOT_DISABLED";
+
+    if (isAuditEvent) {
+      console.log(`[Audit Event Logged to DB] [${params.source}] ${params.message}`);
+      broadcastSocketEvent("ai_audit_event_logged", {
+        ...params,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      console.log(`[Error Logged to DB] [${params.source}] ${params.message}`);
+      broadcastSocketEvent("ai_error_logged", {
+        ...params,
+        createdAt: new Date().toISOString(),
+      });
+    }
   } catch (err: any) {
     console.error(`[Database] Failed to write AiErrorLog:`, err?.message || err);
   }

@@ -52,9 +52,31 @@ export async function getHistoricalData(
       return;
     }
     const data = await getCandleData({ exchange, symboltoken, interval, fromdate, todate });
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
+    res.json({ success: true, data: data || [] });
+  } catch (err: any) {
+    const isRateLimit =
+      err?.isRateLimitStatus ||
+      err?.httpStatus === 429 ||
+      err?.httpStatus === 403 ||
+      err?.response?.status === 403 ||
+      err?.response?.status === 429 ||
+      err?.message?.includes("exceeding access rate") ||
+      err?.message?.includes("Rate limit");
+
+    console.warn(
+      `[Market Controller] Historical candle data notice for token ${req.body?.symbolToken || req.body?.symboltoken}:`,
+      err?.message || err
+    );
+
+    // Return graceful 200 payload with empty array to prevent client chart crashes and 500 console logs
+    res.json({
+      success: false,
+      data: [],
+      message: isRateLimit
+        ? "Historical candle data rate limit hit with broker. Please wait a moment."
+        : err?.message || "Historical candle data currently unavailable from broker.",
+      isRateLimited: !!isRateLimit,
+    });
   }
 }
 

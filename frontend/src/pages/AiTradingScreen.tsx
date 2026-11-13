@@ -150,6 +150,7 @@ export const AiTradingScreen: React.FC = () => {
     productType: 'INTRADAY',
     executedToday: 0,
   });
+  const [hudSlab, setHudSlab] = useState<number>(5000);
   const [isAutoPilotModalOpen, setIsAutoPilotModalOpen] = useState(false);
 
   // Live Strategy Schedule & IST Timetable State
@@ -185,7 +186,7 @@ export const AiTradingScreen: React.FC = () => {
   const [execMode, setExecMode] = useState<'PAPER' | 'LIVE'>('PAPER');
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionToast, setExecutionToast] = useState<{
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
 
@@ -585,11 +586,39 @@ export const AiTradingScreen: React.FC = () => {
     };
 
     const handleAiAutoTradeExecuted = (payload: any) => {
+      const sym = payload.symbol || payload.position?.symbol || payload.signal?.symbol || 'Scrip';
+      const act = payload.position?.action || payload.signal?.action || 'TRADE';
+      const cost = payload.investedCost ? ` • Cost: ₹${Number(payload.investedCost).toLocaleString('en-IN')}` : '';
       setExecutionToast({
         type: 'success',
-        message: `Auto-Pilot executed ${payload.signal?.action} order for ${payload.signal?.symbol} (${payload.mode} Mode)`,
+        message: `[${payload.mode || 'PAPER'}] Executed ${act} ${sym}${cost} (${payload.strategy || 'AUTO'})`,
       });
       loadOrders();
+    };
+
+    const handleAutoPilotStatusChanged = (payload: any) => {
+      setAutoPilot((prev) => ({
+        ...prev,
+        enabled: payload.enabled,
+        mode: payload.mode,
+        strategy: payload.strategy,
+        maxBudgetPerTrade: payload.maxBudgetPerTrade,
+      }));
+      setExecutionToast({
+        type: payload.enabled ? 'success' : 'info',
+        message: `Auto-Pilot: ${payload.enabled ? 'ARMED (ON)' : 'PAUSED (OFF)'} [${payload.mode} Mode] • ${payload.strategy} • ${payload.slabInfo}`,
+      });
+      loadOrders();
+    };
+
+    const handleScannerActivity = (payload: any) => {
+      if (payload.topActionable && payload.topActionable.length > 0) {
+        const topSymbols = payload.topActionable.slice(0, 3).map((s: any) => `${s.symbol} (${s.action})`).join(', ');
+        setExecutionToast({
+          type: 'info',
+          message: `[${payload.mode}] Scanner evaluated ${payload.totalScanned} ${payload.segment} instruments. Top: ${topSymbols}`,
+        });
+      }
     };
 
     const handleAiAutoExitExecuted = (payload: any) => {
@@ -608,6 +637,8 @@ export const AiTradingScreen: React.FC = () => {
     socket.on('disconnect', handleDisconnect);
     socket.on('ai_signals_update', handleAiSignalsUpdate);
     socket.on('ai_auto_trade_executed', handleAiAutoTradeExecuted);
+    socket.on('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
+    socket.on('ai_scanner_activity', handleScannerActivity);
     socket.on('ai_auto_exit_executed', handleAiAutoExitExecuted);
     socket.on('ai_signal_executed', handleSignalExecuted);
     socket.on('ai_price_tick', handlePriceTick);
@@ -624,6 +655,8 @@ export const AiTradingScreen: React.FC = () => {
       socket.off('disconnect', handleDisconnect);
       socket.off('ai_signals_update', handleAiSignalsUpdate);
       socket.off('ai_auto_trade_executed', handleAiAutoTradeExecuted);
+      socket.off('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
+      socket.off('ai_scanner_activity', handleScannerActivity);
       socket.off('ai_auto_exit_executed', handleAiAutoExitExecuted);
       socket.off('ai_signal_executed', handleSignalExecuted);
       socket.off('ai_price_tick', handlePriceTick);
@@ -726,6 +759,7 @@ export const AiTradingScreen: React.FC = () => {
         orderType: execOrderType,
         limitPrice: execOrderType === 'LIMIT' ? execLimitPrice : undefined,
         mode: execMode,
+        signal: executingSignal,
       });
 
       setExecutionToast({
@@ -863,7 +897,7 @@ export const AiTradingScreen: React.FC = () => {
     slPct?: number
   ) => {
     // 0 = Dynamic sizing (by lot size at market price, no fixed price restriction)
-    const tradeBudget = typeof budget === 'number' ? budget : 0;
+    const tradeBudget = typeof budget === 'number' ? budget : (hudSlab !== undefined ? hudSlab : (autoPilot.maxBudgetPerTrade || 0));
     const target = targetPct || 35;
     const sl = slPct || 18;
 
@@ -923,11 +957,15 @@ export const AiTradingScreen: React.FC = () => {
           className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 rounded-xl shadow-2xl border text-sm transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${
             executionToast.type === 'success'
               ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50 backdrop-blur-md'
+              : executionToast.type === 'info'
+              ? 'bg-blue-950/90 text-blue-200 border-blue-500/50 backdrop-blur-md'
               : 'bg-rose-950/90 text-rose-200 border-rose-500/50 backdrop-blur-md'
           }`}
         >
           {executionToast.type === 'success' ? (
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          ) : executionToast.type === 'info' ? (
+            <Zap className="w-5 h-5 text-blue-400 shrink-0" />
           ) : (
             <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
           )}
@@ -1017,7 +1055,7 @@ export const AiTradingScreen: React.FC = () => {
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
                   <span className="text-gray-400">Trade Sizing:</span>
                   <span className="font-mono font-bold text-emerald-400">
-                    {strategySuggestion.sizingLabel || 'Dynamic (By Lots) • No Fixed Cap'}
+                    {hudSlab > 0 ? `₹${hudSlab.toLocaleString('en-IN')} Slab` : 'Dynamic Lots (No Cap)'}
                   </span>
                 </div>
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
@@ -1033,6 +1071,47 @@ export const AiTradingScreen: React.FC = () => {
                   </span>
                 </div>
               </div>
+
+              {/* Quick Investment Slab Selector Pills & Manual Input */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-1.5">
+                <span className="text-[11px] text-gray-400 font-semibold mr-1">Investment Slab:</span>
+                {[
+                  { label: 'Dynamic Lots', val: 0 },
+                  { label: '₹5,000', val: 5000 },
+                  { label: '₹10,000', val: 10000 },
+                  { label: '₹25,000', val: 25000 },
+                ].map((s) => (
+                  <button
+                    key={s.val}
+                    type="button"
+                    onClick={() => setHudSlab(s.val)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all border ${
+                      hudSlab === s.val
+                        ? 'bg-amber-500 text-gray-950 border-amber-400 shadow-sm'
+                        : 'bg-gray-900/90 text-gray-300 border-gray-700 hover:border-amber-400'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+
+                <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-0.5">
+                  <span className="text-gray-400 text-[11px] font-mono mr-1">₹</span>
+                  <input
+                    type="number"
+                    min="500"
+                    step="500"
+                    value={hudSlab || ''}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setHudSlab(isNaN(v) ? 0 : Math.max(0, v));
+                    }}
+                    placeholder="Custom Slab"
+                    className="w-20 bg-transparent text-[11px] font-mono text-white focus:outline-none"
+                    title="Type any manual investment amount"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Strategy Action Buttons */}
@@ -1042,7 +1121,7 @@ export const AiTradingScreen: React.FC = () => {
                 onClick={() =>
                   handleArmStrategy(
                     strategySuggestion.recommendedStrategy,
-                    0,
+                    hudSlab,
                     strategySuggestion.targetProfitPct,
                     strategySuggestion.stopLossPct
                   )
@@ -1050,7 +1129,7 @@ export const AiTradingScreen: React.FC = () => {
                 className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/25 flex items-center space-x-1.5 transition-all transform active:scale-95"
               >
                 <Zap className="w-4 h-4 fill-current" />
-                <span>Arm Strategy (Dynamic Lots)</span>
+                <span>Arm Strategy ({hudSlab > 0 ? `₹${hudSlab.toLocaleString('en-IN')} Slab` : 'Dynamic Lots'})</span>
               </button>
 
               <button

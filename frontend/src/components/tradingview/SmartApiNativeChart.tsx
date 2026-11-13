@@ -165,12 +165,18 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram', Time> | null>(null);
   const ema9SeriesRef = useRef<ISeriesApi<'Line', Time> | null>(null);
   const ema21SeriesRef = useRef<ISeriesApi<'Line', Time> | null>(null);
+  const isDisposedRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [showIndicators, setShowIndicators] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [hoveredCandle, setHoveredCandle] = useState<HoveredCandle | null>(null);
   const [activeInterval, setActiveInterval] = useState(interval);
+
+  const livePriceRef = useRef(livePrice);
+  useEffect(() => {
+    livePriceRef.current = livePrice;
+  }, [livePrice]);
 
   const lastCandleRef = useRef<{
     time: UTCTimestamp;
@@ -200,6 +206,7 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    isDisposedRef.current = false;
     containerRef.current.innerHTML = '';
 
     const chart = createChart(containerRef.current, {
@@ -285,61 +292,82 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
 
     // Crosshair move handler
     chart.subscribeCrosshairMove((param) => {
-      if (!param || !param.time || !param.seriesData) {
+      if (isDisposedRef.current || !param || !param.time || !param.seriesData) {
         setHoveredCandle(null);
         return;
       }
 
-      const cData = param.seriesData.get(candleSeries) as
-        | { open: number; high: number; low: number; close: number }
-        | undefined;
-      const vData = param.seriesData.get(volumeSeries) as { value: number } | undefined;
+      try {
+        const cData = param.seriesData.get(candleSeries) as
+          | { open: number; high: number; low: number; close: number }
+          | undefined;
+        const vData = param.seriesData.get(volumeSeries) as { value: number } | undefined;
 
-      if (cData) {
-        const timeSec = typeof param.time === 'number' ? param.time : 0;
-        const dateObj = new Date(timeSec * 1000);
-        const timeStr = `${dateObj.toLocaleDateString('en-IN', {
-          month: 'short',
-          day: 'numeric',
-        })} ${dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-        const changePercent = cData.open > 0 ? ((cData.close - cData.open) / cData.open) * 100 : 0;
+        if (cData) {
+          const timeSec = typeof param.time === 'number' ? param.time : 0;
+          const dateObj = new Date(timeSec * 1000);
+          const timeStr = `${dateObj.toLocaleDateString('en-IN', {
+            month: 'short',
+            day: 'numeric',
+          })} ${dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+          const changePercent = cData.open > 0 ? ((cData.close - cData.open) / cData.open) * 100 : 0;
 
-        setHoveredCandle({
-          timeStr,
-          open: cData.open,
-          high: cData.high,
-          low: cData.low,
-          close: cData.close,
-          volume: vData?.value || 0,
-          changePercent: Number(changePercent.toFixed(2)),
-        });
+          setHoveredCandle({
+            timeStr,
+            open: cData.open,
+            high: cData.high,
+            low: cData.low,
+            close: cData.close,
+            volume: vData?.value || 0,
+            changePercent: Number(changePercent.toFixed(2)),
+          });
+        }
+      } catch {
+        // ignore crosshair errors on disposed chart
       }
     });
 
     const handleResize = () => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
+      if (!isDisposedRef.current && containerRef.current && chartRef.current) {
+        try {
+          chartRef.current.applyOptions({
+            width: containerRef.current.clientWidth,
+            height: containerRef.current.clientHeight,
+          });
+        } catch {
+          // ignore
+        }
       }
     };
 
     window.addEventListener('resize', handleResize);
 
     return () => {
+      isDisposedRef.current = true;
       window.removeEventListener('resize', handleResize);
       if (chartRef.current) {
-        chartRef.current.remove();
+        try {
+          chartRef.current.remove();
+        } catch {
+          // ignore
+        }
         chartRef.current = null;
       }
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+      ema9SeriesRef.current = null;
+      ema21SeriesRef.current = null;
+      lastCandleRef.current = null;
     };
   }, []);
 
   // Fetch and populate candle data
   const loadCandles = useCallback(async () => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
+    if (isDisposedRef.current || !chartRef.current || !candleSeriesRef.current || !volumeSeriesRef.current) return;
     setIsLoading(true);
+
+    const activeToken = resolvedToken;
+    const activeTf = activeInterval;
 
     const apiInterval = INTERVAL_API_MAP[activeInterval] || 'FIFTEEN_MINUTE';
     const now = new Date();
@@ -367,6 +395,18 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
         });
       } catch {
         rawCandles = [];
+      }
+
+      // Check if chart was disposed or symbol/timeframe changed while request was in-flight
+      if (
+        isDisposedRef.current ||
+        !chartRef.current ||
+        !candleSeriesRef.current ||
+        !volumeSeriesRef.current ||
+        resolvedToken !== activeToken ||
+        activeInterval !== activeTf
+      ) {
+        return;
       }
 
       let formattedCandles: Array<{
@@ -397,7 +437,8 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
         formattedCandles.sort((a, b) => a.time - b.time);
       } else {
         // Fallback realistic synthetic candles if offline or market closed
-        const base = livePrice && livePrice > 0 ? livePrice : 1570;
+        const currentLive = livePriceRef.current;
+        const base = currentLive && currentLive > 0 ? currentLive : 1570;
         const minutes =
           activeInterval === '1'
             ? 1
@@ -413,63 +454,70 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
         formattedCandles = generateSyntheticCandles(base, 60, minutes);
       }
 
-      if (formattedCandles.length > 0) {
+      if (formattedCandles.length > 0 && !isDisposedRef.current && candleSeriesRef.current && volumeSeriesRef.current) {
         lastCandleRef.current = formattedCandles[formattedCandles.length - 1];
 
-        candleSeriesRef.current.setData(
-          formattedCandles.map((c) => ({
-            time: c.time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-          }))
-        );
+        try {
+          candleSeriesRef.current.setData(
+            formattedCandles.map((c) => ({
+              time: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+            }))
+          );
 
-        volumeSeriesRef.current.setData(
-          formattedCandles.map((c) => ({
-            time: c.time,
-            value: c.volume,
-            color:
-              c.close >= c.open
-                ? 'rgba(16, 185, 129, 0.45)'
-                : 'rgba(239, 68, 68, 0.45)',
-          }))
-        );
+          volumeSeriesRef.current.setData(
+            formattedCandles.map((c) => ({
+              time: c.time,
+              value: c.volume,
+              color:
+                c.close >= c.open
+                  ? 'rgba(16, 185, 129, 0.45)'
+                  : 'rgba(239, 68, 68, 0.45)',
+            }))
+          );
 
-        // Calculate and set EMAs
-        const closes = formattedCandles.map((c) => c.close);
-        const ema9Values = calculateEMA(closes, 9);
-        const ema21Values = calculateEMA(closes, 21);
+          // Calculate and set EMAs
+          const closes = formattedCandles.map((c) => c.close);
+          const ema9Values = calculateEMA(closes, 9);
+          const ema21Values = calculateEMA(closes, 21);
 
-        if (ema9SeriesRef.current) {
-          const ema9Data: Array<{ time: UTCTimestamp; value: number }> = [];
-          formattedCandles.forEach((c, idx) => {
-            const v = ema9Values[idx];
-            if (v !== null) ema9Data.push({ time: c.time, value: v });
-          });
-          ema9SeriesRef.current.setData(ema9Data);
-        }
+          if (!isDisposedRef.current && ema9SeriesRef.current) {
+            const ema9Data: Array<{ time: UTCTimestamp; value: number }> = [];
+            formattedCandles.forEach((c, idx) => {
+              const v = ema9Values[idx];
+              if (v !== null) ema9Data.push({ time: c.time, value: v });
+            });
+            ema9SeriesRef.current.setData(ema9Data);
+          }
 
-        if (ema21SeriesRef.current) {
-          const ema21Data: Array<{ time: UTCTimestamp; value: number }> = [];
-          formattedCandles.forEach((c, idx) => {
-            const v = ema21Values[idx];
-            if (v !== null) ema21Data.push({ time: c.time, value: v });
-          });
-          ema21SeriesRef.current.setData(ema21Data);
-        }
+          if (!isDisposedRef.current && ema21SeriesRef.current) {
+            const ema21Data: Array<{ time: UTCTimestamp; value: number }> = [];
+            formattedCandles.forEach((c, idx) => {
+              const v = ema21Values[idx];
+              if (v !== null) ema21Data.push({ time: c.time, value: v });
+            });
+            ema21SeriesRef.current.setData(ema21Data);
+          }
 
-        if (chartRef.current) {
-          chartRef.current.timeScale().fitContent();
+          if (!isDisposedRef.current && chartRef.current) {
+            chartRef.current.timeScale().fitContent();
+          }
+        } catch (seriesErr: any) {
+          if (seriesErr?.message?.includes('disposed')) return;
+          console.warn('[SmartApiNativeChart] Series setData error:', seriesErr);
         }
       }
     } catch (err) {
       console.warn('[SmartApiNativeChart] Error loading candle data:', err);
     } finally {
-      setIsLoading(false);
+      if (!isDisposedRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [activeInterval, exchange, resolvedToken, livePrice]);
+  }, [activeInterval, exchange, resolvedToken]);
 
   useEffect(() => {
     loadCandles();
@@ -478,6 +526,8 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
   // Real-time tick update
   useEffect(() => {
     if (
+      isDisposedRef.current ||
+      !chartRef.current ||
       !candleSeriesRef.current ||
       typeof livePrice !== 'number' ||
       livePrice <= 0 ||
@@ -485,37 +535,52 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
     )
       return;
 
-    const last = lastCandleRef.current;
-    const updated = {
-      ...last,
-      high: Math.max(last.high, livePrice),
-      low: Math.min(last.low, livePrice),
-      close: livePrice,
-    };
+    try {
+      const last = lastCandleRef.current;
+      const updated = {
+        ...last,
+        high: Math.max(last.high, livePrice),
+        low: Math.min(last.low, livePrice),
+        close: livePrice,
+      };
 
-    lastCandleRef.current = updated;
-    candleSeriesRef.current.update({
-      time: updated.time,
-      open: updated.open,
-      high: updated.high,
-      low: updated.low,
-      close: updated.close,
-    });
+      lastCandleRef.current = updated;
+      candleSeriesRef.current.update({
+        time: updated.time,
+        open: updated.open,
+        high: updated.high,
+        low: updated.low,
+        close: updated.close,
+      });
+    } catch (err: any) {
+      if (err?.message?.includes('disposed')) return;
+      console.warn('[SmartApiNativeChart] Real-time tick update error:', err);
+    }
   }, [livePrice]);
 
   // Indicator visibility toggles
   useEffect(() => {
-    if (ema9SeriesRef.current) {
-      ema9SeriesRef.current.applyOptions({ visible: showIndicators });
-    }
-    if (ema21SeriesRef.current) {
-      ema21SeriesRef.current.applyOptions({ visible: showIndicators });
+    if (isDisposedRef.current || !chartRef.current) return;
+    try {
+      if (ema9SeriesRef.current) {
+        ema9SeriesRef.current.applyOptions({ visible: showIndicators });
+      }
+      if (ema21SeriesRef.current) {
+        ema21SeriesRef.current.applyOptions({ visible: showIndicators });
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('disposed')) return;
     }
   }, [showIndicators]);
 
   useEffect(() => {
-    if (volumeSeriesRef.current) {
-      volumeSeriesRef.current.applyOptions({ visible: showVolume });
+    if (isDisposedRef.current || !chartRef.current) return;
+    try {
+      if (volumeSeriesRef.current) {
+        volumeSeriesRef.current.applyOptions({ visible: showVolume });
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('disposed')) return;
     }
   }, [showVolume]);
 
@@ -525,8 +590,12 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
   };
 
   const resetZoom = () => {
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
+    if (!isDisposedRef.current && chartRef.current) {
+      try {
+        chartRef.current.timeScale().fitContent();
+      } catch {
+        // ignore
+      }
     }
   };
 

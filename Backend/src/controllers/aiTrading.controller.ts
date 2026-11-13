@@ -149,7 +149,17 @@ export async function analyzeScripController(req: Request, res: Response): Promi
  */
 export async function executeSignalController(req: Request, res: Response): Promise<void> {
   try {
-    const { signalId, quantity, lots, productType, orderType, limitPrice, mode } = req.body;
+    const {
+      signalId,
+      quantity,
+      lots,
+      productType,
+      orderType,
+      limitPrice,
+      mode,
+      options: bodyOptions,
+      signal: bodySignal,
+    } = req.body;
 
     if (!signalId) {
       res.status(400).json({
@@ -159,13 +169,22 @@ export async function executeSignalController(req: Request, res: Response): Prom
       return;
     }
 
+    const resolvedQuantity = quantity ?? bodyOptions?.quantity;
+    const resolvedLots = lots ?? bodyOptions?.lots;
+    const resolvedProductType = productType ?? bodyOptions?.productType;
+    const resolvedOrderType = orderType ?? bodyOptions?.orderType;
+    const resolvedLimitPrice = limitPrice ?? bodyOptions?.limitPrice;
+    const resolvedMode = mode ?? bodyOptions?.mode;
+    const resolvedSignal = bodySignal ?? bodyOptions?.signal;
+
     const result = await executeSignalOrder(String(signalId), {
-      quantity: quantity ? Number(quantity) : undefined,
-      lots: lots ? Number(lots) : undefined,
-      productType,
-      orderType,
-      limitPrice: limitPrice ? Number(limitPrice) : undefined,
-      mode,
+      quantity: resolvedQuantity ? Number(resolvedQuantity) : undefined,
+      lots: resolvedLots ? Number(resolvedLots) : undefined,
+      productType: resolvedProductType,
+      orderType: resolvedOrderType,
+      limitPrice: resolvedLimitPrice ? Number(resolvedLimitPrice) : undefined,
+      mode: resolvedMode,
+      signal: resolvedSignal,
     });
 
     res.json({

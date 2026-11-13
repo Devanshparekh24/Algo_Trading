@@ -2,7 +2,8 @@
 // AI Trading Service Client
 // ---------------------------------------------------------------------------
 
-const API_BASE = 'http://localhost:5000/api/v1/ai';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE = `${BASE_URL}/api/v1/ai`;
 
 export interface TechnicalIndicators {
   rsi: number;
@@ -453,6 +454,7 @@ export async function executeSignalOrder(params: {
   orderType?: 'MARKET' | 'LIMIT';
   limitPrice?: number;
   mode?: 'PAPER' | 'LIVE';
+  signal?: TradeSignal;
 }): Promise<{ success: boolean; message: string; orderId: string; mode: string; quantity: number }> {
   const res = await fetch(`${API_BASE}/execute-signal`, {
     method: 'POST',
@@ -552,7 +554,7 @@ export async function resetUniverse(): Promise<UniverseScrip[]> {
  */
 export async function searchInstrumentsApi(query: string, limit = 15): Promise<any[]> {
   try {
-    const res = await fetch(`http://localhost:5000/api/v1/scrips/search?query=${encodeURIComponent(query)}&limit=${limit}`);
+    const res = await fetch(`${BASE_URL}/api/v1/scrips/search?query=${encodeURIComponent(query)}&limit=${limit}`);
     const json = await res.json();
     if (!json.success && !json.status) return [];
     return json.data || [];

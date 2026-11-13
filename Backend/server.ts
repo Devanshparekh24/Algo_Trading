@@ -1,7 +1,7 @@
 import http from "http";
 import app from "./src/app.js";
 import prisma from "./src/config/prisma.js";
-import { startSessionScheduler, startInstrumentScheduler } from "./src/services/smartapi/index.js";
+import { startSessionScheduler, startInstrumentScheduler, getValidSession } from "./src/services/smartapi/index.js";
 import { getTopFnoMovers } from "./src/services/smartapi/fnoMovers.service.js";
 import { initSocketServer } from "./src/services/websocket/socketService.js";
 import { seedMarketHolidays, seedSundayMarketOpen } from "./src/services/marketHoliday.service.js";
@@ -51,6 +51,15 @@ server.listen(PORT, async () => {
         await loadPersistedOpenPositions();
     } catch (error) {
         console.error("[Database] Connection failed:", error);
+    }
+
+    try {
+        // Authenticate & initialize session before starting schedulers & warmups
+        console.log("[SmartAPI] Pre-warming session on boot...");
+        await getValidSession();
+        console.log("[SmartAPI] Session active.");
+    } catch (error: any) {
+        console.warn("[SmartAPI] Boot session notice:", error?.message || error);
     }
 
     try {

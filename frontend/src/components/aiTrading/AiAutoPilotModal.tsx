@@ -165,18 +165,18 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-emerald-500/30 shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto transition-colors">
+    <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in">
+      <div className="space-y-5 bg-white dark:bg-gray-900 shadow-2xl p-6 border border-gray-200 dark:border-emerald-500/30 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto transition-colors">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex justify-between items-center pb-3 border-gray-200 dark:border-gray-800 border-b">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30">
+            <div className="bg-emerald-100 dark:bg-emerald-500/10 p-2 border border-emerald-300 dark:border-emerald-500/30 rounded-xl text-emerald-600 dark:text-emerald-400">
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+              <h3 className="flex items-center space-x-2 font-bold text-gray-900 dark:text-white text-base">
                 <span>Greek Momentum Sniper</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                <span className="bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800 rounded font-bold text-[10px] text-emerald-800 dark:text-emerald-400">
                   AUTO-PILOT
                 </span>
               </h3>
@@ -188,7 +188,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors p-1"
+            className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -202,7 +202,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               : 'bg-gray-50 dark:bg-gray-950 border-gray-200 dark:border-gray-800'
           }`}>
             <div>
-              <div className="font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+              <div className="flex items-center space-x-2 font-semibold text-gray-900 dark:text-white">
                 <span>Auto-Pilot Execution:</span>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                   localConfig.enabled ? 'bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-400'
@@ -210,7 +210,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                   {localConfig.enabled ? 'ARMED & ACTIVE' : 'PAUSED'}
                 </span>
               </div>
-              <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
                 {localConfig.enabled
                   ? 'Actively scanning for Greek breakouts and auto-placing qualifying trades'
                   : 'Signals generate suggestions only; no automatic orders placed'}
@@ -233,13 +233,13 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
 
           {/* Strategy Selection */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-gray-700 dark:text-gray-300 font-semibold block">Active Strategy Pipeline:</label>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block font-semibold text-gray-700 dark:text-gray-300">Active Strategy Pipeline:</label>
+              <span className="font-bold text-[10px] text-emerald-600 dark:text-emerald-400 uppercase">
                 {localConfig.strategy.replace('_', ' ')} ACTIVE
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="gap-2 grid grid-cols-1 sm:grid-cols-2">
               {STRATEGIES.map((strat) => {
                 const IconComponent = strat.icon;
                 const isSelected = localConfig.strategy === strat.id;
@@ -254,12 +254,12 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                         : 'bg-gray-50 dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-bold flex items-center space-x-1.5 text-xs text-gray-900 dark:text-white">
+                    <div className="flex justify-between items-center mb-1">
+                      <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white text-xs">
                         <IconComponent className={`w-3.5 h-3.5 ${isSelected ? 'text-emerald-500' : 'text-gray-400'}`} />
                         <span>{strat.name}</span>
                       </div>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                      <span className="bg-gray-200 dark:bg-gray-800 px-1.5 py-0.2 rounded font-medium text-[9px] text-gray-700 dark:text-gray-300">
                         {strat.badge}
                       </span>
                     </div>
@@ -274,35 +274,35 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
 
           {/* Execution Mode */}
           <div>
-            <label className="text-gray-700 dark:text-gray-300 font-semibold block mb-1">Execution Mode:</label>
+            <label className="block mb-1 font-semibold text-gray-700 dark:text-gray-300">Execution Mode:</label>
             <select
               value={localConfig.mode}
               onChange={(e) => setLocalConfig((p) => ({ ...p, mode: e.target.value as any }))}
-              className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-medium focus:outline-none focus:border-emerald-500"
+              className="bg-gray-50 dark:bg-gray-950 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-medium text-gray-900 dark:text-white"
             >
               <option value="PAPER">🟢 Paper Simulation (Safe Virtual Capital - Recommended)</option>
               <option value="LIVE">🔴 Live SmartAPI Broker (Real Capital via Angel Broking)</option>
             </select>
 
             {localConfig.mode === 'LIVE' && (
-              <div className="mt-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-500/60 text-xs space-y-2 animate-in fade-in">
+              <div className="space-y-2 bg-rose-50 dark:bg-rose-950/70 mt-2.5 p-3 border border-rose-300 dark:border-rose-500/60 rounded-xl text-xs animate-in fade-in">
                 <div className="flex items-start space-x-2 text-rose-800 dark:text-rose-200">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <AlertTriangle className="mt-0.5 w-4 h-4 text-rose-600 shrink-0" />
                   <div>
                     <div className="font-bold text-xs">⚠️ REAL MONEY TRADING SAFETY GATE</div>
-                    <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">
+                    <p className="mt-0.5 text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed">
                       Live SmartAPI broker orders will place real financial transactions on Angel One with your live trading balance.
                     </p>
                   </div>
                 </div>
-                <label className="flex items-center space-x-2 pt-1 border-t border-rose-200 dark:border-rose-900 cursor-pointer">
+                <label className="flex items-center space-x-2 pt-1 border-rose-200 dark:border-rose-900 border-t cursor-pointer">
                   <input
                     type="checkbox"
                     checked={localConfig.confirmedLiveTrading === true}
                     onChange={(e) => setLocalConfig((p) => ({ ...p, confirmedLiveTrading: e.target.checked }))}
-                    className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                    className="rounded focus:ring-rose-500 w-4 h-4 text-rose-600"
                   />
-                  <span className="text-[11px] font-semibold text-rose-900 dark:text-rose-100">
+                  <span className="font-semibold text-[11px] text-rose-900 dark:text-rose-100">
                     I confirm that I accept full financial risk and authorize live automated orders.
                   </span>
                 </label>
@@ -311,15 +311,15 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </div>
 
           {/* Auto-Exit Rules: Target & Stop-Loss */}
-          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-3">
-            <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
+          <div className="space-y-3 bg-gray-50 dark:bg-gray-950/70 p-3.5 border border-gray-200 dark:border-gray-800 rounded-xl">
+            <div className="flex items-center space-x-1.5 font-semibold text-gray-800 dark:text-gray-300">
               <Shield className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
               <span>Greek-Based Automated Exit Parameters</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="gap-3 grid grid-cols-2">
               <div>
-                <label className="text-gray-600 dark:text-gray-400 block mb-1">Profit Target (+%):</label>
+                <label className="block mb-1 text-gray-600 dark:text-gray-400">Profit Target (+%):</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -333,15 +333,15 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                         profitTargetPct: Math.max(20, parseInt(e.target.value) || 50),
                       }))
                     }
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-emerald-600 dark:text-emerald-400 font-bold font-mono focus:outline-none focus:border-emerald-500"
+                    className="bg-white dark:bg-gray-900 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono font-bold text-emerald-600 dark:text-emerald-400"
                   />
-                  <span className="absolute right-3 top-2 text-gray-400 font-mono">%</span>
+                  <span className="top-2 right-3 absolute font-mono text-gray-400">%</span>
                 </div>
                 <span className="text-[10px] text-gray-500">Auto market sell at target</span>
               </div>
 
               <div>
-                <label className="text-gray-600 dark:text-gray-400 block mb-1">Hard Stop-Loss (-%):</label>
+                <label className="block mb-1 text-gray-600 dark:text-gray-400">Hard Stop-Loss (-%):</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -355,9 +355,9 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                         stopLossPct: Math.max(10, parseInt(e.target.value) || 22),
                       }))
                     }
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-rose-600 dark:text-rose-400 font-bold font-mono focus:outline-none focus:border-rose-500"
+                    className="bg-white dark:bg-gray-900 px-3 py-2 border border-gray-300 focus:border-rose-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono font-bold text-rose-600 dark:text-rose-400"
                   />
-                  <span className="absolute right-3 top-2 text-gray-400 font-mono">%</span>
+                  <span className="top-2 right-3 absolute font-mono text-gray-400">%</span>
                 </div>
                 <span className="text-[10px] text-gray-500">Strict capital protection</span>
               </div>
@@ -365,12 +365,12 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
 
             {/* Theta Timeout */}
             <div>
-              <div className="flex justify-between text-gray-600 dark:text-gray-400 mb-1">
+              <div className="flex justify-between mb-1 text-gray-600 dark:text-gray-400">
                 <span className="flex items-center space-x-1">
                   <Clock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                   <span>Theta Timeout (Stagnant Position Auto-Exit):</span>
                 </span>
-                <span className="text-amber-600 dark:text-amber-400 font-bold font-mono">{localConfig.thetaTimeoutMinutes} mins</span>
+                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{localConfig.thetaTimeoutMinutes} mins</span>
               </div>
               <input
                 type="range"
@@ -393,15 +393,15 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </div>
 
           {/* Golden Hours Enforcement */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800">
+          <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-950 p-3 border border-gray-200 dark:border-gray-800 rounded-xl">
             <div>
-              <div className="font-semibold text-gray-900 dark:text-white flex items-center space-x-1.5">
+              <div className="flex items-center space-x-1.5 font-semibold text-gray-900 dark:text-white">
                 <span>Golden Hours Filter (IST)</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                <span className="bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.2 border border-emerald-200 dark:border-emerald-800 rounded text-[9px] text-emerald-800 dark:text-emerald-400">
                   09:35–11:00 & 13:30–15:00
                 </span>
               </div>
-              <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+              <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
                 Automatically skips 11:30–01:15 lunch chop where theta decay is highest
               </div>
             </div>
@@ -421,23 +421,47 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </div>
 
           {/* Sizing & Budget Policy */}
-          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
+          {/* Sizing & Budget Policy */}
+          <div className="space-y-3 bg-gray-50 dark:bg-gray-950/70 p-3.5 border border-gray-200 dark:border-gray-800 rounded-xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-1.5 font-semibold text-gray-800 dark:text-gray-300">
                 <Wallet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                <span>Trade Sizing & Price Mode:</span>
+                <span>Trade Sizing & Investment Slab:</span>
               </div>
-              <span className={`font-bold font-mono text-xs px-2 py-0.5 rounded-md ${
+              <span className={`font-bold font-mono text-xs px-2.5 py-0.5 rounded-md ${
                 pricingMode === 'DYNAMIC'
                   ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                   : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
               }`}>
-                {pricingMode === 'DYNAMIC' ? 'Dynamic (No Fixed Cap)' : `Cap: ₹${(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}`}
+                {pricingMode === 'DYNAMIC' ? 'Dynamic Lots (No Cap)' : `Slab: ₹${(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}`}
               </span>
             </div>
 
             {/* Sizing Mode Tabs */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="gap-2 grid grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPricingMode('BUDGET_CAP');
+                  if (!localConfig.maxBudgetPerTrade || localConfig.maxBudgetPerTrade === 0) {
+                    setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: 5000 }));
+                  }
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-left flex flex-col ${
+                  pricingMode === 'BUDGET_CAP'
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/20'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Investment Slab (Cap)</span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-normal ${pricingMode === 'BUDGET_CAP' ? 'text-emerald-100' : 'text-gray-500'}`}>
+                  Limit risk: e.g. ₹5,000, ₹10,000, or manual slab.
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setPricingMode('DYNAMIC')}
@@ -449,66 +473,68 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               >
                 <div className="flex items-center space-x-1.5">
                   <Zap className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Dynamic Market Sizing</span>
+                  <span>Dynamic Market Lots</span>
                 </div>
                 <span className={`text-[10px] mt-0.5 font-normal ${pricingMode === 'DYNAMIC' ? 'text-blue-100' : 'text-gray-500'}`}>
-                  No fixed price restriction. Buys optimal strike by lots.
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPricingMode('BUDGET_CAP')}
-                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-left flex flex-col ${
-                  pricingMode === 'BUDGET_CAP'
-                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/20'
-                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
-                }`}
-              >
-                <div className="flex items-center space-x-1.5">
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>Custom Budget Cap</span>
-                </div>
-                <span className={`text-[10px] mt-0.5 font-normal ${pricingMode === 'BUDGET_CAP' ? 'text-emerald-100' : 'text-gray-500'}`}>
-                  Enforce an upper cost ceiling per trade.
+                  No price ceiling. Buys standard lot at market price.
                 </span>
               </button>
             </div>
 
             {pricingMode === 'BUDGET_CAP' && (
-              <div className="space-y-2 pt-1 animate-in fade-in duration-150">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="500"
-                    max="100000"
-                    step="500"
-                    value={localConfig.maxBudgetPerTrade || 5000}
-                    onChange={(e) =>
-                      setLocalConfig((p) => ({
-                        ...p,
-                        maxBudgetPerTrade: Math.max(500, parseInt(e.target.value) || 5000),
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500 text-xs"
-                    placeholder="Enter maximum budget in INR"
-                  />
+              <div className="space-y-3 pt-1 animate-in duration-150 fade-in bg-white dark:bg-gray-900 p-3 rounded-xl border border-emerald-500/20">
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Manual Investment Slab Amount (INR):
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 font-bold font-mono text-xs text-gray-400">₹</span>
+                    <input
+                      type="number"
+                      min="500"
+                      max="500000"
+                      step="500"
+                      value={localConfig.maxBudgetPerTrade || ''}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setLocalConfig((p) => ({
+                          ...p,
+                          maxBudgetPerTrade: isNaN(val) ? 0 : Math.max(0, val),
+                        }));
+                      }}
+                      className="bg-gray-50 dark:bg-gray-950 pl-7 pr-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono font-bold text-gray-900 dark:text-white text-xs"
+                      placeholder="Type manual amount (e.g. 5000, 10000)"
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {[2500, 5000, 10000, 25000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: amt }))}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                        (localConfig.maxBudgetPerTrade || 5000) === amt
-                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
-                          : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
-                      }`}
-                    >
-                      ₹{amt.toLocaleString('en-IN')}
-                    </button>
-                  ))}
+
+                <div>
+                  <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Quick Preset Slabs:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[2500, 5000, 10000, 25000, 50000].map((amt) => {
+                      const isSelected = localConfig.maxBudgetPerTrade === amt;
+                      return (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setLocalConfig((p) => ({ ...p, maxBudgetPerTrade: amt }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono border transition-all ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-emerald-500'
+                          }`}
+                        >
+                          ₹{amt.toLocaleString('en-IN')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                  💡 <strong>Slab Rule:</strong> Auto-Pilot sizes orders up to <strong>₹{(localConfig.maxBudgetPerTrade || 5000).toLocaleString('en-IN')}</strong> per trade. If 1 lot of an option exceeds this slab, the trade is safely skipped and logged.
                 </div>
               </div>
             )}
@@ -516,14 +542,14 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             <p className="text-[10px] text-gray-500 leading-relaxed">
               {pricingMode === 'DYNAMIC'
                 ? '⭐ Strategy executes automatically based on Greeks & OI without skipping trades over arbitrary price ceilings.'
-                : 'Auto-Pilot buys only options where 1-lot premium cost is within your specified cap.'}
+                : 'Auto-Pilot enforces strict capital allocation, ensuring no single trade uses more than your specified slab.'}
             </p>
           </div>
 
           {/* Quantity & Daily Limits */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="gap-3 grid grid-cols-2">
             <div>
-              <label className="text-gray-700 dark:text-gray-300 font-semibold block mb-1">Lots per Trade:</label>
+              <label className="block mb-1 font-semibold text-gray-700 dark:text-gray-300">Lots per Trade:</label>
               <input
                 type="number"
                 min="1"
@@ -535,12 +561,12 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                     defaultQuantity: Math.max(1, parseInt(e.target.value) || 1),
                   }))
                 }
-                className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono focus:outline-none focus:border-emerald-500"
+                className="bg-gray-50 dark:bg-gray-950 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono text-gray-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="text-gray-700 dark:text-gray-300 font-semibold block mb-1">Max Daily Trades:</label>
+              <label className="block mb-1 font-semibold text-gray-700 dark:text-gray-300">Max Daily Trades:</label>
               <input
                 type="number"
                 min="1"
@@ -552,21 +578,21 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                     maxDailyTrades: Math.max(1, parseInt(e.target.value) || 5),
                   }))
                 }
-                className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono focus:outline-none focus:border-emerald-500"
+                className="bg-gray-50 dark:bg-gray-950 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono text-gray-900 dark:text-white"
               />
             </div>
           </div>
 
           {/* Global Risk Management Safeguards */}
-          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 space-y-3">
-            <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1.5">
+          <div className="space-y-3 bg-gray-50 dark:bg-gray-950/70 p-3.5 border border-gray-200 dark:border-gray-800 rounded-xl">
+            <div className="flex items-center space-x-1.5 font-semibold text-gray-800 dark:text-gray-300">
               <Shield className="w-4 h-4 text-rose-500" />
               <span>Global Risk Safeguards & Kill Switches</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="gap-3 grid grid-cols-2">
               <div>
-                <label className="text-gray-600 dark:text-gray-400 block mb-1">Daily Loss Kill-Switch (₹):</label>
+                <label className="block mb-1 text-gray-600 dark:text-gray-400">Daily Loss Kill-Switch (₹):</label>
                 <input
                   type="number"
                   min="1000"
@@ -579,13 +605,13 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                       maxDailyLoss: Math.max(500, parseInt(e.target.value) || 5000),
                     }))
                   }
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-rose-600 dark:text-rose-400 font-mono font-bold focus:outline-none focus:border-rose-500 text-xs"
+                  className="bg-white dark:bg-gray-900 px-3 py-2 border border-gray-300 focus:border-rose-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono font-bold text-rose-600 dark:text-rose-400 text-xs"
                 />
                 <span className="text-[10px] text-gray-500">Auto-halts bot if loss breaches limit</span>
               </div>
 
               <div>
-                <label className="text-gray-600 dark:text-gray-400 block mb-1">Max Open Positions Cap:</label>
+                <label className="block mb-1 text-gray-600 dark:text-gray-400">Max Open Positions Cap:</label>
                 <input
                   type="number"
                   min="1"
@@ -597,7 +623,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                       maxOpenPositions: Math.max(1, parseInt(e.target.value) || 3),
                     }))
                   }
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-mono font-bold focus:outline-none focus:border-emerald-500 text-xs"
+                  className="bg-white dark:bg-gray-900 px-3 py-2 border border-gray-300 focus:border-emerald-500 dark:border-gray-700 rounded-xl focus:outline-none w-full font-mono font-bold text-gray-900 dark:text-white text-xs"
                 />
                 <span className="text-[10px] text-gray-500">Max concurrent open trades</span>
               </div>
@@ -605,12 +631,12 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </div>
 
           {/* Strategy Rules Reference */}
-          <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-[11px] text-gray-600 dark:text-gray-400 space-y-1">
-            <div className="font-semibold text-gray-800 dark:text-gray-300 flex items-center space-x-1 mb-1">
+          <div className="space-y-1 bg-gray-50 dark:bg-gray-950 p-3 border border-gray-200 dark:border-gray-800 rounded-xl text-[11px] text-gray-600 dark:text-gray-400">
+            <div className="flex items-center space-x-1 mb-1 font-semibold text-gray-800 dark:text-gray-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
               <span>{localConfig.strategy.replace('_', ' ')} Auto-Pilot Rules:</span>
             </div>
-            <div className="grid grid-cols-2 gap-1 text-[10px]">
+            <div className="gap-1 grid grid-cols-2 text-[10px]">
               {localConfig.strategy === 'GAMMA_BLAST' && (
                 <>
                   <div>• Time Window: 01:15 – 02:45 PM</div>
@@ -673,9 +699,9 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
           </div>
 
           {/* Pre-Arming Strategy Historical Backtest with Realistic Indian Fees */}
-          <div className="p-3.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 space-y-2.5 transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold text-gray-800 dark:text-gray-200 flex items-center space-x-1.5 text-xs">
+          <div className="space-y-2.5 bg-purple-50/60 dark:bg-purple-950/20 p-3.5 border border-purple-200 dark:border-purple-800/60 rounded-xl transition-colors">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-1.5 font-semibold text-gray-800 dark:text-gray-200 text-xs">
                 <BarChart3 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <span>Pre-Arming Backtest ({localConfig.strategy.replace('_', ' ')})</span>
               </div>
@@ -683,7 +709,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                 type="button"
                 onClick={handleRunBacktest}
                 disabled={isRunningBacktest}
-                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs flex items-center space-x-1 disabled:opacity-50 transition-all"
+                className="flex items-center space-x-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 shadow-xs px-3 py-1.5 rounded-lg font-bold text-white text-xs transition-all"
               >
                 {isRunningBacktest ? (
                   <>
@@ -692,7 +718,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <Play className="fill-current w-3.5 h-3.5" />
                     <span>Run Backtest</span>
                   </>
                 )}
@@ -703,35 +729,35 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
             </p>
 
             {backtestError && (
-              <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-[11px]">
+              <div className="bg-rose-50 dark:bg-rose-950/50 p-2 border border-rose-200 dark:border-rose-900 rounded-lg text-[11px] text-rose-700 dark:text-rose-300">
                 {backtestError}
               </div>
             )}
 
             {backtestResult && (
-              <div className="p-2.5 rounded-xl bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800/80 space-y-2 text-xs animate-in fade-in">
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
-                    <span className="text-[10px] text-gray-500 block">Win Rate</span>
+              <div className="space-y-2 bg-white dark:bg-gray-900 p-2.5 border border-purple-200 dark:border-purple-800/80 rounded-xl text-xs animate-in fade-in">
+                <div className="gap-2 grid grid-cols-3 text-center">
+                  <div className="bg-gray-50 dark:bg-gray-950 p-1.5 rounded-lg">
+                    <span className="block text-[10px] text-gray-500">Win Rate</span>
                     <span className={`font-bold font-mono text-xs ${backtestResult.winRate >= 50 ? 'text-emerald-500' : 'text-rose-500'}`}>
                       {backtestResult.winRate}% ({backtestResult.winningTrades}/{backtestResult.totalTrades})
                     </span>
                   </div>
-                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
-                    <span className="text-[10px] text-gray-500 block">Net P&L (After Costs)</span>
+                  <div className="bg-gray-50 dark:bg-gray-950 p-1.5 rounded-lg">
+                    <span className="block text-[10px] text-gray-500">Net P&L (After Costs)</span>
                     <span className={`font-bold font-mono text-xs ${backtestResult.netPnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                       {backtestResult.netPnl >= 0 ? '+' : ''}₹{backtestResult.netPnl.toLocaleString('en-IN')}
                     </span>
                   </div>
-                  <div className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-950">
-                    <span className="text-[10px] text-gray-500 block">Max Drawdown</span>
-                    <span className="font-bold font-mono text-xs text-rose-500">
+                  <div className="bg-gray-50 dark:bg-gray-950 p-1.5 rounded-lg">
+                    <span className="block text-[10px] text-gray-500">Max Drawdown</span>
+                    <span className="font-mono font-bold text-rose-500 text-xs">
                       -{backtestResult.maxDrawdownPercent}%
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 px-1 border-t border-gray-100 dark:border-gray-800 pt-1.5">
+                <div className="flex justify-between items-center px-1 pt-1.5 border-gray-100 dark:border-gray-800 border-t text-[10px] text-gray-500 dark:text-gray-400">
                   <span>Gross: ₹{backtestResult.grossPnl}</span>
                   <span>Taxes &amp; Slippage: ₹{(backtestResult.totalTaxesAndCharges + backtestResult.totalSlippage).toFixed(1)}</span>
                   <span>Profit Factor: {backtestResult.profitFactor}</span>
@@ -742,11 +768,11 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
         </div>
 
         {/* Modal Actions */}
-        <div className="flex items-center justify-end space-x-3 pt-2 border-t border-gray-200 dark:border-gray-800">
+        <div className="flex justify-end items-center space-x-3 pt-2 border-gray-200 dark:border-gray-800 border-t">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300 text-xs font-semibold transition-all border border-gray-200 dark:border-gray-700"
+            className="bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl font-semibold text-gray-700 dark:text-gray-300 text-xs transition-all"
           >
             Cancel
           </button>
@@ -764,7 +790,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               });
               onClose();
             }}
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 shadow-emerald-600/30 shadow-md px-5 py-2.5 rounded-xl font-bold text-white text-xs transition-all disabled:cursor-not-allowed"
           >
             <Zap className="w-4 h-4" />
             <span>Apply Sniper Auto-Pilot</span>

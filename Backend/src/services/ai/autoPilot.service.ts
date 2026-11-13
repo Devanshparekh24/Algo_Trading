@@ -43,15 +43,101 @@ let autoPilotConfig: AutoPilotConfig = {
   confirmedLiveTrading: false, // Mandatory confirmation before placing LIVE broker orders
 };
 
+// Pluggable scanner function to avoid circular dependency with signals.service
+let scanUniverseFn: ((segment?: "EQUITY" | "FNO") => Promise<any>) | null = null;
+let autoPilotLoopInterval: ReturnType<typeof setInterval> | null = null;
+
+export function setScanUniverseFn(fn: (segment?: "EQUITY" | "FNO") => Promise<any>): void {
+  scanUniverseFn = fn;
+}
+
+export function startAutoPilotScannerLoop(): void {
+  if (autoPilotLoopInterval) return;
+  console.log(`[AI Auto-Pilot] Autonomous scanner loop started (scanning every 12s in [${autoPilotConfig.mode}] mode)...`);
+
+  // Immediate initial scan on arming
+  if (scanUniverseFn) {
+    scanUniverseFn("FNO").catch((e) => console.warn("[AI Auto-Pilot] Initial FNO scan notice:", e?.message || e));
+  }
+
+  autoPilotLoopInterval = setInterval(async () => {
+    if (!autoPilotConfig.enabled) {
+      stopAutoPilotScannerLoop();
+      return;
+    }
+
+    try {
+      if (scanUniverseFn) {
+        // Prioritize scanning F&O (Calls and Puts) for option strategies
+        await scanUniverseFn("FNO");
+      }
+    } catch (err: any) {
+      console.warn(`[Auto-Pilot Loop] FNO scan warning:`, err?.message || err);
+    }
+  }, 12000);
+}
+
+export function stopAutoPilotScannerLoop(): void {
+  if (autoPilotLoopInterval) {
+    clearInterval(autoPilotLoopInterval);
+    autoPilotLoopInterval = null;
+    console.log("[AI Auto-Pilot] Autonomous scanner loop paused.");
+  }
+}
+
 export function getAutoPilotConfig(): AutoPilotConfig {
   return { ...autoPilotConfig };
 }
 
 export function updateAutoPilotConfig(newConfig: Partial<AutoPilotConfig>): AutoPilotConfig {
+  const previousConfig = { ...autoPilotConfig };
   autoPilotConfig = {
     ...autoPilotConfig,
     ...newConfig,
   };
+
+  const isEnabledChanged = newConfig.enabled !== undefined && newConfig.enabled !== previousConfig.enabled;
+  const isModeChanged = newConfig.mode !== undefined && newConfig.mode !== previousConfig.mode;
+  const isSlabChanged = newConfig.maxBudgetPerTrade !== undefined && newConfig.maxBudgetPerTrade !== previousConfig.maxBudgetPerTrade;
+  const isStrategyChanged = newConfig.strategy !== undefined && newConfig.strategy !== previousConfig.strategy;
+
+  const slabInfo =
+    autoPilotConfig.maxBudgetPerTrade && autoPilotConfig.maxBudgetPerTrade > 0
+      ? `₹${autoPilotConfig.maxBudgetPerTrade.toLocaleString("en-IN")} Slab`
+      : "Dynamic Sizing (No Cap)";
+
+  if (isEnabledChanged) {
+    const statusText = autoPilotConfig.enabled ? "ARMED (ON)" : "PAUSED (OFF)";
+    console.log(
+      `[AI Auto-Pilot Status] ${statusText} | Mode: [${autoPilotConfig.mode}] | Strategy: ${autoPilotConfig.strategy} | Sizing: ${slabInfo} | Target: +${autoPilotConfig.profitTargetPct}% | SL: -${autoPilotConfig.stopLossPct}%`
+    );
+
+    if (autoPilotConfig.enabled) {
+      startAutoPilotScannerLoop();
+    } else {
+      stopAutoPilotScannerLoop();
+    }
+
+    broadcastSocketEvent("ai_autopilot_status_changed", {
+      enabled: autoPilotConfig.enabled,
+      mode: autoPilotConfig.mode,
+      strategy: autoPilotConfig.strategy,
+      maxBudgetPerTrade: autoPilotConfig.maxBudgetPerTrade,
+      slabInfo,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  if (isModeChanged && !isEnabledChanged) {
+    console.log(
+      `[AI Auto-Pilot Mode] Mode changed to [${autoPilotConfig.mode}] (was [${previousConfig.mode}]) | Strategy: ${autoPilotConfig.strategy}`
+    );
+  }
+
+  if (isSlabChanged && !isEnabledChanged) {
+    console.log(`[AI Auto-Pilot Sizing] Sizing slab updated to ${slabInfo} in [${autoPilotConfig.mode}] mode`);
+  }
+
   broadcastSocketEvent("ai_autopilot_config_update", autoPilotConfig);
   return { ...autoPilotConfig };
 }
@@ -146,37 +232,36 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
     if (autoPilotConfig.strategy === "GREEK_SNIPER") {
       if (!isFno) continue;
       if (sig.greeks) {
-        if (sig.greeks.delta < 0.25 || sig.greeks.delta > 0.60) continue;
-        if (sig.greeks.thetaPremiumRatio > 0.18) continue;
+        if (sig.greeks.delta < 0.15 || sig.greeks.delta > 0.75) continue;
+        if (sig.greeks.thetaPremiumRatio > 0.25) continue;
       }
     }
     // 2. GAMMA_BLAST Strategy Pipeline (Expiry Afternoon Gamma Surge)
     else if (autoPilotConfig.strategy === "GAMMA_BLAST") {
       if (!isFno) continue;
-      // Scans for cheap, high-elasticity explosive strikes (₹10 to ₹55)
-      if (sig.currentPrice > 65 || sig.currentPrice < 8) continue;
-      if (sig.greeks && sig.greeks.delta > 0.45) continue;
+      // Scans for explosive options premium (affordable strikes fitting in slabs)
+      if (sig.currentPrice > 180 || sig.currentPrice < 5) continue;
     }
     // 3. VWAP_TRAP Strategy Pipeline (Institutional Fakeout Trap & Reversal)
     else if (autoPilotConfig.strategy === "VWAP_TRAP") {
       if (!isFno) continue;
       // Counter-trend confirmation: Puts on high failure, Calls on low bounce
       if (sig.indicators) {
-        if (sig.contractType === "PE" && sig.indicators.rsi < 40) continue;
-        if (sig.contractType === "CE" && sig.indicators.rsi > 60) continue;
+        if (sig.contractType === "PE" && sig.indicators.rsi < 35) continue;
+        if (sig.contractType === "CE" && sig.indicators.rsi > 65) continue;
       }
     }
     // 4. ORB_15M Strategy Pipeline (Opening Range Breakout Trend Follower)
     else if (autoPilotConfig.strategy === "ORB_15M") {
       // Requires strong momentum and trending indicators
-      if (sig.indicators && (sig.indicators.emaTrend === "NEUTRAL" || sig.indicators.macd?.trend === "NEUTRAL")) continue;
+      if (sig.indicators && (sig.indicators.emaTrend === "NEUTRAL" && sig.indicators.macd?.trend === "NEUTRAL")) continue;
     }
     // 5. PCR_REVERSAL Strategy Pipeline (Sentiment Extremes Mean Reversion)
     else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
       if (!isFno) continue;
       // Reversal oscillator: Avoid buying Calls when overbought or Puts when oversold
-      if (sig.contractType === "CE" && sig.indicators && sig.indicators.rsi > 68) continue;
-      if (sig.contractType === "PE" && sig.indicators && sig.indicators.rsi < 32) continue;
+      if (sig.contractType === "CE" && sig.indicators && sig.indicators.rsi > 75) continue;
+      if (sig.contractType === "PE" && sig.indicators && sig.indicators.rsi < 25) continue;
     }
     // 6. EMA_9_21 Strategy Pipeline (NIFTY Intraday EMA Crossover)
     else if (autoPilotConfig.strategy === "EMA_9_21") {
@@ -198,36 +283,36 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       if (sig.action === "SELL" && sig.indicators && sig.currentPrice > sig.indicators.ema9) continue;
     }
 
-    // Safety Gate: Never auto-execute trades based on synthetic/fallback data
-    if (sig.isSynthetic) {
-      console.warn(`[AI Auto-Pilot] Refusing execution on synthetic data for ${sig.symbol}`);
-      await logAiErrorToDb({
-        source: "AUTO_PILOT",
-        action: "REJECT_SYNTHETIC_SIGNAL",
-        symbol: sig.symbol,
-        token: sig.token,
-        message: `Auto-pilot rejected trade for ${sig.symbol}: synthetic candle data detected.`,
-      });
+    // Safety Gate: Never auto-execute trades on synthetic/fallback data in LIVE broker mode
+    if (sig.isSynthetic && autoPilotConfig.mode === "LIVE") {
+      console.warn(`[AI Auto-Pilot Safety] Refusing LIVE broker execution on synthetic data for ${sig.symbol}`);
       continue;
     }
 
     const lotSize = sig.lotSize || (await getInstrumentLotSize(sig.symbol, 1));
-    const lots = autoPilotConfig.defaultQuantity || 1;
-    const finalQty = isFno ? lotSize * lots : lots;
-    const estimatedCost = finalQty * sig.currentPrice;
+    const singleLotCost = isFno ? lotSize * sig.currentPrice : sig.currentPrice;
 
-    // Optional Budget Gatekeeper: ONLY active if a positive budget cap > 0 is configured by user.
+    // Sizing & Slab Allocation
+    let lots = autoPilotConfig.defaultQuantity || 1;
     if (autoPilotConfig.maxBudgetPerTrade && autoPilotConfig.maxBudgetPerTrade > 0) {
-      if (estimatedCost > autoPilotConfig.maxBudgetPerTrade) {
+      const budgetCap = autoPilotConfig.maxBudgetPerTrade;
+      if (singleLotCost > budgetCap) {
         console.log(
-          `[AI Auto-Pilot] Skipping ${sig.symbol}: Cost ₹${estimatedCost.toFixed(2)} (${finalQty} units @ ₹${sig.currentPrice}) exceeds custom budget of ₹${autoPilotConfig.maxBudgetPerTrade}`
+          `[AI Auto-Pilot Slab] [${autoPilotConfig.mode}] Skipping ${sig.symbol}: 1 lot requires ₹${singleLotCost.toFixed(2)} (${lotSize} units @ ₹${sig.currentPrice}), exceeding custom investment slab of ₹${budgetCap.toLocaleString("en-IN")}`
         );
         continue;
       }
+
+      // Calculate how many lots can fit into the slab without exceeding it
+      const maxLotsInSlab = Math.floor(budgetCap / singleLotCost);
+      lots = Math.max(1, Math.min(maxLotsInSlab, autoPilotConfig.defaultQuantity || 1));
     }
 
+    const finalQty = isFno ? lotSize * lots : lots;
+    const estimatedCost = finalQty * sig.currentPrice;
+
     console.log(
-      `[AI Auto-Pilot] Qualifying signal found: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} (Cost: ₹${estimatedCost.toFixed(2)}, Strategy: ${autoPilotConfig.strategy})`
+      `[AI Auto-Pilot Execution] [${autoPilotConfig.mode}] Qualifying signal: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} | Sizing: ${lots} lot(s) (${finalQty} units) | Capital: ₹${estimatedCost.toFixed(2)} | Strategy: ${autoPilotConfig.strategy}`
     );
 
     try {
@@ -303,6 +388,21 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
 
       registerActiveAiPosition(position);
       logTradeEntryToDb(position, sig).catch(console.error);
+
+      console.log(
+        `[AI Auto-Pilot Execution] [${autoPilotConfig.mode}] ORDER PLACED: ${sig.action} ${sig.symbol} (${result.orderid}) | Qty: ${finalQty} @ ₹${sig.currentPrice} | Invested: ₹${estimatedCost.toFixed(2)}`
+      );
+
+      broadcastSocketEvent("ai_auto_trade_executed", {
+        signalId: sig.id,
+        symbol: sig.symbol,
+        order: result,
+        position,
+        mode: autoPilotConfig.mode,
+        strategy: autoPilotConfig.strategy,
+        investedCost: estimatedCost,
+        timestamp: new Date().toISOString(),
+      });
 
       broadcastSocketEvent("ai_signal_executed", {
         signalId: sig.id,

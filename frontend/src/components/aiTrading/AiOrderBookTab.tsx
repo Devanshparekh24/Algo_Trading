@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Zap,
   Database,
-  AlertOctagon,
   Clock,
   TrendingUp,
   TrendingDown,
@@ -13,6 +12,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Square,
+  Bot,
+  Activity,
+  Wallet,
 } from 'lucide-react';
 import {
   fetchActivePositions,
@@ -47,6 +49,7 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [closingPosId, setClosingPosId] = useState<string | null>(null);
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
+  const [auditFilter, setAuditFilter] = useState<'ALL' | 'STATUS' | 'SCANNER' | 'EXECUTION' | 'ERRORS'>('ALL');
 
   // Load Active Positions
   const loadPositions = useCallback(async () => {
@@ -119,12 +122,16 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
     socket.on('ai_position_opened', loadPositions);
     socket.on('ai_auto_exit_executed', handleAutoExitExecuted);
     socket.on('ai_auto_trade_executed', handleAutoTradeExecuted);
+    socket.on('ai_autopilot_status_changed', loadErrorLogs);
+    socket.on('ai_scanner_activity', loadErrorLogs);
 
     return () => {
       socket.off('ai_positions_update', handlePositionsUpdate);
       socket.off('ai_position_opened', loadPositions);
       socket.off('ai_auto_exit_executed', handleAutoExitExecuted);
       socket.off('ai_auto_trade_executed', handleAutoTradeExecuted);
+      socket.off('ai_autopilot_status_changed', loadErrorLogs);
+      socket.off('ai_scanner_activity', loadErrorLogs);
     };
   }, [loadPositions, loadTradeLogs, onRefreshOrders]);
 
@@ -203,14 +210,14 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
               onClick={() => setActiveTab('ERROR_LOGS')}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all ${
                 activeTab === 'ERROR_LOGS'
-                  ? 'bg-rose-600 text-white shadow-xs'
+                  ? 'bg-purple-600 text-white shadow-xs'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <AlertOctagon className="w-3.5 h-3.5" />
-              <span>Error Logs</span>
+              <Activity className="w-3.5 h-3.5" />
+              <span>Audit & Telemetry Logs</span>
               {errorLogs.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-400/40">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-400/40">
                   {errorLogs.length}
                 </span>
               )}
@@ -572,85 +579,164 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
       )}
 
       {/* ==================================================================== */}
-      {/* TAB 3: ERROR LOGS TELEMETRY */}
+      {/* TAB 3: AUDIT & TELEMETRY LOGS */}
       {/* ==================================================================== */}
       {activeTab === 'ERROR_LOGS' && (
         <div className="space-y-4">
-          {errorLogs.length === 0 ? (
-            <div className="text-center py-16 bg-white dark:bg-gray-900/40 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xs">
-              <CheckCircle2 className="w-12 h-12 text-emerald-500/40 mx-auto mb-3" />
-              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-300">All Systems Nominal</h3>
-              <p className="text-xs text-gray-500 max-w-md mx-auto mt-1 leading-relaxed">
-                No system or broker execution errors logged in the database. Any SmartAPI or auto-pilot exceptions will be captured here.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {errorLogs.map((err) => {
-                const isExpanded = expandedErrorId === err.id;
-                const timeStr = new Date(err.createdAt).toLocaleString('en-IN');
+          {/* Filter Pills */}
+          <div className="flex items-center gap-1.5 flex-wrap pb-1">
+            <span className="text-xs text-gray-500 font-semibold mr-1">Filter Stream:</span>
+            {[
+              { id: 'ALL', label: 'All Telemetry' },
+              { id: 'STATUS', label: 'Auto-Pilot Status (ON/OFF)' },
+              { id: 'SCANNER', label: 'Scanner Activity' },
+              { id: 'EXECUTION', label: 'Executions & Slabs' },
+              { id: 'ERRORS', label: 'Exceptions' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setAuditFilter(f.id as any)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  auditFilter === f.id
+                    ? 'bg-purple-600 text-white border-purple-500 shadow-xs'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:border-gray-400'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
 
+          {(() => {
+            const filteredLogs = errorLogs.filter((err) => {
+              if (auditFilter === 'ALL') return true;
+              if (auditFilter === 'STATUS') return err.source === 'AUTOPILOT_STATUS';
+              if (auditFilter === 'SCANNER') return err.source === 'SCANNER';
+              if (auditFilter === 'EXECUTION')
+                return err.action === 'ORDER_EXECUTED' || err.action === 'SLAB_EXCEEDED';
+              if (auditFilter === 'ERRORS')
                 return (
-                  <div
-                    key={err.id}
-                    className="p-4 rounded-xl bg-white dark:bg-gray-900/80 border border-rose-200 dark:border-rose-500/20 hover:border-rose-400 dark:hover:border-rose-500/40 shadow-2xs transition-all space-y-2"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start space-x-2.5">
-                        <AlertTriangle className="w-4 h-4 text-rose-500 dark:text-rose-400 mt-0.5 shrink-0" />
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                              {err.source}
-                            </span>
-                            {err.action && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-mono">
-                                {err.action}
+                  err.source !== 'AUTOPILOT_STATUS' &&
+                  err.source !== 'SCANNER' &&
+                  err.action !== 'ORDER_EXECUTED' &&
+                  err.action !== 'SLAB_EXCEEDED'
+                );
+              return true;
+            });
+
+            if (filteredLogs.length === 0) {
+              return (
+                <div className="text-center py-16 bg-white dark:bg-gray-900/40 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xs">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500/40 mx-auto mb-3" />
+                  <h3 className="text-base font-semibold text-gray-800 dark:text-gray-300">No Logs for Selected Filter</h3>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto mt-1 leading-relaxed">
+                    System activity, market scans, and auto-pilot execution events will be logged here in real-time.
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-2.5">
+                {filteredLogs.map((err) => {
+                  const isExpanded = expandedErrorId === err.id;
+                  const timeStr = new Date(err.createdAt).toLocaleString('en-IN');
+                  const isStatus = err.source === 'AUTOPILOT_STATUS';
+                  const isScan = err.source === 'SCANNER';
+                  const isExecution = err.action === 'ORDER_EXECUTED';
+                  const isSlabFilter = err.action === 'SLAB_EXCEEDED';
+                  const isException = !isStatus && !isScan && !isExecution && !isSlabFilter;
+
+                  const cardBorder = isStatus
+                    ? 'border-emerald-300 dark:border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20'
+                    : isScan
+                    ? 'border-blue-300 dark:border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20'
+                    : isExecution
+                    ? 'border-emerald-400 dark:border-emerald-500/50 bg-emerald-50/40 dark:bg-emerald-950/30'
+                    : isSlabFilter
+                    ? 'border-amber-300 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-950/20'
+                    : 'border-rose-200 dark:border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/20';
+
+                  const badgeClass = isStatus
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300'
+                    : isScan
+                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300'
+                    : isExecution
+                    ? 'bg-emerald-600 text-white border-emerald-500'
+                    : isSlabFilter
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300'
+                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300';
+
+                  return (
+                    <div
+                      key={err.id}
+                      className={`p-4 rounded-xl border ${cardBorder} shadow-2xs transition-all space-y-2`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start space-x-2.5">
+                          {isStatus && <Bot className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />}
+                          {isScan && <Activity className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />}
+                          {isExecution && <Zap className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0 fill-current" />}
+                          {isSlabFilter && <Wallet className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />}
+                          {isException && <AlertTriangle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />}
+
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
+                                {err.source}
                               </span>
-                            )}
-                            {err.symbol && (
-                              <span className="font-bold text-gray-900 dark:text-white text-xs">{err.symbol}</span>
-                            )}
+                              {err.action && (
+                                <span className="px-1.5 py-0.2 rounded text-[10px] bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono font-bold">
+                                  {err.action}
+                                </span>
+                              )}
+                              {err.symbol && (
+                                <span className="font-bold text-gray-900 dark:text-white text-xs">{err.symbol}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-800 dark:text-gray-200 mt-1 font-sans font-medium">
+                              {err.message}
+                            </p>
                           </div>
-                          <p className="text-xs text-rose-700 dark:text-rose-200 mt-1 font-sans">{err.message}</p>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] text-gray-500 font-mono">{timeStr}</span>
+                          {(err.details || err.stack) && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedErrorId(isExpanded ? null : err.id)}
+                              className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
+                            >
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] text-gray-500 font-mono">{timeStr}</span>
-                        {(err.details || err.stack) && (
-                          <button
-                            type="button"
-                            onClick={() => setExpandedErrorId(isExpanded ? null : err.id)}
-                            className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-                          >
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-                        )}
-                      </div>
+                      {isExpanded && (err.details || err.stack) && (
+                        <div className="pt-2 border-t border-gray-200 dark:border-gray-800 text-[10px] font-mono text-gray-600 dark:text-gray-400 space-y-1 bg-gray-50 dark:bg-gray-950 p-2.5 rounded-lg overflow-x-auto">
+                          {err.details && (
+                            <div>
+                              <span className="text-gray-500 font-semibold">Telemetry Data: </span>
+                              <pre className="text-gray-800 dark:text-gray-300 whitespace-pre-wrap">{JSON.stringify(err.details, null, 2)}</pre>
+                            </div>
+                          )}
+                          {err.stack && (
+                            <div className="pt-1">
+                              <span className="text-gray-500 font-semibold">Stack Trace: </span>
+                              <pre className="text-rose-700 dark:text-rose-300/80 whitespace-pre-wrap">{err.stack}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-
-                    {isExpanded && (err.details || err.stack) && (
-                      <div className="pt-2 border-t border-gray-200 dark:border-gray-800 text-[10px] font-mono text-gray-600 dark:text-gray-400 space-y-1 bg-gray-50 dark:bg-gray-950 p-2.5 rounded-lg overflow-x-auto">
-                        {err.details && (
-                          <div>
-                            <span className="text-gray-500">Details: </span>
-                            <pre className="text-gray-800 dark:text-gray-300 whitespace-pre-wrap">{JSON.stringify(err.details, null, 2)}</pre>
-                          </div>
-                        )}
-                        {err.stack && (
-                          <div className="pt-1">
-                            <span className="text-gray-500">Stack: </span>
-                            <pre className="text-rose-700 dark:text-rose-300/80 whitespace-pre-wrap">{err.stack}</pre>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 

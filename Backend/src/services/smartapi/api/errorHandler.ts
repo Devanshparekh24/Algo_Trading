@@ -135,6 +135,11 @@ export function handleApiError(
   let message = "Unknown error occurred";
   let httpStatus: number | undefined;
 
+  // ── 0. SmartApiException already handled ───────────────────────────
+  if (error instanceof SmartApiException) {
+    throw error;
+  }
+
   // ── 1. Axios Error ──────────────────────────────────────────────────
   if (axios.isAxiosError(error)) {
     if (!error.response) {
@@ -145,13 +150,27 @@ export function handleApiError(
       httpStatus = error.response.status;
       const body = (error.response.data ?? {}) as SmartApiErrorPayload;
 
-      // Rate limit check
-      if (httpStatus === 429 || httpStatus === 403) {
-        errorCode = "RATE_LIMIT";
-        description = SMART_API_ERROR_CODES.RATE_LIMIT || "Rate Limit Exceeded";
-      } else if (body.errorcode && SMART_API_ERROR_CODES[body.errorcode]) {
+      // Extract specific error code if SmartAPI provided one in response body
+      if (body.errorcode && SMART_API_ERROR_CODES[body.errorcode]) {
         errorCode = body.errorcode;
         description = SMART_API_ERROR_CODES[body.errorcode] || "API Error";
+      } else if (httpStatus === 429) {
+        errorCode = "RATE_LIMIT";
+        description = SMART_API_ERROR_CODES.RATE_LIMIT || "Rate Limit Exceeded (HTTP 429)";
+      } else if (httpStatus === 403) {
+        const bodyStr = typeof body === "string" ? body : JSON.stringify(body || "");
+        const lower = bodyStr.toLowerCase();
+        if (
+          lower.includes("rate limit") ||
+          lower.includes("exceeding access rate") ||
+          lower.includes("throttle")
+        ) {
+          errorCode = "RATE_LIMIT";
+          description = SMART_API_ERROR_CODES.RATE_LIMIT || "Rate Limit Exceeded (HTTP 403)";
+        } else {
+          errorCode = "ACCESS_DENIED";
+          description = "Access Denied / Forbidden (HTTP 403)";
+        }
       }
 
       message = body.message || error.message || `${context} failed with HTTP ${httpStatus}`;
@@ -176,11 +195,6 @@ export function handleApiError(
         }
       }
     }
-  } else if (error instanceof SmartApiException) {
-    errorCode = error.errorCode;
-    description = error.description;
-    message = error.message;
-    httpStatus = error.httpStatus;
   } else if (error instanceof Error) {
     // Check if error message has an error code in brackets like [AB1006]
     const match = error.message.match(/\[([A-Z]{2}\d{4})\]/i);

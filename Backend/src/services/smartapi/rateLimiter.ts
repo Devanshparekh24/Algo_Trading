@@ -222,9 +222,9 @@ export const RATE_LIMIT_CONFIGS: Record<string, EndpointRateLimitConfig> = {
     key: "getCandleData",
     name: "Get Historical Candle Data",
     path: "/rest/secure/angelbroking/historical/v1/getCandleData",
-    maxPerSec: 2,
-    maxPerMin: 80,
-    maxPerHour: 5000,
+    maxPerSec: 1,
+    maxPerMin: 60,
+    maxPerHour: 1000,
   },
   optionGreek: {
     key: "optionGreek",
@@ -289,6 +289,11 @@ class SmartApiRateLimiter {
     }
 
     const clean = identifier.trim().toLowerCase();
+
+    // Check historical candle data aliases
+    if (clean.startsWith("historical") || clean.includes("historical") || clean.includes("getcandledata")) {
+      return RATE_LIMIT_CONFIGS.getCandleData!;
+    }
 
     // 1. Direct key match (e.g. "placeOrder")
     for (const [key, config] of Object.entries(RATE_LIMIT_CONFIGS)) {
@@ -434,20 +439,17 @@ class SmartApiRateLimiter {
       return true;
     }
 
+    if (typeof error === "object" && (error as any).errorCode === "RATE_LIMIT") {
+      return true;
+    }
+
+    if (typeof error === "object" && ((error as any).httpStatus === 429 || (error as any).httpStatus === 403)) {
+      return true;
+    }
+
     if (axios.isAxiosError(error)) {
       if (error.response?.status === 429 || error.response?.status === 403) {
-        const body = error.response?.data;
-        const bodyStr = typeof body === "string" ? body : JSON.stringify(body || "");
-        const lower = bodyStr.toLowerCase();
-        if (
-          lower.includes("exceeding access rate") ||
-          lower.includes("rate limit") ||
-          lower.includes("ag8001") ||
-          lower.includes("ab8050") ||
-          lower.includes("access denied")
-        ) {
-          return true;
-        }
+        return true;
       }
     }
 
@@ -458,7 +460,9 @@ class SmartApiRateLimiter {
         msg.includes("rate limit") ||
         msg.includes("ag8001") ||
         msg.includes("ab8050") ||
-        msg.includes("access denied")
+        msg.includes("access denied") ||
+        msg.includes("429") ||
+        msg.includes("403")
       ) {
         return true;
       }

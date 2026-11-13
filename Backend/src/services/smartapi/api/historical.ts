@@ -74,5 +74,5 @@ export async function getCandleData(request: HistoricalDataRequest): Promise<Can
       }
       handleApiError(error, "historical data fetch");
     }
-  }, `historical_${request.symboltoken}`);
+  }, "getCandleData");
 }

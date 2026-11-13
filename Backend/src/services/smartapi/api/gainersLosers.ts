@@ -3,7 +3,7 @@ import { getConfig } from "../../../config/env.js";
 import { BASE_URL, DEFAULT_TIMEOUT_MS } from "../constants.js";
 import { buildHeaders } from "../helpers.js";
 import { getValidSession } from "../session.js";
-import { handleApiError } from "./errorHandler.js";
+import { handleApiError, SmartApiException } from "./errorHandler.js";
 import { executeSmartApiRequest } from "../rateLimiter.js";
 
 export interface GainersLosersRequest {
@@ -93,7 +93,7 @@ export async function getGainersLosersData(
           cache.set(cacheKey, { data: response.data, timestamp: Date.now() });
           return response.data;
         } catch (error: any) {
-          if (error?.isRateLimitStatus) {
+          if (error?.isRateLimitStatus || error instanceof SmartApiException) {
             throw error;
           }
           if (

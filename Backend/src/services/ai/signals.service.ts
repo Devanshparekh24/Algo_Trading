@@ -19,8 +19,8 @@ import {
   calculateATR,
 } from "./indicators.service.js";
 import { getDynamicUniverse } from "./universe.service.js";
-import { getAutoPilotConfig, evaluateAutoPilotTriggers } from "./autoPilot.service.js";
-import { setSignalResolver, setQuoteResolver } from "./execution.service.js";
+import { getAutoPilotConfig, evaluateAutoPilotTriggers, setScanUniverseFn } from "./autoPilot.service.js";
+import { setSignalResolver, setQuoteResolver, logAiErrorToDb } from "./execution.service.js";
 import type {
   MarketSegment,
   ContractType,
@@ -36,15 +36,84 @@ let activeFnoSignals: TradeSignal[] = [];
 let lastEquityScanTime: string | null = null;
 let lastFnoScanTime: string | null = null;
 
+// Dedicated cache for Option Chain signals so 1-click execution always resolves
+export const optionChainSignalsCache = new Map<string, TradeSignal>();
+
 /**
- * Find signal by unique ID across all active signals
+ * Find signal by unique ID across all active signals and option chain cache
  */
 export function findSignalById(id: string): TradeSignal | undefined {
+  if (optionChainSignalsCache.has(id)) {
+    return optionChainSignalsCache.get(id);
+  }
   return [...activeEquitySignals, ...activeFnoSignals].find((s) => s.id === id);
 }
 
+/**
+ * Asynchronously resolve signal by ID with dynamic recovery for Option Chain strikes
+ */
+export async function resolveSignalByIdAsync(id: string): Promise<TradeSignal | undefined> {
+  const syncMatch = findSignalById(id);
+  if (syncMatch) return syncMatch;
+
+  // Dynamic recovery for Option Chain signals (e.g. OC_45410_1794477197938_ej8i)
+  if (id.startsWith("OC_")) {
+    const parts = id.split("_");
+    const token = parts[1];
+    if (token) {
+      try {
+        const inst = await prisma.instrument.findFirst({
+          where: { token, exch_seg: "NFO" },
+        });
+        if (inst) {
+          const sym = inst.symbol;
+          const isCall = sym.endsWith("CE");
+          const isPut = sym.endsWith("PE");
+          const strikeMatch = sym.match(/(\d{4,6})(CE|PE)$/i);
+          const strike = strikeMatch ? parseFloat(strikeMatch[1]) : parseFloat(inst.strike) || 0;
+          const lotSize = parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1));
+          const quote = getCachedQuote(token) || getCachedQuote(sym);
+          const ltp = quote?.ltp && quote.ltp > 0 ? quote.ltp : 50;
+
+          const recoveredSignal: TradeSignal = {
+            id,
+            symbol: sym,
+            token,
+            exchange: "NFO",
+            segment: "FNO",
+            contractType: isCall ? "CE" : isPut ? "PE" : "FUT",
+            strike,
+            expiry: inst.expiry,
+            lotSize,
+            underlying: inst.name || (sym.startsWith("BANKNIFTY") ? "BANKNIFTY" : "NIFTY"),
+            action: "BUY",
+            confidence: 85,
+            timeframe: "INTRADAY",
+            currentPrice: ltp,
+            entryPrice: ltp,
+            stopLoss: Number((ltp * 0.78).toFixed(2)),
+            target1: Number((ltp * 1.5).toFixed(2)),
+            target2: Number((ltp * 2.2).toFixed(2)),
+            riskReward: "1:2.0",
+            netChange: 0,
+            percentChange: 0,
+            generatedAt: new Date().toISOString(),
+            status: "ACTIVE",
+          };
+          optionChainSignalsCache.set(id, recoveredSignal);
+          return recoveredSignal;
+        }
+      } catch (e) {
+        console.warn(`[AI Engine] Failed dynamic recovery for signal ${id}:`, e);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 // Hook up resolvers with execution service
-setSignalResolver((id) => findSignalById(id));
+setSignalResolver((id) => resolveSignalByIdAsync(id));
 setQuoteResolver((token, symbol) => {
   const match = findSignalById(token) || [...activeEquitySignals, ...activeFnoSignals].find((s) => s.token === token || s.symbol === symbol);
   return match ? { ltp: match.currentPrice } : undefined;
@@ -109,7 +178,9 @@ export async function analyzeInstrument(
     }
   }
 
-  const currentPrice = liveQuote?.ltp || 1000;
+  const isFnoOption = resolvedExchange === "NFO" || symbol.endsWith("CE") || symbol.endsWith("PE");
+  const defaultFallbackPrice = isFnoOption ? 45 : 1000;
+  const currentPrice = liveQuote?.ltp && liveQuote.ltp > 0 ? liveQuote.ltp : defaultFallbackPrice;
   const open = liveQuote?.open || currentPrice;
   const high = liveQuote?.high || currentPrice * 1.01;
   const low = liveQuote?.low || currentPrice * 0.99;
@@ -490,10 +561,17 @@ export async function analyzeInstrument(
  * Scan entire market universe dynamically (Equities or Futures & Options)
  */
 export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Promise<TradeSignal[]> {
-  console.log(`[AI Engine] Initiating dynamic market scan for segment: ${segment}...`);
+  const autoConfig = getAutoPilotConfig();
+  console.log(
+    `[AI Scanner] [${autoConfig.mode}] Initiating dynamic market scan for segment: ${segment}. Auto-Pilot: ${
+      autoConfig.enabled ? "ARMED (ON)" : "PAUSED (OFF)"
+    }`
+  );
 
   const candidates = await getDynamicUniverse(segment);
-  console.log(`[AI Engine] Scanning ${candidates.length} dynamic ${segment} candidates...`);
+  console.log(
+    `[AI Scanner] [${autoConfig.mode}] Scanning ${candidates.length} dynamic ${segment} candidate instruments...`
+  );
 
   // 1. Batch fetch live quotes for all candidates in ONE single request
   const exchangeTokens: Record<string, string[]> = {};
@@ -552,7 +630,38 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     return b.confidence - a.confidence;
   });
 
-  const autoConfig = getAutoPilotConfig();
+  const buySignals = freshSignals.filter((s) => s.action === "BUY");
+  const sellSignals = freshSignals.filter((s) => s.action === "SELL");
+  const actionable = freshSignals.filter((s) => s.action !== "HOLD");
+
+  console.log(
+    `[AI Scanner] [${autoConfig.mode}] ${segment} Scan complete: ${freshSignals.length} instruments evaluated | ${buySignals.length} BUY | ${sellSignals.length} SELL | ${freshSignals.length - actionable.length} HOLD`
+  );
+
+  if (actionable.length > 0) {
+    console.log(
+      `[AI Scanner] [${autoConfig.mode}] Top actionable setups: ${actionable
+        .slice(0, 5)
+        .map((s) => `${s.symbol} (${s.action} @ ₹${s.currentPrice}, conf: ${s.confidence}%)`)
+        .join(", ")}`
+    );
+  }
+
+  broadcastSocketEvent("ai_scanner_activity", {
+    segment,
+    mode: autoConfig.mode,
+    autoPilotEnabled: autoConfig.enabled,
+    totalScanned: candidates.length,
+    buyCount: buySignals.length,
+    sellCount: sellSignals.length,
+    topActionable: actionable.slice(0, 6).map((s) => ({
+      symbol: s.symbol,
+      action: s.action,
+      currentPrice: s.currentPrice,
+      confidence: s.confidence,
+    })),
+    timestamp: new Date().toISOString(),
+  });
 
   if (segment === "FNO") {
     activeFnoSignals = freshSignals;
@@ -586,6 +695,9 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     return activeEquitySignals;
   }
 }
+
+// Register scanMarketUniverse with Auto-Pilot autonomous runner
+setScanUniverseFn((segment) => scanMarketUniverse(segment));
 
 /**
  * Find and analyze a specific F&O Option Strike
@@ -743,6 +855,7 @@ export async function scanOptionChainSignals(params: {
         status: "ACTIVE",
       };
       signals.push(signal);
+      optionChainSignalsCache.set(signal.id, signal);
     }
   }
 

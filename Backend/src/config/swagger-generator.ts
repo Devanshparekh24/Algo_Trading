@@ -11,7 +11,12 @@ const doc = {
 };
 
 const outputFile = "./src/config/swagger-output.json";
-const endpointsFiles = ["./src/app.ts"];
+const endpointsFiles = [
+  "./src/app.ts",
+  "./src/routes/index.ts",
+  "./src/routes/aiTrading.routes.ts",
+  "./src/routes/market.routes.ts",
+];
 
 // Generate the swagger documentation
 swaggerAutogen()(outputFile, endpointsFiles, doc).then(() => {
