@@ -29,48 +29,87 @@ model Instrument {
   @@index([name])
 }
 
-model AiTradeLog {
-  id              BigInt    @id @default(autoincrement())
-  orderId         String    @unique
+model TradeOrderMaster {
+  id              BigInt             @id @default(autoincrement())
+  masterOrderId   String             @unique
   symbol          String
-  token           String
-  exchange        String
-  strategy        String    @default("GREEK_SNIPER")
-  action          String    // BUY, SELL
-  segment         String    @default("FNO") // FNO, EQUITY
-  contractType    String?   // CE, PE, FUT, EQ
+  underlying      String?            // e.g. "NIFTY", "BANKNIFTY"
+  token           String?
+  exchange        String             @default("NFO")
+  strategy        String             @default("GREEK_SNIPER")
+  action          String             // BUY, SELL
+  segment         String             @default("FNO") // FNO, EQUITY
+  contractType    String?            // CE, PE, FUT, EQ
   strike          Float?
   expiry          String?
-  lotSize         Int       @default(1)
-  lots            Int       @default(1)
-  quantity        Int       @default(1)
+  slabAmount      Float?             @default(0) // Active budget slab used during scanning/execution
+  lotSize         Int                @default(1)
+  lots            Int                @default(1)
+  quantity        Int                @default(1)
   entryPrice      Float
   exitPrice       Float?
   targetPrice     Float?
   stopLossPrice   Float?
-  mode            String    @default("PAPER") // PAPER, LIVE
-  status          String    @default("OPEN")  // OPEN, EXITED, CANCELLED
-  exitReason      String?   // TARGET, STOP_LOSS, THETA_TIMEOUT, MANUAL
-  pnl             Float?    @default(0)
-  pnlPercent      Float?    @default(0)
-  charges         Float?    @default(0)
-  netPnl          Float?    @default(0)
-  holdingMinutes  Float?    @default(0)
+  mode            String             @default("PAPER") // PAPER, LIVE
+  status          String             @default("OPEN")  // OPEN, EXITED, CANCELLED
+  exitReason      String?            // TARGET, STOP_LOSS, THETA_TIMEOUT, MANUAL
+  pnl             Float?             @default(0)
+  pnlPercent      Float?             @default(0)
+  charges         Float?             @default(0)
+  netPnl          Float?             @default(0)
+  holdingMinutes  Float?             @default(0)
   delta           Float?
   gamma           Float?
   theta           Float?
   iv              Float?
-  aiThesis        Json?     // AI Rationale, catalyst, technical summary
-  indicators      Json?     // Technical indicators snapshot (EMA, VWAP, RSI)
-  enteredAt       DateTime  @default(now())
+  aiThesis        Json?              // AI Rationale, catalyst, technical summary
+  indicators      Json?              // Technical indicators snapshot (EMA, VWAP, RSI)
+  enteredAt       DateTime           @default(now())
   exitedAt        DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  details         TradeOrderDetail[]
 
   @@index([symbol])
   @@index([strategy])
   @@index([status])
   @@index([enteredAt])
+  @@index([mode])
+  @@index([slabAmount])
+  @@index([createdAt])
+}
+
+model TradeOrderDetail {
+  id              BigInt           @id @default(autoincrement())
+  masterId        BigInt
+  orderId         String           // Broker or internal order ID for this leg
+  legType         String           @default("ENTRY") // ENTRY, EXIT, STOP_LOSS, TARGET, TRAILING
+  symbol          String
+  token           String
+  exchange        String           @default("NFO")
+  action          String           // BUY, SELL
+  quantity        Int
+  lots            Int              @default(1)
+  price           Float            // Fill price
+  triggerPrice    Float?           // Trigger price if limit/SL order
+  status          String           @default("COMPLETE") // COMPLETE, REJECTED, CANCELLED
+  charges         Float?           @default(0)
+  delta           Float?
+  gamma           Float?
+  theta           Float?
+  iv              Float?
+  rawOrderPayload Json?
+  executedAt      DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+
+  master          TradeOrderMaster @relation(fields: [masterId], references: [id], onDelete: Cascade)
+
+  @@index([masterId])
+  @@index([symbol])
+  @@index([orderId])
+  @@index([legType])
+  @@index([executedAt])
 }
 
 model AiAnalysisLog {

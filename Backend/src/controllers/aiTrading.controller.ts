@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Request, Response } from "express";
+import prisma from "../config/prisma.js";
 import {
   scanMarketUniverse,
   getActiveSignals,
@@ -579,6 +580,103 @@ export async function closePositionController(req: Request, res: Response): Prom
 }
 
 /**
+ * GET /api/v1/ai/trader-orders
+ * Retrieve institutional Master-Detail trade records (TraderOrderMaster + TraderOrderDetail)
+ */
+export async function getTraderOrdersController(req: Request, res: Response): Promise<void> {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const mode = req.query.mode ? String(req.query.mode).toUpperCase() : undefined;
+    const where: any = {};
+    if (mode && mode !== "ALL" && mode !== "BOTH") {
+      where.mode = mode;
+    }
+
+    const masters = await prisma.tradeOrderMaster.findMany({
+      where,
+      orderBy: { enteredAt: "desc" },
+      take: limit,
+      include: {
+        details: {
+          orderBy: { executedAt: "asc" },
+        },
+      },
+    });
+
+    const { getAutoPilotConfig } = await import("../services/ai/autoPilot.service.js");
+    const cfg = getAutoPilotConfig();
+
+    res.json({
+      status: true,
+      message: "Trade Order Master records retrieved successfully",
+      activeScanningSlab: cfg.maxBudgetPerTrade || 0,
+      totalOrders: masters.length,
+      data: masters.map((m) => ({
+        ...m,
+        id: String(m.id),
+        details: m.details.map((d) => ({
+          ...d,
+          id: String(d.id),
+          masterId: String(d.masterId),
+        })),
+      })),
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching trade orders:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch trade orders",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/trade-orders/report
+ * Institutional From-Date to To-Date performance report and execution analytics
+ */
+export async function getTradeOrderReportController(req: Request, res: Response): Promise<void> {
+  try {
+    const { getTradeOrderReport } = await import("../services/ai/execution.service.js");
+    const { fromDate, toDate, mode, strategy, underlying, status } = req.query;
+
+    const report = await getTradeOrderReport({
+      fromDate: fromDate ? String(fromDate) : undefined,
+      toDate: toDate ? String(toDate) : undefined,
+      mode: mode ? (String(mode).toUpperCase() as any) : undefined,
+      strategy: strategy ? String(strategy) : undefined,
+      underlying: underlying ? String(underlying) : undefined,
+      status: status ? (String(status).toUpperCase() as any) : undefined,
+    });
+
+    const { getAutoPilotConfig } = await import("../services/ai/autoPilot.service.js");
+    const cfg = getAutoPilotConfig();
+
+    res.json({
+      status: true,
+      message: "Trade order report generated successfully",
+      activeScanningSlab: cfg.maxBudgetPerTrade || 0,
+      summary: report.summary,
+      data: report.orders,
+      totalOrders: report.orders.length,
+      filters: {
+        fromDate: fromDate || null,
+        toDate: toDate || null,
+        mode: mode || "ALL",
+        strategy: strategy || "ALL",
+        underlying: underlying || "ALL",
+        status: status || "ALL",
+      },
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error generating trade order report:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to generate trade order report",
+    });
+  }
+}
+
+/**
  * GET /api/v1/ai/trade-logs
  * Retrieve permanent historical database logs of executed AI trades (BUY or SELL orders)
  */
@@ -819,6 +917,130 @@ export async function runBacktestController(req: Request, res: Response): Promis
     res.status(500).json({
       status: false,
       message: error?.message || "Failed to execute strategy backtest",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/news
+ * Returns real-time live Indian market news & macroeconomic headlines
+ */
+export async function getLiveMarketNewsController(req: Request, res: Response): Promise<void> {
+  try {
+    const { getLiveMarketNews } = await import("../services/ai/marketNews.service.js");
+    const news = await getLiveMarketNews(10);
+    res.json({
+      status: true,
+      message: "Live Indian market news retrieved",
+      data: news,
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error fetching market news:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to fetch market news",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/gemini/post-mortem
+ * Returns Gemini AI's deep analysis on historical trades
+ */
+export async function getGeminiPostMortemController(req: Request, res: Response): Promise<void> {
+  try {
+    const { analyzeDailyTradesWithGemini, isGeminiActive } = await import("../services/ai/gemini.service.js");
+    const { getAiTradeLogs } = await import("../services/ai/execution.service.js");
+
+    if (!isGeminiActive()) {
+      res.json({
+        status: false,
+        message: "Gemini API key is not configured in Backend/.env",
+        data: null,
+      });
+      return;
+    }
+
+    const trades = await getAiTradeLogs(25);
+    const analysis = await analyzeDailyTradesWithGemini(trades);
+
+    res.json({
+      status: true,
+      message: "Gemini post-mortem analysis generated",
+      data: {
+        analysis,
+        tradeCount: trades.length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error generating Gemini post-mortem:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to generate post-mortem",
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/gemini/copilot
+ * Interactive AI Trading Copilot query
+ */
+export async function queryGeminiCopilotController(req: Request, res: Response): Promise<void> {
+  try {
+    const { question, context } = req.body;
+    if (!question || typeof question !== "string") {
+      res.status(400).json({
+        status: false,
+        message: "A valid question string is required",
+      });
+      return;
+    }
+
+    const { queryGeminiTradingCopilot } = await import("../services/ai/gemini.service.js");
+    const reply = await queryGeminiTradingCopilot(question, context);
+
+    res.json({
+      status: true,
+      message: "Copilot reply generated",
+      data: {
+        reply,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("[AiController] Error querying Gemini copilot:", error);
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to query copilot",
+    });
+  }
+}
+
+/**
+ * GET /api/v1/ai/gemini/status
+ * Returns operational status of the Gemini AI Decision Engine
+ */
+export async function getGeminiStatusController(req: Request, res: Response): Promise<void> {
+  try {
+    const { isGeminiActive } = await import("../services/ai/gemini.service.js");
+    const { getLiveMarketNews } = await import("../services/ai/marketNews.service.js");
+    const news = await getLiveMarketNews(3);
+
+    res.json({
+      status: true,
+      data: {
+        active: isGeminiActive(),
+        model: "gemini-3.5-flash",
+        autonomousGateEnabled: true,
+        newsHeadlinesCount: news.items.length,
+        lastNewsSync: news.fetchedAt,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: false,
+      message: error?.message || "Failed to check Gemini status",
     });
   }
 }

@@ -21,6 +21,8 @@ import {
   scanOptionChainController,
   getActivePositionsController,
   closePositionController,
+  getTraderOrdersController,
+  getTradeOrderReportController,
   getAiTradeLogsController,
   clearAiTradeLogsController,
   getAiAnalysisLogsController,
@@ -31,6 +33,10 @@ import {
   getStrategyScheduleController,
   logStrategyScheduleController,
   runBacktestController,
+  getLiveMarketNewsController,
+  getGeminiPostMortemController,
+  queryGeminiCopilotController,
+  getGeminiStatusController,
 } from "../controllers/aiTrading.controller.js";
 
 const router = Router();
@@ -75,6 +81,8 @@ router.get("/positions", getActivePositionsController);
 router.post("/positions/:id/close", closePositionController);
 
 // Database Trade Logs, Analysis Logs & Error Logs
+router.get("/trader-orders", getTraderOrdersController);
+router.get("/trade-orders/report", getTradeOrderReportController);
 router.get("/trade-logs", getAiTradeLogsController);
 router.delete("/trade-logs", clearAiTradeLogsController);
 router.get("/analysis-logs", getAiAnalysisLogsController);
@@ -91,6 +99,14 @@ router.post("/strategy-schedule/log", logStrategyScheduleController);
 
 // Strategy Historical Backtesting with Institutional Indian Cost Model
 router.post("/backtest", runBacktestController);
+
+// Real-Time Indian Market News Feed
+router.get("/news", getLiveMarketNewsController);
+
+// Google Gemini AI Autonomous Trading Endpoints
+router.get("/gemini/status", getGeminiStatusController);
+router.get("/gemini/post-mortem", getGeminiPostMortemController);
+router.post("/gemini/copilot", queryGeminiCopilotController);
 
 export default router;
 

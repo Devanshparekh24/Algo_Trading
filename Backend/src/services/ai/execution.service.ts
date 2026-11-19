@@ -23,8 +23,8 @@ import type { OrderPlacementRequest, OrderBookItem } from "../smartapi/types.js"
 export const activeAiPositions: Map<string, ActiveAiPosition> = new Map();
 
 // Pluggable signal resolver to avoid circular dependency with signals.service
-let signalResolver: ((id: string) => Promise<TradeSignal | undefined> | TradeSignal | undefined) | null = null;
-let quoteResolver: ((token: string, symbol: string) => { ltp?: number } | undefined) | null = null;
+var signalResolver: ((id: string) => Promise<TradeSignal | undefined> | TradeSignal | undefined) | null = null;
+var quoteResolver: ((token: string, symbol: string) => { ltp?: number } | undefined) | null = null;
 
 export function setSignalResolver(fn: (id: string) => Promise<TradeSignal | undefined> | TradeSignal | undefined): void {
   signalResolver = fn;
@@ -36,28 +36,29 @@ export function setQuoteResolver(fn: (token: string, symbol: string) => { ltp?: 
 
 /**
  * Server Restart Recovery & Position Persistence:
- * Reloads all OPEN trades from PostgreSQL AiTradeLog into activeAiPositions map,
+ * Reloads all OPEN trades from PostgreSQL TradeOrderMaster into activeAiPositions map,
  * ensuring stop-loss, profit-target, and theta-timeout monitoring resumes seamlessly.
  */
 export async function loadPersistedOpenPositions(): Promise<number> {
   try {
-    const openLogs = await prisma.aiTradeLog.findMany({
+    const openLogs = await prisma.tradeOrderMaster.findMany({
       where: { status: "OPEN" },
       orderBy: { enteredAt: "asc" },
     });
 
     let loadedCount = 0;
     for (const log of openLogs) {
-      const posId = `pos_${log.orderId}`;
+      const posId = `pos_${log.masterOrderId}`;
       const isFno = log.exchange === "NFO" || log.segment === "FNO";
       const targetPct = 35;
       const slPct = 18;
+      const dynamicRisk = Math.max(500, Math.round(log.entryPrice * log.quantity * 0.15));
 
       const position: ActiveAiPosition = {
         id: posId,
-        orderId: log.orderId,
+        orderId: log.masterOrderId,
         symbol: log.symbol,
-        token: log.token,
+        token: log.token || "",
         exchange: log.exchange,
         strategy: (log.strategy as AutoPilotStrategy) || (isFno ? "GREEK_SNIPER" : "STANDARD"),
         entryPrice: log.entryPrice,
@@ -69,6 +70,7 @@ export async function loadPersistedOpenPositions(): Promise<number> {
         targetPrice: log.targetPrice || Number((log.entryPrice * (1 + targetPct / 100)).toFixed(2)),
         stopLossPrice: log.stopLossPrice || Number((log.entryPrice * (1 - slPct / 100)).toFixed(2)),
         enteredAt: new Date(log.enteredAt).getTime(),
+        slabAmount: log.slabAmount || 0,
         holdingMinutes: log.holdingMinutes || 0,
         timeoutMinutes: 45,
         mode: (log.mode as "PAPER" | "LIVE") || "PAPER",
@@ -90,6 +92,9 @@ export async function loadPersistedOpenPositions(): Promise<number> {
               }
             : undefined,
         exitRetryCount: 0,
+        isBreakevenLocked: false,
+        trailingStep: 0,
+        maxRiskRupees: dynamicRisk,
       };
 
       activeAiPositions.set(posId, position);
@@ -97,7 +102,7 @@ export async function loadPersistedOpenPositions(): Promise<number> {
     }
 
     if (loadedCount > 0) {
-      console.log(`[AI Position Persistence] Reloaded ${loadedCount} OPEN positions from PostgreSQL for active auto-exit monitoring.`);
+      console.log(`[AI Position Persistence] Reloaded ${loadedCount} OPEN positions from PostgreSQL TradeOrderMaster for active auto-exit monitoring.`);
       broadcastSocketEvent("ai_positions_update", Array.from(activeAiPositions.values()));
     }
     return loadedCount;
@@ -213,13 +218,16 @@ export async function executeSignalOrder(
       stopLossPrice,
       enteredAt: Date.now(),
       holdingMinutes: 0,
-      timeoutMinutes: options.thetaTimeoutMinutes || 45,
+      timeoutMinutes: options.thetaTimeoutMinutes || 25,
       mode: isPaper ? "PAPER" : "LIVE",
       status: "OPEN",
       pnl: 0,
       pnlPercent: 0,
       greeks: signal.greeks,
       exitRetryCount: 0,
+      isBreakevenLocked: false,
+      trailingStep: 0,
+      maxRiskRupees: (isFno ? Math.max(1, Math.round(finalQty / lotSize)) : 1) * 180,
     };
 
     activeAiPositions.set(posId, position);
@@ -327,18 +335,29 @@ export async function logTradeEntryToDb(
 ): Promise<void> {
   try {
     const isFno = position.exchange === "NFO";
-    await prisma.aiTradeLog.create({
+    const underlying = position.symbol.startsWith("BANKNIFTY")
+      ? "BANKNIFTY"
+      : position.symbol.startsWith("NIFTY")
+      ? "NIFTY"
+      : position.symbol.startsWith("FINNIFTY")
+      ? "FINNIFTY"
+      : signal?.underlying || null;
+
+    // 1. Primary Institutional Master-Detail Logging: TradeOrderMaster
+    const master = await prisma.tradeOrderMaster.create({
       data: {
-        orderId: position.orderId,
+        masterOrderId: position.orderId,
         symbol: position.symbol,
+        underlying,
         token: position.token,
         exchange: position.exchange,
         strategy: position.strategy || "GREEK_SNIPER",
         action: position.action,
         segment: isFno ? "FNO" : "EQUITY",
-        contractType: signal?.contractType || null,
+        contractType: signal?.contractType || (position.symbol.endsWith("CE") ? "CE" : position.symbol.endsWith("PE") ? "PE" : null),
         strike: signal?.strike || null,
         expiry: signal?.expiry || null,
+        slabAmount: position.slabAmount || 0,
         lotSize: signal?.lotSize || 1,
         lots: position.lots,
         quantity: position.quantity,
@@ -360,7 +379,31 @@ export async function logTradeEntryToDb(
         enteredAt: new Date(position.enteredAt),
       },
     });
-    console.log(`[Database] Logged AI trade entry for ${position.symbol} (${position.orderId})`);
+
+    // 2. Insert Entry Leg into TradeOrderDetail
+    await prisma.tradeOrderDetail.create({
+      data: {
+        masterId: master.id,
+        orderId: position.orderId,
+        legType: "ENTRY",
+        symbol: position.symbol,
+        token: position.token,
+        exchange: position.exchange,
+        action: position.action,
+        quantity: position.quantity,
+        lots: position.lots,
+        price: position.entryPrice,
+        triggerPrice: position.stopLossPrice,
+        status: "COMPLETE",
+        charges: position.charges || 0,
+        delta: position.greeks?.delta ?? signal?.greeks?.delta ?? null,
+        gamma: position.greeks?.gamma ?? signal?.greeks?.gamma ?? null,
+        theta: position.greeks?.theta ?? signal?.greeks?.theta ?? null,
+        iv: position.greeks?.iv ?? signal?.greeks?.iv ?? null,
+        executedAt: new Date(position.enteredAt),
+      },
+    });
+    console.log(`[Database] Persisted TradeOrderMaster & TradeOrderDetail for ${position.symbol} (${position.orderId})`);
     broadcastSocketEvent("ai_trade_logged", { orderId: position.orderId, symbol: position.symbol, status: "OPEN" });
   } catch (err: any) {
     console.error(`[Database] Failed to log AI trade entry:`, err?.message || err);
@@ -377,15 +420,16 @@ export async function logTradeEntryToDb(
 }
 
 /**
- * Database Persistence: Update order exit & P&L in PostgreSQL AiTradeLog table
+ * Database Persistence: Update order exit & P&L in PostgreSQL TradeOrderMaster and TradeOrderDetail
  */
 export async function logTradeExitToDb(
   position: ActiveAiPosition,
   reason: "TARGET" | "STOP_LOSS" | "THETA_TIMEOUT" | "MANUAL"
 ): Promise<void> {
   try {
-    await prisma.aiTradeLog.update({
-      where: { orderId: position.orderId },
+    // 1. Update Institutional TradeOrderMaster
+    const updatedMaster = await prisma.tradeOrderMaster.update({
+      where: { masterOrderId: position.orderId },
       data: {
         exitPrice: position.currentPrice,
         status: "EXITED",
@@ -398,7 +442,26 @@ export async function logTradeExitToDb(
         exitedAt: new Date(),
       },
     });
-    console.log(`[Database] Updated AI trade exit for ${position.symbol} (${position.orderId}, Reason: ${reason}, PnL: ${position.pnl})`);
+
+    // 2. Insert Exit Leg into TradeOrderDetail
+    await prisma.tradeOrderDetail.create({
+      data: {
+        masterId: updatedMaster.id,
+        orderId: `EXIT_${position.orderId}_${Date.now()}`,
+        legType: reason === "STOP_LOSS" ? "STOP_LOSS" : reason === "TARGET" ? "TARGET" : "EXIT",
+        symbol: position.symbol,
+        token: position.token,
+        exchange: position.exchange,
+        action: position.action === "BUY" ? "SELL" : "BUY",
+        quantity: position.quantity,
+        lots: position.lots,
+        price: position.currentPrice,
+        status: "COMPLETE",
+        charges: position.charges || 0,
+        executedAt: new Date(),
+      },
+    });
+    console.log(`[Database] Updated TradeOrderMaster & inserted Exit Leg into TradeOrderDetail for ${position.symbol} (Reason: ${reason}, NetPnL: ${position.netPnl})`);
     broadcastSocketEvent("ai_trade_logged", { orderId: position.orderId, symbol: position.symbol, status: "EXITED", reason });
   } catch (err: any) {
     console.error(`[Database] Failed to update AI trade exit in DB:`, err?.message || err);
@@ -415,7 +478,7 @@ export async function logTradeExitToDb(
 }
 
 /**
- * Retrieve Historical AI Trade Logs from PostgreSQL (strictly actual BUY orders and SELL execution exits)
+ * Retrieve Historical AI Trade Logs from PostgreSQL TradeOrderMaster with associated TradeOrderDetail legs
  */
 export async function getAiTradeLogs(limit = 100, action?: string, mode?: string): Promise<any[]> {
   try {
@@ -427,14 +490,26 @@ export async function getAiTradeLogs(limit = 100, action?: string, mode?: string
       whereClause.mode = mode.toUpperCase();
     }
 
-    const logs = await prisma.aiTradeLog.findMany({
+    const masters = await prisma.tradeOrderMaster.findMany({
       where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+      include: {
+        details: {
+          orderBy: { executedAt: "asc" },
+        },
+      },
       orderBy: { enteredAt: "desc" },
       take: limit,
     });
-    return logs.map((log) => ({
-      ...log,
-      id: String(log.id),
+
+    return masters.map((m) => ({
+      ...m,
+      id: String(m.id),
+      orderId: m.masterOrderId,
+      details: m.details.map((d) => ({
+        ...d,
+        id: String(d.id),
+        masterId: String(d.masterId),
+      })),
     }));
   } catch (err: any) {
     console.error("[Database] Error fetching AI trade logs:", err?.message || err);
@@ -443,7 +518,7 @@ export async function getAiTradeLogs(limit = 100, action?: string, mode?: string
 }
 
 /**
- * Clear historical AI trade logs from database
+ * Clear historical AI trade logs from database (TradeOrderMaster and cascading TradeOrderDetail)
  * Supports filtering by mode (PAPER, LIVE, or ALL)
  */
 export async function clearAiTradeLogs(mode: "PAPER" | "LIVE" | "ALL" = "PAPER"): Promise<number> {
@@ -452,7 +527,7 @@ export async function clearAiTradeLogs(mode: "PAPER" | "LIVE" | "ALL" = "PAPER")
     if (mode !== "ALL") {
       whereClause.mode = mode.toUpperCase();
     }
-    const res = await prisma.aiTradeLog.deleteMany({
+    const res = await prisma.tradeOrderMaster.deleteMany({
       where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
     });
 
@@ -471,10 +546,224 @@ export async function clearAiTradeLogs(mode: "PAPER" | "LIVE" | "ALL" = "PAPER")
       timestamp: new Date().toISOString(),
     });
 
-    console.log(`[Database] Cleared ${res.count} AI trade logs (mode: ${mode}).`);
+    console.log(`[Database] Cleared ${res.count} TradeOrderMaster records (mode: ${mode}).`);
     return res.count;
   } catch (err: any) {
     console.error("[Database] Error clearing AI trade logs:", err?.message || err);
+    throw err;
+  }
+}
+
+export interface TradeOrderReportFilter {
+  fromDate?: string | undefined;
+  toDate?: string | undefined;
+  mode?: "PAPER" | "LIVE" | "ALL" | undefined;
+  strategy?: string | undefined;
+  underlying?: string | undefined;
+  status?: "OPEN" | "EXITED" | "ALL" | undefined;
+}
+
+export interface TradeOrderReportSummary {
+  totalOrders: number;
+  openOrders: number;
+  closedOrders: number;
+  winTrades: number;
+  lossTrades: number;
+  breakEvenTrades: number;
+  winRatePct: number;
+  grossPnL: number;
+  totalCharges: number;
+  netPnL: number;
+  maxProfit: number;
+  maxDrawdown: number;
+  avgHoldingMinutes: number;
+  profitFactor: number;
+  byStrategy: Record<string, { count: number; winRate: number; netPnl: number }>;
+  byUnderlying: Record<string, { count: number; winRate: number; netPnl: number }>;
+  bySlab: Record<string, { count: number; winRate: number; netPnl: number }>;
+}
+
+/**
+ * Institutional From-Date to To-Date Trade Performance Report Generator
+ * Aggregates master orders and leg execution details across user-defined date ranges and filters
+ */
+export async function getTradeOrderReport(filter: TradeOrderReportFilter = {}): Promise<{
+  summary: TradeOrderReportSummary;
+  orders: any[];
+}> {
+  try {
+    const whereClause: any = {};
+
+    if (filter.mode && filter.mode !== "ALL") {
+      whereClause.mode = filter.mode.toUpperCase();
+    }
+    if (filter.strategy && filter.strategy !== "ALL") {
+      whereClause.strategy = filter.strategy;
+    }
+    if (filter.underlying && filter.underlying !== "ALL") {
+      whereClause.underlying = filter.underlying;
+    }
+    if (filter.status && filter.status !== "ALL") {
+      whereClause.status = filter.status.toUpperCase();
+    }
+
+    // Date Range Filtering (From Date to To Date)
+    if (filter.fromDate || filter.toDate) {
+      whereClause.enteredAt = {};
+      if (filter.fromDate) {
+        const from = new Date(filter.fromDate);
+        from.setHours(0, 0, 0, 0);
+        whereClause.enteredAt.gte = from;
+      }
+      if (filter.toDate) {
+        const to = new Date(filter.toDate);
+        to.setHours(23, 59, 59, 999);
+        whereClause.enteredAt.lte = to;
+      }
+    }
+
+    const masters = await prisma.tradeOrderMaster.findMany({
+      where: whereClause,
+      include: {
+        details: {
+          orderBy: { executedAt: "asc" },
+        },
+      },
+      orderBy: { enteredAt: "desc" },
+    });
+
+    const orders = masters.map((m) => ({
+      ...m,
+      id: String(m.id),
+      orderId: m.masterOrderId,
+      details: m.details.map((d) => ({
+        ...d,
+        id: String(d.id),
+        masterId: String(d.masterId),
+      })),
+    }));
+
+    // Aggregate Metrics
+    const totalOrders = orders.length;
+    let openOrders = 0;
+    let closedOrders = 0;
+    let winTrades = 0;
+    let lossTrades = 0;
+    let breakEvenTrades = 0;
+    let grossPnL = 0;
+    let totalCharges = 0;
+    let netPnL = 0;
+    let maxProfit = 0;
+    let maxDrawdown = 0;
+    let totalHoldingMinutes = 0;
+    let grossGains = 0;
+    let grossLosses = 0;
+
+    const byStrategy: Record<string, { count: number; wins: number; netPnl: number }> = {};
+    const byUnderlying: Record<string, { count: number; wins: number; netPnl: number }> = {};
+    const bySlab: Record<string, { count: number; wins: number; netPnl: number }> = {};
+
+    for (const order of orders) {
+      const pnl = order.pnl || 0;
+      const chg = order.charges || 0;
+      const net = order.netPnl != null ? order.netPnl : pnl - chg;
+      const strat = order.strategy || "UNKNOWN";
+      const und = order.underlying || "OTHER";
+      const slabKey = order.slabAmount ? `₹${(order.slabAmount / 1000).toFixed(0)}k` : "Dynamic";
+
+      if (!byStrategy[strat]) byStrategy[strat] = { count: 0, wins: 0, netPnl: 0 };
+      byStrategy[strat].count++;
+      byStrategy[strat].netPnl += net;
+
+      if (!byUnderlying[und]) byUnderlying[und] = { count: 0, wins: 0, netPnl: 0 };
+      byUnderlying[und].count++;
+      byUnderlying[und].netPnl += net;
+
+      if (!bySlab[slabKey]) bySlab[slabKey] = { count: 0, wins: 0, netPnl: 0 };
+      bySlab[slabKey].count++;
+      bySlab[slabKey].netPnl += net;
+
+      if (order.status === "OPEN") {
+        openOrders++;
+      } else {
+        closedOrders++;
+        grossPnL += pnl;
+        totalCharges += chg;
+        netPnL += net;
+        totalHoldingMinutes += order.holdingMinutes || 0;
+
+        if (net > 0) {
+          winTrades++;
+          grossGains += net;
+          byStrategy[strat].wins++;
+          byUnderlying[und].wins++;
+          bySlab[slabKey].wins++;
+        } else if (net < 0) {
+          lossTrades++;
+          grossLosses += Math.abs(net);
+        } else {
+          breakEvenTrades++;
+        }
+
+        if (net > maxProfit) maxProfit = net;
+        if (net < maxDrawdown) maxDrawdown = net;
+      }
+    }
+
+    const winRatePct = closedOrders > 0 ? Number(((winTrades / closedOrders) * 100).toFixed(1)) : 0;
+    const profitFactor = grossLosses > 0 ? Number((grossGains / grossLosses).toFixed(2)) : grossGains > 0 ? 999 : 0;
+    const avgHoldingMinutes = closedOrders > 0 ? Number((totalHoldingMinutes / closedOrders).toFixed(1)) : 0;
+
+    const formattedByStrategy: Record<string, { count: number; winRate: number; netPnl: number }> = {};
+    for (const [k, v] of Object.entries(byStrategy)) {
+      formattedByStrategy[k] = {
+        count: v.count,
+        winRate: v.count > 0 ? Number(((v.wins / v.count) * 100).toFixed(1)) : 0,
+        netPnl: Number(v.netPnl.toFixed(2)),
+      };
+    }
+
+    const formattedByUnderlying: Record<string, { count: number; winRate: number; netPnl: number }> = {};
+    for (const [k, v] of Object.entries(byUnderlying)) {
+      formattedByUnderlying[k] = {
+        count: v.count,
+        winRate: v.count > 0 ? Number(((v.wins / v.count) * 100).toFixed(1)) : 0,
+        netPnl: Number(v.netPnl.toFixed(2)),
+      };
+    }
+
+    const formattedBySlab: Record<string, { count: number; winRate: number; netPnl: number }> = {};
+    for (const [k, v] of Object.entries(bySlab)) {
+      formattedBySlab[k] = {
+        count: v.count,
+        winRate: v.count > 0 ? Number(((v.wins / v.count) * 100).toFixed(1)) : 0,
+        netPnl: Number(v.netPnl.toFixed(2)),
+      };
+    }
+
+    const summary: TradeOrderReportSummary = {
+      totalOrders,
+      openOrders,
+      closedOrders,
+      winTrades,
+      lossTrades,
+      breakEvenTrades,
+      winRatePct,
+      grossPnL: Number(grossPnL.toFixed(2)),
+      totalCharges: Number(totalCharges.toFixed(2)),
+      netPnL: Number(netPnL.toFixed(2)),
+      maxProfit: Number(maxProfit.toFixed(2)),
+      maxDrawdown: Number(maxDrawdown.toFixed(2)),
+      avgHoldingMinutes,
+      profitFactor,
+      byStrategy: formattedByStrategy,
+      byUnderlying: formattedByUnderlying,
+      bySlab: formattedBySlab,
+    };
+
+    return { summary, orders };
+  } catch (err: any) {
+    console.error("[Database] Error generating TradeOrder report:", err?.message || err);
     throw err;
   }
 }
@@ -716,25 +1005,119 @@ export async function checkActivePositionsForExit(config?: {
 
     const targetPct = config?.profitTargetPct || 35;
     const slPct = config?.stopLossPct || 18;
-    const timeoutMins = pos.timeoutMinutes || config?.thetaTimeoutMinutes || 45;
+    const positionInvestedValue = (pos.quantity || ((pos.lots || 1) * 65)) * pos.entryPrice;
+    // Dynamic Rupee Loss Cap: allows 18% SL breathing room plus buffer (minimum ₹1,200/lot instead of choking ₹180)
+    const dynamicLossCap = Math.max((pos.lots || 1) * 1200, (positionInvestedValue * (slPct / 100)) * 1.25);
+    const hardLossCapRupees = pos.maxRiskRupees || dynamicLossCap;
 
-    // Rule 1: Profit Target Hit
-    if (pos.pnlPercent >= targetPct) {
-      shouldExit = true;
-      reason = "TARGET";
-      exitMessage = `Target Hit (+${pos.pnlPercent}% net)`;
+    // Rule 1: Trailing Stop-Loss to Breakeven & Dynamic Profit Locking
+    // A. Breakeven Lock at +10% net gain
+    if (pos.pnlPercent >= 10 && !pos.isBreakevenLocked) {
+      pos.isBreakevenLocked = true;
+      if (pos.action === "BUY") {
+        const bePrice = Number((pos.entryPrice * 1.015).toFixed(2));
+        if (pos.stopLossPrice < bePrice) pos.stopLossPrice = bePrice;
+      } else {
+        const bePrice = Number((pos.entryPrice * 0.985).toFixed(2));
+        if (pos.stopLossPrice > bePrice) pos.stopLossPrice = bePrice;
+      }
+      console.log(
+        `[AI Profit Lock] Locked stop-loss to breakeven for ${pos.symbol} @ ₹${pos.stopLossPrice} (Net gain: +${pos.pnlPercent}%)`
+      );
     }
-    // Rule 2: Hard Stop-Loss Triggered
-    else if (pos.pnlPercent <= -slPct) {
+
+    // B. +10% Profit Lock at +20% net gain
+    if (pos.pnlPercent >= 20 && (pos.trailingStep || 0) < 1) {
+      pos.trailingStep = 1;
+      if (pos.action === "BUY") {
+        const trail1Price = Number((pos.entryPrice * 1.10).toFixed(2));
+        if (pos.stopLossPrice < trail1Price) pos.stopLossPrice = trail1Price;
+      } else {
+        const trail1Price = Number((pos.entryPrice * 0.90).toFixed(2));
+        if (pos.stopLossPrice > trail1Price) pos.stopLossPrice = trail1Price;
+      }
+      console.log(
+        `[AI Profit Lock] Trailed stop-loss to lock +10% for ${pos.symbol} @ ₹${pos.stopLossPrice} (Net gain: +${pos.pnlPercent}%)`
+      );
+    }
+
+    // C. +20% Profit Lock at +30% net gain
+    if (pos.pnlPercent >= 30 && (pos.trailingStep || 0) < 2) {
+      pos.trailingStep = 2;
+      if (pos.action === "BUY") {
+        const trail2Price = Number((pos.entryPrice * 1.20).toFixed(2));
+        if (pos.stopLossPrice < trail2Price) pos.stopLossPrice = trail2Price;
+      } else {
+        const trail2Price = Number((pos.entryPrice * 0.80).toFixed(2));
+        if (pos.stopLossPrice > trail2Price) pos.stopLossPrice = trail2Price;
+      }
+      console.log(
+        `[AI Profit Lock] Trailed stop-loss to lock +20% for ${pos.symbol} @ ₹${pos.stopLossPrice} (Net gain: +${pos.pnlPercent}%)`
+      );
+    }
+
+    // Rule 2: Hard Rupee Loss Cap (Strictly max ₹150–₹180 risk per lot)
+    const currentNetLoss = pos.netPnl != null ? pos.netPnl : pos.pnl;
+    if (currentNetLoss <= -hardLossCapRupees) {
       shouldExit = true;
       reason = "STOP_LOSS";
-      exitMessage = `Stop-Loss Triggered (${pos.pnlPercent}% net)`;
+      exitMessage = `Hard Rupee Loss Cap Triggered (Net Loss ₹${Math.abs(currentNetLoss).toFixed(2)} reached ₹${hardLossCapRupees} cap for ${pos.lots || 1} lot(s))`;
     }
-    // Rule 3: Theta Timeout (Stagnant position held with minimal gain)
-    else if (holdingMins >= timeoutMins && pos.pnlPercent < 8) {
+
+    // Rule 1 Verification: Price-Based Stop-Loss & Breakeven/Trailing SL Trigger
+    if (!shouldExit && pos.stopLossPrice > 0) {
+      if (pos.action === "BUY" && liveLtp <= pos.stopLossPrice) {
+        shouldExit = true;
+        reason = "STOP_LOSS";
+        exitMessage = pos.isBreakevenLocked
+          ? `Breakeven/Trailing SL Hit @ ₹${liveLtp} (SL: ₹${pos.stopLossPrice}, Net PnL: ${pos.pnlPercent}%)`
+          : `Stop-Loss Price Hit @ ₹${liveLtp} (SL: ₹${pos.stopLossPrice}, Net PnL: ${pos.pnlPercent}%)`;
+      } else if (pos.action === "SELL" && liveLtp >= pos.stopLossPrice) {
+        shouldExit = true;
+        reason = "STOP_LOSS";
+        exitMessage = pos.isBreakevenLocked
+          ? `Breakeven/Trailing SL Hit @ ₹${liveLtp} (SL: ₹${pos.stopLossPrice}, Net PnL: ${pos.pnlPercent}%)`
+          : `Stop-Loss Price Hit @ ₹${liveLtp} (SL: ₹${pos.stopLossPrice}, Net PnL: ${pos.pnlPercent}%)`;
+      }
+    }
+
+    // Target Check: Price-based or Profit Target %
+    if (!shouldExit && pos.targetPrice > 0) {
+      if (pos.action === "BUY" && liveLtp >= pos.targetPrice) {
+        shouldExit = true;
+        reason = "TARGET";
+        exitMessage = `Target Price Hit @ ₹${liveLtp} (Target: ₹${pos.targetPrice}, +${pos.pnlPercent}% net)`;
+      } else if (pos.action === "SELL" && liveLtp <= pos.targetPrice) {
+        shouldExit = true;
+        reason = "TARGET";
+        exitMessage = `Target Price Hit @ ₹${liveLtp} (Target: ₹${pos.targetPrice}, +${pos.pnlPercent}% net)`;
+      }
+    }
+
+    if (!shouldExit && pos.pnlPercent >= targetPct) {
+      shouldExit = true;
+      reason = "TARGET";
+      exitMessage = `Target Percentage Hit (+${pos.pnlPercent}% net >= +${targetPct}%)`;
+    }
+
+    // Stop-Loss Percentage Trigger
+    if (!shouldExit && pos.pnlPercent <= -slPct) {
+      shouldExit = true;
+      reason = "STOP_LOSS";
+      exitMessage = `Stop-Loss Percentage Hit (${pos.pnlPercent}% net <= -${slPct}%)`;
+    }
+
+    // Rule 4: Accelerated Theta Harvester (20–25 Minute Cutoff)
+    // If trade momentum is stagnant (< 15% net), exit and release capital
+    const effectiveTimeout = Math.min(pos.timeoutMinutes || 25, 25);
+    if (!shouldExit && holdingMins >= effectiveTimeout && pos.pnlPercent < 15) {
       shouldExit = true;
       reason = "THETA_TIMEOUT";
-      exitMessage = `Theta Timeout (Held ${pos.holdingMinutes}m > ${timeoutMins}m with stagnant momentum)`;
+      exitMessage = `Accelerated Theta Timeout (Held ${pos.holdingMinutes}m >= ${effectiveTimeout}m with stagnant momentum < +15%)`;
+    } else if (!shouldExit && holdingMins >= 45) {
+      shouldExit = true;
+      reason = "THETA_TIMEOUT";
+      exitMessage = `Max Holding Timeout (Held ${pos.holdingMinutes}m >= 45m capital recycle)`;
     }
 
     if (shouldExit) {

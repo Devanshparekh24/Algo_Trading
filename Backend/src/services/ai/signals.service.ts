@@ -429,8 +429,16 @@ export async function analyzeInstrument(
     action = "BUY";
     confidence = Math.min(94, Math.max(68, Math.round(50 + (bullishScore - bearishScore) * 0.75)));
   } else if (bearishScore >= bullishScore + 15) {
-    action = "SELL";
-    confidence = Math.min(94, Math.max(68, Math.round(50 + (bearishScore - bullishScore) * 0.75)));
+    // CRITICAL STRATEGY RULE: Retail option scalping NEVER writes naked Call or Put options.
+    // If an option contract is falling/bearish, set to HOLD. Bearish market opportunities are captured by BUYING PE.
+    if (isFnoOption) {
+      action = "HOLD";
+      confidence = 50;
+      rationaleList.push("Option premium weakness: naked option selling disabled for capital safety. Directional Put (PE) buying favored for downward momentum.");
+    } else {
+      action = "SELL";
+      confidence = Math.min(94, Math.max(68, Math.round(50 + (bearishScore - bullishScore) * 0.75)));
+    }
   } else {
     action = "HOLD";
     confidence = Math.round(50 + Math.abs(bullishScore - bearishScore) * 0.4);
@@ -450,11 +458,15 @@ export async function analyzeInstrument(
     target1 = Number((currentPrice + dynamicRisk * 1.8).toFixed(2));
     target2 = Number((currentPrice + dynamicRisk * 3.2).toFixed(2));
   } else if (action === "SELL") {
-    stopLoss = Number((currentPrice + dynamicRisk).toFixed(2));
-    const rawT1 = currentPrice - dynamicRisk * 1.8;
-    const rawT2 = currentPrice - dynamicRisk * 3.2;
-    target1 = rawT1 <= 0 ? Number((currentPrice * 0.80).toFixed(2)) : Number(rawT1.toFixed(2));
-    target2 = rawT2 <= 0 ? Number((currentPrice * 0.65).toFixed(2)) : Number(rawT2.toFixed(2));
+    // For Option Selling (FNO PE/CE), cap adverse premium rise to prevent catastrophic drawdowns
+    // For an index lot (qty 65/30), an adverse move is capped to maintain a max ~₹150-₹200 risk per lot
+    const isOptionWriting = exchange === "NFO" || symbol.endsWith("CE") || symbol.endsWith("PE");
+    const cappedRisk = isOptionWriting ? Math.min(dynamicRisk, Math.max(1.2, currentPrice * 0.20)) : dynamicRisk;
+    stopLoss = Number((currentPrice + cappedRisk).toFixed(2));
+    const rawT1 = currentPrice - cappedRisk * 1.5;
+    const rawT2 = currentPrice - cappedRisk * 2.5;
+    target1 = rawT1 <= 0 ? Number((currentPrice * 0.60).toFixed(2)) : Number(rawT1.toFixed(2));
+    target2 = rawT2 <= 0 ? Number((currentPrice * 0.35).toFixed(2)) : Number(rawT2.toFixed(2));
     if (target1 <= 0) target1 = 0.05;
     if (target2 <= 0) target2 = 0.05;
   } else {
@@ -647,6 +659,35 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     }
   }
 
+  // 3. For FNO segment, also integrate real-time ATM & Momentum Option Chain strikes
+  if (segment === "FNO") {
+    try {
+      const ocNifty = await scanOptionChainSignals({ underlying: "NIFTY" }).catch(() => null);
+      if (ocNifty?.signals && ocNifty.signals.length > 0) {
+        for (const ocSig of ocNifty.signals) {
+          if (ocSig.action !== "HOLD" && !isContractExpired(ocSig.expiry, ocSig.symbol)) {
+            if (!freshSignals.some((s) => s.symbol === ocSig.symbol || s.token === ocSig.token)) {
+              freshSignals.push(ocSig);
+            }
+          }
+        }
+      }
+
+      const ocBank = await scanOptionChainSignals({ underlying: "BANKNIFTY" }).catch(() => null);
+      if (ocBank?.signals && ocBank.signals.length > 0) {
+        for (const ocSig of ocBank.signals) {
+          if (ocSig.action !== "HOLD" && !isContractExpired(ocSig.expiry, ocSig.symbol)) {
+            if (!freshSignals.some((s) => s.symbol === ocSig.symbol || s.token === ocSig.token)) {
+              freshSignals.push(ocSig);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[AI Engine] Option chain momentum enrichment notice:`, err?.message || err);
+    }
+  }
+
   // Sort signals: actionable BUY/SELL first, highest confidence to lowest
   freshSignals.sort((a, b) => {
     const aAction = a.action !== "HOLD" ? 1 : 0;
@@ -693,7 +734,11 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     lastFnoScanTime = new Date().toISOString();
 
     for (const sig of freshSignals) {
-      logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+      // High-Conviction Quality Gate: Only persist actionable BUY trades or high-confidence signals (>= 65%)
+      // Eliminates 50% neutral HOLD noise from bloating AiAnalysisLog
+      if (sig.action !== "HOLD" || sig.confidence >= 65) {
+        logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+      }
     }
 
     broadcastSocketEvent("ai_fno_signals_update", {
@@ -712,7 +757,11 @@ export async function scanMarketUniverse(segment: MarketSegment = "EQUITY"): Pro
     lastEquityScanTime = new Date().toISOString();
 
     for (const sig of freshSignals) {
-      logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+      // High-Conviction Quality Gate: Only persist actionable BUY trades or high-confidence signals (>= 65%)
+      // Eliminates 50% neutral HOLD noise from bloating AiAnalysisLog
+      if (sig.action !== "HOLD" || sig.confidence >= 65) {
+        logAnalysisEntryToDb(sig, "SCANNER").catch(() => {});
+      }
     }
 
     broadcastSocketEvent("ai_signals_update", {
@@ -831,17 +880,21 @@ export async function scanOptionChainSignals(params: {
       const thetaRatio = contract.greeks?.thetaPremiumRatio ?? 0;
 
       let action: SignalAction = "HOLD";
-      if (pct > 0.5 && delta >= 0.2 && delta <= 0.6) action = "BUY";
-      else if (pct < -0.5 && delta >= 0.2 && delta <= 0.6) action = "SELL";
+      if (pct > 0.5 && delta >= 0.25 && delta <= 0.65) {
+        action = "BUY";
+      } else {
+        // Strict Retail Options Rule: Never write naked Call or Put options. Downward momentum is captured by BUYING PE.
+        action = "HOLD";
+      }
 
       let confidence = 50 + Math.min(30, Math.abs(pct) * 2) + Math.min(10, (vol > 0 ? 5 : 0)) + Math.min(10, (oi > 0 ? 5 : 0));
       if (row.isAtm) confidence += 5;
       confidence = Math.min(95, Math.max(40, Math.round(confidence)));
 
       const ltp = contract.ltp;
-      const sl = Number((ltp * 0.78).toFixed(2));
-      const t1 = Number((ltp * 1.5).toFixed(2));
-      const t2 = Number((ltp * 2.2).toFixed(2));
+      const sl = Number((ltp * 0.80).toFixed(2)); // 20% Stop-Loss
+      const t1 = Number((ltp * 1.40).toFixed(2)); // 40% Target 1 (1:2 Risk/Reward)
+      const t2 = Number((ltp * 1.80).toFixed(2)); // 80% Target 2 (1:4 Risk/Reward)
 
       const signal: TradeSignal = {
         id: `OC_${contract.symbolToken}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,

@@ -209,12 +209,14 @@ export type AutoPilotStrategy =
   | 'ORB_15M'
   | 'PCR_REVERSAL'
   | 'STANDARD'
-  | 'EMA_9_21';
+  | 'EMA_9_21'
+  | 'DYNAMIC_SCHEDULE';
 
 export interface AutoPilotConfig {
   enabled: boolean;
   mode: 'PAPER' | 'LIVE';
   strategy: AutoPilotStrategy;
+  riskTolerance?: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE';
   enforceGoldenHours?: boolean;
   profitTargetPct: number;
   stopLossPct: number;
@@ -249,6 +251,7 @@ export interface ActiveAiPosition {
   targetPrice: number;
   stopLossPrice: number;
   enteredAt: number;
+  slabAmount?: number;
   holdingMinutes: number;
   timeoutMinutes: number;
   mode: 'PAPER' | 'LIVE';
@@ -277,6 +280,7 @@ export interface AiTradeLogItem {
   contractType?: string;
   strike?: number;
   expiry?: string;
+  slabAmount?: number;
   lotSize: number;
   lots: number;
   quantity: number;
@@ -378,7 +382,7 @@ export interface LiveStrategySuggestion {
 }
 
 export interface StrategyScheduleRecord {
-  strategy: 'GREEK_SNIPER' | 'GAMMA_BLAST' | 'VWAP_TRAP' | 'ORB_15M' | 'PCR_REVERSAL' | 'STANDARD' | 'EMA_9_21';
+  strategy: AutoPilotStrategy;
   name: string;
   badge: string;
   icon: string;
@@ -717,6 +721,142 @@ export async function closeActivePosition(id: string): Promise<ActiveAiPosition>
 /**
  * Retrieve permanent historical database logs of executed AI trades (strictly BUY or SELL orders)
  */
+export interface TraderOrderDetailItem {
+  id: string;
+  masterId: string;
+  orderId: string;
+  legType: string;
+  symbol: string;
+  token: string;
+  exchange: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  lots: number;
+  price: number;
+  triggerPrice?: number;
+  status: string;
+  charges?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  iv?: number;
+  executedAt: string;
+}
+
+export interface TraderOrderMasterItem {
+  id: string;
+  masterOrderId: string;
+  symbol: string;
+  underlying?: string;
+  token?: string;
+  exchange: string;
+  strategy: string;
+  action: 'BUY' | 'SELL';
+  segment: string;
+  contractType?: string;
+  strike?: number;
+  expiry?: string;
+  slabAmount?: number;
+  lotSize: number;
+  lots: number;
+  quantity: number;
+  entryPrice: number;
+  exitPrice?: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  mode: 'PAPER' | 'LIVE';
+  status: 'OPEN' | 'EXITED' | 'CANCELLED';
+  exitReason?: string;
+  pnl?: number;
+  pnlPercent?: number;
+  charges?: number;
+  netPnl?: number;
+  holdingMinutes?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  iv?: number;
+  aiThesis?: any;
+  indicators?: any;
+  enteredAt: string;
+  exitedAt?: string;
+  details?: TraderOrderDetailItem[];
+}
+
+export async function fetchTraderOrders(
+  limit = 100,
+  mode?: 'PAPER' | 'LIVE' | 'ALL'
+): Promise<{ activeScanningSlab: number; orders: TraderOrderMasterItem[] }> {
+  const query = new URLSearchParams();
+  query.set('limit', String(limit));
+  if (mode && mode !== 'ALL') {
+    query.set('mode', mode);
+  }
+  const res = await fetch(`${API_BASE}/trader-orders?${query.toString()}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch trader orders');
+  return {
+    activeScanningSlab: json.activeScanningSlab || 0,
+    orders: json.data || [],
+  };
+}
+
+export interface TradeOrderReportSummary {
+  totalOrders: number;
+  openOrders: number;
+  closedOrders: number;
+  winTrades: number;
+  lossTrades: number;
+  breakEvenTrades: number;
+  winRatePct: number;
+  grossPnL: number;
+  totalCharges: number;
+  netPnL: number;
+  maxProfit: number;
+  maxDrawdown: number;
+  avgHoldingMinutes: number;
+  profitFactor: number;
+  byStrategy: Record<string, { count: number; winRate: number; netPnl: number }>;
+  byUnderlying: Record<string, { count: number; winRate: number; netPnl: number }>;
+  bySlab: Record<string, { count: number; winRate: number; netPnl: number }>;
+}
+
+export interface TradeOrderReportFilter {
+  fromDate?: string;
+  toDate?: string;
+  mode?: 'PAPER' | 'LIVE' | 'ALL';
+  strategy?: string;
+  underlying?: string;
+  status?: 'OPEN' | 'EXITED' | 'ALL';
+}
+
+export interface TradeOrderReportResponse {
+  status: boolean;
+  message: string;
+  activeScanningSlab: number;
+  summary: TradeOrderReportSummary;
+  data: TraderOrderMasterItem[];
+  totalOrders: number;
+  filters: TradeOrderReportFilter;
+}
+
+export async function fetchTradeOrderReport(
+  filters: TradeOrderReportFilter = {}
+): Promise<TradeOrderReportResponse> {
+  const query = new URLSearchParams();
+  if (filters.fromDate) query.set('fromDate', filters.fromDate);
+  if (filters.toDate) query.set('toDate', filters.toDate);
+  if (filters.mode && filters.mode !== 'ALL') query.set('mode', filters.mode);
+  if (filters.strategy && filters.strategy !== 'ALL') query.set('strategy', filters.strategy);
+  if (filters.underlying && filters.underlying !== 'ALL') query.set('underlying', filters.underlying);
+  if (filters.status && filters.status !== 'ALL') query.set('status', filters.status);
+
+  const res = await fetch(`${API_BASE}/trade-orders/report?${query.toString()}`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch trade order report');
+  return json;
+}
+
 export async function fetchAiTradeLogs(
   limit = 100,
   action?: 'BUY' | 'SELL' | 'ALL',
@@ -1023,6 +1163,60 @@ export async function fetchOrderDetailsApi(uniqueorderid: string): Promise<Indiv
   const res = await fetch(`/api/v1/order/details/${encodeURIComponent(uniqueorderid)}`);
   const json = await res.json();
   if (!json.status) throw new Error(json.message || 'Failed to fetch order details');
+  return json.data;
+}
+
+/**
+ * Fetch Live Indian Stock Market News Headlines
+ * GET /api/v1/ai/news
+ */
+export async function fetchLiveMarketNews(): Promise<{ items: any[]; fetchedAt: string; headlineSummary: string }> {
+  const res = await fetch(`${API_BASE}/news`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch live market news');
+  return json.data;
+}
+
+/**
+ * Fetch Gemini AI Status
+ * GET /api/v1/ai/gemini/status
+ */
+export async function fetchGeminiStatus(): Promise<{
+  active: boolean;
+  model: string;
+  autonomousGateEnabled: boolean;
+  newsHeadlinesCount: number;
+  lastNewsSync: string;
+}> {
+  const res = await fetch(`${API_BASE}/gemini/status`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch Gemini status');
+  return json.data;
+}
+
+/**
+ * Fetch Gemini AI Historical Trade Post-Mortem Analysis
+ * GET /api/v1/ai/gemini/post-mortem
+ */
+export async function fetchGeminiPostMortem(): Promise<{ analysis: string; tradeCount: number; timestamp: string }> {
+  const res = await fetch(`${API_BASE}/gemini/post-mortem`);
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to fetch Gemini post-mortem');
+  return json.data;
+}
+
+/**
+ * Query Gemini AI Trading Copilot
+ * POST /api/v1/ai/gemini/copilot
+ */
+export async function queryGeminiCopilot(question: string, context?: any): Promise<{ reply: string; timestamp: string }> {
+  const res = await fetch(`${API_BASE}/gemini/copilot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, context }),
+  });
+  const json = await res.json();
+  if (!json.status) throw new Error(json.message || 'Failed to query Gemini Copilot');
   return json.data;
 }
 

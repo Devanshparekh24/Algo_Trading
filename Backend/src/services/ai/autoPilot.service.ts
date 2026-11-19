@@ -16,6 +16,7 @@ import {
   logAiErrorToDb,
   registerActiveAiPosition,
 } from "./execution.service.js";
+import { evaluateAutonomousTradeWithGemini } from "./gemini.service.js";
 import type {
   AutoPilotConfig,
   AutoPilotStrategy,
@@ -30,17 +31,18 @@ let autoPilotConfig: AutoPilotConfig = {
   enabled: false,
   mode: "PAPER",
   strategy: "GREEK_SNIPER",
-  enforceGoldenHours: true,
+  riskTolerance: "AGGRESSIVE", // Default to AGGRESSIVE so AI actively takes trades per user risk appetite
+  enforceGoldenHours: false, // Don't block trades during lunch when user wants to trade
   profitTargetPct: 25,
   stopLossPct: 12,
   thetaTimeoutMinutes: 25,
   defaultQuantity: 1,
   maxBudgetPerTrade: 15000, // ₹15,000 Slab: Strictly prevents deep ITM & high-turnover tax traps
   productType: "INTRADAY",
-  maxDailyTrades: 5,
+  maxDailyTrades: 10,
   executedToday: 0,
-  maxDailyLoss: 3000, // ₹3,000 daily loss kill-switch
-  maxOpenPositions: 3, // Max concurrent open positions
+  maxDailyLoss: 5000, // ₹5,000 daily loss kill-switch
+  maxOpenPositions: 4, // Max concurrent open positions
   confirmedLiveTrading: false,
   sessionResetAt: Date.now(),
   killSwitchTripped: false,
@@ -48,7 +50,7 @@ let autoPilotConfig: AutoPilotConfig = {
 };
 
 // Pluggable scanner function to avoid circular dependency with signals.service
-let scanUniverseFn: ((segment?: "EQUITY" | "FNO") => Promise<any>) | null = null;
+var scanUniverseFn: ((segment?: "EQUITY" | "FNO") => Promise<any>) | null = null;
 let autoPilotLoopInterval: ReturnType<typeof setInterval> | null = null;
 
 export function setScanUniverseFn(fn: (segment?: "EQUITY" | "FNO") => Promise<any>): void {
@@ -210,7 +212,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
     // Strictly mode-separated loss accounting:
     // When mode is LIVE, ONLY count real broker trades (mode: "LIVE"). Simulated paper trades never trip live broker risk!
     // When mode is PAPER, ONLY count paper trades (mode: "PAPER") exited within current session.
-    const exitedToday = await prisma.aiTradeLog.findMany({
+    const exitedToday = await prisma.tradeOrderMaster.findMany({
       where: {
         status: "EXITED",
         exitedAt: { gte: baselineDate },
@@ -280,8 +282,10 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
     return;
   }
 
-  // Golden Hours Filter: If running Greek Sniper strategy, pause triggers during lunch theta trap
-  if (autoPilotConfig.strategy === "GREEK_SNIPER" && autoPilotConfig.enforceGoldenHours !== false) {
+  const isAggressive = autoPilotConfig.riskTolerance === "AGGRESSIVE" || autoPilotConfig.mode === "PAPER";
+
+  // Golden Hours Filter: If running Greek Sniper strategy, pause triggers during lunch theta trap only when strictly enforced and not in aggressive risk mode
+  if (autoPilotConfig.strategy === "GREEK_SNIPER" && autoPilotConfig.enforceGoldenHours && !isAggressive) {
     const golden = checkGoldenHours();
     if (golden.isLunchChop) {
       console.log(`[AI Auto-Pilot] Golden Hours Filter: Paused during lunch theta trap (${golden.message})`);
@@ -289,11 +293,53 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
     }
   }
 
+  // Active Underlyings Tracking to eliminate strike spam (Max 1 strike per index)
+  const activeUnderlyings = new Set(
+    Array.from(activeAiPositions.values())
+      .filter((p) => p.status === "OPEN")
+      .map((p) =>
+        p.symbol.startsWith("BANKNIFTY")
+          ? "BANKNIFTY"
+          : p.symbol.startsWith("NIFTY")
+          ? "NIFTY"
+          : p.symbol.startsWith("FINNIFTY")
+          ? "FINNIFTY"
+          : p.symbol
+      )
+  );
+
   for (const sig of signals) {
     if (sig.status !== "ACTIVE") continue;
     if (sig.action === "HOLD") continue;
 
+    // Strict Loop-Level Guard 1: Max Open Positions Cap checked on every iteration
+    const currentOpenCount = Array.from(activeAiPositions.values()).filter((p) => p.status === "OPEN").length;
+    if (currentOpenCount >= maxOpenCap) {
+      console.log(`[AI Auto-Pilot Guard] Open positions cap reached (${currentOpenCount}/${maxOpenCap}). Halting trigger loop.`);
+      break;
+    }
+
+    // Strict Loop-Level Guard 2: Max Daily Trades Cap checked on every iteration
+    if (autoPilotConfig.executedToday >= autoPilotConfig.maxDailyTrades) {
+      console.log(`[AI Auto-Pilot Guard] Daily trade execution limit reached (${autoPilotConfig.executedToday}/${autoPilotConfig.maxDailyTrades}).`);
+      break;
+    }
+
     const isFno = sig.exchange === "NFO" || sig.segment === "FNO";
+
+    // Strict Loop-Level Guard 3: Single Active Position Per Underlying (No Multi-Strike Spam!)
+    const sigUnderlying = sig.symbol.startsWith("BANKNIFTY")
+      ? "BANKNIFTY"
+      : sig.symbol.startsWith("NIFTY")
+      ? "NIFTY"
+      : sig.symbol.startsWith("FINNIFTY")
+      ? "FINNIFTY"
+      : sig.symbol;
+
+    if (isFno && activeUnderlyings.has(sigUnderlying)) {
+      console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Already holding active trade on underlying ${sigUnderlying}.`);
+      continue;
+    }
 
     // Expiry Guard: Never execute trades on expired derivative contracts
     if (isFno && isContractExpired(sig.expiry, sig.symbol)) {
@@ -301,74 +347,111 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       continue;
     }
 
+    // Resolve effective strategy: when set to DYNAMIC_SCHEDULE, automatically synchronizes with the active market hour window
+    const effectiveStrategy =
+      autoPilotConfig.strategy === "DYNAMIC_SCHEDULE"
+        ? (getLiveStrategySuggestion().recommendedStrategy as AutoPilotStrategy)
+        : autoPilotConfig.strategy;
+
     // 1. GREEK_SNIPER Strategy Pipeline
-    if (autoPilotConfig.strategy === "GREEK_SNIPER") {
+    if (effectiveStrategy === "GREEK_SNIPER") {
       if (!isFno) continue;
-      // Strike & Premium Sweet Spot Guard: Prevent Deep ITM Tax Trap (> ₹350) and Illiquid Penny Options (< ₹15)
+      // Strike & Premium Sweet Spot Guard: Allow wide range so good setups aren't blocked
       if (sig.contractType === "CE" || sig.contractType === "PE") {
-        if (sig.currentPrice > 350) {
-          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} > ₹350 ceiling (avoids deep ITM tax drag).`);
+        const ceiling = isAggressive ? 600 : 350;
+        const floor = isAggressive ? 1.5 : 10;
+        if (sig.currentPrice > ceiling) {
+          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} > ₹${ceiling} ceiling.`);
           continue;
         }
-        if (sig.currentPrice < 15) {
-          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} < ₹15 floor (avoids illiquid penny decay).`);
+        if (sig.currentPrice < floor) {
+          console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} < ₹${floor} floor.`);
           continue;
         }
       }
       if (sig.greeks) {
-        if (sig.greeks.delta < 0.35 || sig.greeks.delta > 0.65) continue;
-        if (sig.greeks.thetaPremiumRatio > 0.25) continue;
+        const minDelta = isAggressive ? 0.15 : 0.25;
+        const maxDelta = isAggressive ? 0.88 : 0.70;
+        const maxThetaRatio = isAggressive ? 3.0 : 1.5;
+        if (sig.greeks.delta < minDelta || sig.greeks.delta > maxDelta) continue;
+        if (sig.greeks.thetaPremiumRatio > maxThetaRatio) continue;
       }
     }
     // 2. GAMMA_BLAST Strategy Pipeline (Expiry Afternoon Gamma Surge)
-    else if (autoPilotConfig.strategy === "GAMMA_BLAST") {
+    else if (effectiveStrategy === "GAMMA_BLAST") {
       if (!isFno) continue;
       // Scans for explosive options premium (affordable strikes fitting in slabs)
-      if (sig.currentPrice > 180 || sig.currentPrice < 5) continue;
+      const maxGammaPrice = isAggressive ? 250 : 180;
+      if (sig.currentPrice > maxGammaPrice || sig.currentPrice < 2) continue;
     }
     // 3. VWAP_TRAP Strategy Pipeline (Institutional Fakeout Trap & Reversal)
-    else if (autoPilotConfig.strategy === "VWAP_TRAP") {
+    else if (effectiveStrategy === "VWAP_TRAP") {
       if (!isFno) continue;
       // Counter-trend confirmation: Puts on high failure, Calls on low bounce
-      if (sig.indicators) {
-        if (sig.contractType === "PE" && sig.indicators.rsi < 35) continue;
-        if (sig.contractType === "CE" && sig.indicators.rsi > 65) continue;
+      if (sig.indicators && !isAggressive) {
+        if (sig.contractType === "PE" && sig.indicators.rsi < 30) continue;
+        if (sig.contractType === "CE" && sig.indicators.rsi > 70) continue;
       }
     }
     // 4. ORB_15M Strategy Pipeline (Opening Range Breakout Trend Follower)
-    else if (autoPilotConfig.strategy === "ORB_15M") {
-      // Requires strong momentum and trending indicators
-      if (sig.indicators && (sig.indicators.emaTrend === "NEUTRAL" && sig.indicators.macd?.trend === "NEUTRAL")) continue;
+    else if (effectiveStrategy === "ORB_15M") {
+      // Requires directional momentum
+      if (sig.indicators && !isAggressive && (sig.indicators.emaTrend === "NEUTRAL" && sig.indicators.macd?.trend === "NEUTRAL")) continue;
     }
     // 5. PCR_REVERSAL Strategy Pipeline (Sentiment Extremes Mean Reversion)
-    else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
+    else if (effectiveStrategy === "PCR_REVERSAL") {
       if (!isFno) continue;
-      // Reversal oscillator: Avoid buying Calls when overbought or Puts when oversold
-      if (sig.contractType === "CE" && sig.indicators && sig.indicators.rsi > 75) continue;
-      if (sig.contractType === "PE" && sig.indicators && sig.indicators.rsi < 25) continue;
+      if (sig.indicators && !isAggressive) {
+        if (sig.contractType === "CE" && sig.indicators.rsi > 80) continue;
+        if (sig.contractType === "PE" && sig.indicators.rsi < 20) continue;
+      }
     }
     // 6. EMA_9_21 Strategy Pipeline (NIFTY Intraday EMA Crossover)
-    else if (autoPilotConfig.strategy === "EMA_9_21") {
+    else if (effectiveStrategy === "EMA_9_21") {
       // Only trade NIFTY-based instruments for this strategy
       if (sig.underlying !== "NIFTY" && !sig.symbol.includes("NIFTY")) continue;
-      // Require real EMA crossover or strong EMA trend alignment:
-      if (sig.action === "BUY" && sig.indicators) {
+      if (sig.action === "BUY" && sig.indicators && !isAggressive) {
         const hasCross = sig.indicators.emaCrossover === "BULLISH_CROSSOVER";
         const hasTrend = sig.indicators.emaTrend === "STRONG_BULLISH" || sig.indicators.emaTrend === "BULLISH";
         if (!hasCross && !hasTrend) continue;
       }
-      if (sig.action === "SELL" && sig.indicators) {
+      if (sig.action === "SELL" && sig.indicators && !isAggressive) {
         const hasCross = sig.indicators.emaCrossover === "BEARISH_CROSSOVER";
         const hasTrend = sig.indicators.emaTrend === "STRONG_BEARISH" || sig.indicators.emaTrend === "BEARISH";
         if (!hasCross && !hasTrend) continue;
       }
-      // Price must be above EMA9 for BUY, below EMA9 for SELL
-      if (sig.action === "BUY" && sig.indicators && sig.currentPrice < sig.indicators.ema9) continue;
-      if (sig.action === "SELL" && sig.indicators && sig.currentPrice > sig.indicators.ema9) continue;
     }
 
-    // Safety Gate: Never auto-execute trades on synthetic/fallback data in LIVE broker mode
-    if (sig.isSynthetic && autoPilotConfig.mode === "LIVE") {
+    // Rule 5: Confluence & Live Data Check
+    // In AGGRESSIVE risk mode or PAPER mode, do not reject trades when live market price exists (> 0)
+    const isFlatFeed =
+      sig.currentPrice <= 0 ||
+      (sig.indicators &&
+        sig.indicators.macd?.macdLine === 0 &&
+        sig.indicators.macd?.histogram === 0 &&
+        sig.indicators.emaTrend === "NEUTRAL" &&
+        sig.indicators.rsi === 50);
+
+    if (isFlatFeed && !isAggressive) {
+      console.warn(
+        `[AI Auto-Pilot Quality Gate] Skipping ${sig.symbol}: Signal derived from flat zero-data feed.`
+      );
+      continue;
+    }
+
+    // Rule 3: Option Writing (SELL) Premium Sweet-Spot Filter (₹1.00 to ₹90.00)
+    if (sig.action === "SELL" && isFno) {
+      const maxSellPrem = isAggressive ? 90.00 : 35.00;
+      if (sig.currentPrice > maxSellPrem || sig.currentPrice < 1.00) {
+        console.log(
+          `[AI Auto-Pilot Quality] Skipping strike ${sig.symbol} (₹${sig.currentPrice}). Option writing restricted to ₹1.00–₹${maxSellPrem} sweet spot.`
+        );
+        continue;
+      }
+    }
+
+    // Safety Gate: Refuse LIVE broker execution on synthetic/fallback data only if conservative
+    if (sig.isSynthetic && autoPilotConfig.mode === "LIVE" && !isAggressive) {
       console.warn(`[AI Auto-Pilot Safety] Refusing LIVE broker execution on synthetic data for ${sig.symbol}`);
       continue;
     }
@@ -396,8 +479,83 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
     const estimatedCost = finalQty * sig.currentPrice;
 
     console.log(
-      `[AI Auto-Pilot Execution] [${autoPilotConfig.mode}] Qualifying signal: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} | Sizing: ${lots} lot(s) (${finalQty} units) | Capital: ₹${estimatedCost.toFixed(2)} | Strategy: ${autoPilotConfig.strategy}`
+      `[AI Auto-Pilot Execution] [${autoPilotConfig.mode}] Qualifying signal: ${sig.action} ${sig.symbol} @ ₹${sig.currentPrice} | Sizing: ${lots} lot(s) (${finalQty} units) | Capital: ₹${estimatedCost.toFixed(2)} | Strategy: ${autoPilotConfig.strategy} | Risk: ${autoPilotConfig.riskTolerance || "AGGRESSIVE"}`
     );
+
+    // =========================================================================
+    // Gemini Autonomous Brain: Real-time News + Past Data Decision Gate
+    // =========================================================================
+    const geminiDecision = await evaluateAutonomousTradeWithGemini(sig, {
+      strategy: autoPilotConfig.strategy,
+      mode: autoPilotConfig.mode,
+      riskTolerance: autoPilotConfig.riskTolerance || (isAggressive ? "AGGRESSIVE" : "BALANCED"),
+      lots,
+      estimatedCost,
+    });
+
+    const minAcceptableScore = isAggressive ? 48 : 65;
+    const isApprovedDecision =
+      geminiDecision.approved ||
+      geminiDecision.decision === "EXECUTE" ||
+      (isAggressive && ((geminiDecision.confidenceScore || 0) >= minAcceptableScore || (sig.confidence || 0) >= 65));
+
+    if (!isApprovedDecision) {
+      console.log(
+        `[Gemini Autonomous Decision] 🛑 REJECTED ${sig.action} ${sig.symbol} (Score: ${geminiDecision.confidenceScore}/100) | Sentiment: ${geminiDecision.marketSentiment} | Reason: ${geminiDecision.trapWarning || geminiDecision.fullThesis} | News: ${geminiDecision.newsCatalyst}`
+      );
+      broadcastSocketEvent("ai_gemini_decision", {
+        symbol: sig.symbol,
+        signalId: sig.id,
+        decision: geminiDecision.decision,
+        approved: false,
+        confidenceScore: geminiDecision.confidenceScore,
+        marketSentiment: geminiDecision.marketSentiment,
+        newsCatalyst: geminiDecision.newsCatalyst,
+        pastLessonsApplied: geminiDecision.pastLessonsApplied,
+        thesis: geminiDecision.fullThesis,
+        trapWarning: geminiDecision.trapWarning,
+        timestamp: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    console.log(
+      `[Gemini Autonomous Decision] 🚀 APPROVED ${sig.action} ${sig.symbol} (Conviction: ${geminiDecision.confidenceScore}%) | Sentiment: ${geminiDecision.marketSentiment} | News: ${geminiDecision.newsCatalyst}`
+    );
+
+    // Apply Gemini's autonomous intelligence to the signal
+    sig.confidence = Math.max(sig.confidence, geminiDecision.confidenceScore);
+    sig.aiThesis = {
+      summary: geminiDecision.fullThesis,
+      action: sig.action,
+      catalyst: geminiDecision.newsCatalyst,
+      rationale: [
+        `Live News: ${geminiDecision.newsCatalyst}`,
+        `Past Data Edge: ${geminiDecision.pastLessonsApplied}`,
+        `Market Sentiment: ${geminiDecision.marketSentiment} (Conviction: ${geminiDecision.confidenceScore}%)`,
+      ],
+      riskFactor: geminiDecision.keyRisks?.join(" | ") || "Standard market stop-loss active",
+    };
+
+    if (geminiDecision.adjustedStopLoss && geminiDecision.adjustedStopLoss > 0) {
+      sig.stopLoss = geminiDecision.adjustedStopLoss;
+    }
+    if (geminiDecision.adjustedTarget && geminiDecision.adjustedTarget > 0) {
+      sig.target1 = geminiDecision.adjustedTarget;
+    }
+
+    broadcastSocketEvent("ai_gemini_decision", {
+      symbol: sig.symbol,
+      signalId: sig.id,
+      decision: "EXECUTE",
+      approved: true,
+      confidenceScore: geminiDecision.confidenceScore,
+      marketSentiment: geminiDecision.marketSentiment,
+      newsCatalyst: geminiDecision.newsCatalyst,
+      pastLessonsApplied: geminiDecision.pastLessonsApplied,
+      thesis: geminiDecision.fullThesis,
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       const orderReq: OrderPlacementRequest = {
@@ -425,22 +583,39 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       let slPct = autoPilotConfig.stopLossPct || 12;
       let timeoutMins = autoPilotConfig.thetaTimeoutMinutes || 25;
 
-      if (autoPilotConfig.strategy === "GAMMA_BLAST") {
+      if (effectiveStrategy === "GAMMA_BLAST") {
         targetPct = Math.max(targetPct, 75);
         slPct = Math.min(slPct, 30);
-        timeoutMins = 30;
-      } else if (autoPilotConfig.strategy === "VWAP_TRAP") {
+        timeoutMins = 25;
+      } else if (effectiveStrategy === "VWAP_TRAP") {
         targetPct = Math.max(targetPct, 40);
         slPct = 18;
-      } else if (autoPilotConfig.strategy === "ORB_15M") {
-        timeoutMins = 60;
-      } else if (autoPilotConfig.strategy === "PCR_REVERSAL") {
+        timeoutMins = 25;
+      } else if (effectiveStrategy === "ORB_15M") {
+        targetPct = Math.max(targetPct, 35);
+        slPct = 18;
+        timeoutMins = 25;
+      } else if (effectiveStrategy === "PCR_REVERSAL") {
         targetPct = Math.max(targetPct, 35);
         slPct = 15;
+        timeoutMins = 25;
+      } else if (effectiveStrategy === "EMA_9_21") {
+        targetPct = Math.max(targetPct, 25);
+        slPct = 12;
+        timeoutMins = 20;
       }
 
-      const targetPrice = sig.target1 > 0 ? sig.target1 : Number((sig.currentPrice * (1 + targetPct / 100)).toFixed(2));
-      const stopLossPrice = sig.stopLoss > 0 ? sig.stopLoss : Number((sig.currentPrice * (1 - slPct / 100)).toFixed(2));
+      let targetPrice = 0;
+      let stopLossPrice = 0;
+      if (sig.action === "BUY") {
+        targetPrice = sig.target1 > 0 ? sig.target1 : Number((sig.currentPrice * (1 + targetPct / 100)).toFixed(2));
+        stopLossPrice = sig.stopLoss > 0 ? sig.stopLoss : Number((sig.currentPrice * (1 - slPct / 100)).toFixed(2));
+      } else {
+        targetPrice = sig.target1 > 0 && sig.target1 < sig.currentPrice ? sig.target1 : Number((sig.currentPrice * (1 - targetPct / 100)).toFixed(2));
+        stopLossPrice = sig.stopLoss > 0 && sig.stopLoss > sig.currentPrice ? sig.stopLoss : Number((sig.currentPrice * (1 + slPct / 100)).toFixed(2));
+      }
+
+      const dynamicRiskCap = Math.max(lots * 1200, (finalQty * sig.currentPrice * (slPct / 100)) * 1.25);
 
       const position: ActiveAiPosition = {
         id: posId,
@@ -448,7 +623,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         symbol: sig.symbol,
         token: sig.token,
         exchange: sig.exchange || (isFno ? "NFO" : "NSE"),
-        strategy: autoPilotConfig.strategy,
+        strategy: effectiveStrategy as AutoPilotStrategy,
         entryPrice: sig.currentPrice,
         currentPrice: sig.currentPrice,
         highestPrice: sig.currentPrice,
@@ -466,9 +641,14 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         pnlPercent: 0,
         greeks: sig.greeks,
         exitRetryCount: 0,
+        isBreakevenLocked: false,
+        trailingStep: 0,
+        slabAmount: autoPilotConfig.maxBudgetPerTrade || 0,
+        maxRiskRupees: dynamicRiskCap,
       };
 
       registerActiveAiPosition(position);
+      activeUnderlyings.add(sigUnderlying);
       logTradeEntryToDb(position, sig).catch(console.error);
 
       console.log(
@@ -829,22 +1009,45 @@ export async function logStrategyScheduleEvent(params: {
   suggestedBudget?: number;
 }): Promise<any> {
   try {
-    const res = await prisma.aiStrategySchedule.create({
-      data: {
-        strategy: params.strategy,
-        name: params.name,
-        startTime: params.startTime,
-        endTime: params.endTime,
-        daysActive: params.daysActive || "ALL",
-        marketCondition: params.marketCondition || "Active Schedule",
-        description: params.description || "",
-        targetProfitPct: params.targetProfitPct || 35,
-        stopLossPct: params.stopLossPct || 18,
-        suggestedBudget: params.suggestedBudget || 5000,
-        status: "ACTIVE",
-        dateTime: new Date(),
-      },
+    const existing = await prisma.aiStrategySchedule.findFirst({
+      where: { strategy: params.strategy },
     });
+    let res: any;
+    if (existing) {
+      res = await prisma.aiStrategySchedule.update({
+        where: { id: existing.id },
+        data: {
+          name: params.name,
+          startTime: params.startTime,
+          endTime: params.endTime,
+          daysActive: params.daysActive || "ALL",
+          marketCondition: params.marketCondition || "Active Schedule",
+          description: params.description || "",
+          targetProfitPct: params.targetProfitPct || 35,
+          stopLossPct: params.stopLossPct || 18,
+          suggestedBudget: params.suggestedBudget || 15000,
+          status: "ACTIVE",
+          dateTime: new Date(),
+        },
+      });
+    } else {
+      res = await prisma.aiStrategySchedule.create({
+        data: {
+          strategy: params.strategy,
+          name: params.name,
+          startTime: params.startTime,
+          endTime: params.endTime,
+          daysActive: params.daysActive || "ALL",
+          marketCondition: params.marketCondition || "Active Schedule",
+          description: params.description || "",
+          targetProfitPct: params.targetProfitPct || 35,
+          stopLossPct: params.stopLossPct || 18,
+          suggestedBudget: params.suggestedBudget || 15000,
+          status: "ACTIVE",
+          dateTime: new Date(),
+        },
+      });
+    }
     return { ...res, id: String(res.id) };
   } catch (err: any) {
     console.warn("[Database] Could not log strategy schedule event:", err?.message || err);

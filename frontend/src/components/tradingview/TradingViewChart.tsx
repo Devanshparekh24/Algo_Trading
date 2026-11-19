@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import { Maximize2, Minimize2, BarChart2, ExternalLink, Search, X, Zap, AlertTriangle } from 'lucide-react';
 import { formatINR } from '../../utils/formatters';
-import SmartApiNativeChart from './SmartApiNativeChart';
+import SmartApiNativeChart, { type ChartInterval } from './SmartApiNativeChart';
+
+export type { ChartInterval };
 
 export interface TradingViewChartProps {
   symbol?: string; // e.g. "NSE:ICICIBANK", "NSE:RELIANCE", "RELIANCE-EQ", "NSE:NIFTYBEES", "Nifty 50"
   symbolToken?: string; // e.g. "4963" for ICICI Bank
   exchange?: string; // "NSE" | "BSE"
-  interval?: '1' | '5' | '15' | '30' | '60' | 'D' | 'W';
+  interval?: ChartInterval | 'W';
   theme?: 'dark' | 'light';
   height?: number | string;
   allowSymbolChange?: boolean;
@@ -21,7 +23,7 @@ export interface TradingViewChartProps {
   underlyingPercentChange?: number;
   defaultEngine?: 'native' | 'tradingview';
   onSymbolChange?: (newSymbol: string) => void;
-  onIntervalChange?: (newInterval: '1' | '5' | '15' | '30' | '60' | 'D') => void;
+  onIntervalChange?: (newInterval: ChartInterval) => void;
 }
 
 export interface ResolvedSymbolInfo {
@@ -267,7 +269,12 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     script.async = true;
 
     const intervalMap: Record<string, string> = {
+      '5s': '1S',
+      '10s': '1S',
+      '15s': '1S',
+      '30s': '1S',
       '1': '1',
+      '3': '3',
       '5': '5',
       '15': '15',
       '30': '30',

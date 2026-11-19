@@ -9,6 +9,7 @@ import prisma from "../../config/prisma.js";
 import { getHoldings } from "../smartapi/api/holdings.js";
 import { getGainersLosersData } from "../smartapi/api/gainersLosers.js";
 import { getInstrumentLotSize } from "../smartapi/instrument.service.js";
+import { getCachedQuote } from "../smartapi/api/FullMode.js";
 import { isContractExpired, parseExpiryDate } from "../../utils/expiryUtils.js";
 import type {
   MarketSegment,
@@ -278,34 +279,60 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
       if (activeBankNiftyExpiries[0]) targetExpiries.push(activeBankNiftyExpiries[0].raw);
 
       if (targetExpiries.length > 0) {
-        const dbOptions = await prisma.instrument.findMany({
+        // Approximate spot prices to query realistic ATM/Near-OTM strikes
+        const niftyQuote = getCachedQuote("99926000") || getCachedQuote("NIFTY");
+        const bankNiftyQuote = getCachedQuote("99926009") || getCachedQuote("BANKNIFTY");
+        const niftySpot = niftyQuote?.ltp && niftyQuote.ltp > 15000 ? niftyQuote.ltp : 25400;
+        const bankNiftySpot = bankNiftyQuote?.ltp && bankNiftyQuote.ltp > 35000 ? bankNiftyQuote.ltp : 52000;
+
+        // Query strikes for active target expiries
+        const allOptions = await prisma.instrument.findMany({
           where: {
             exch_seg: "NFO",
             instrumenttype: "OPTIDX",
             name: { in: ["NIFTY", "BANKNIFTY"] },
             expiry: { in: targetExpiries },
           },
-          take: 30,
+          select: {
+            symbol: true,
+            token: true,
+            exch_seg: true,
+            name: true,
+            strike: true,
+            expiry: true,
+            lotsize: true,
+          },
         });
 
-        for (const inst of dbOptions) {
-          if (isContractExpired(inst.expiry, inst.symbol)) continue;
+        // Filter non-expired and sort by proximity to spot price (ATM & sweet-spot strikes first)
+        const sortedOptions = allOptions
+          .filter((inst) => !isContractExpired(inst.expiry, inst.symbol))
+          .map((inst) => {
+            const rawStrike = parseFloat(inst.strike);
+            const strike = isNaN(rawStrike) ? 0 : rawStrike > 100000 ? rawStrike / 100 : rawStrike;
+            const spot = inst.name === "BANKNIFTY" ? bankNiftySpot : niftySpot;
+            const distFromSpot = Math.abs(strike - spot);
+            return { inst, strike, distFromSpot };
+          })
+          .sort((a, b) => a.distFromSpot - b.distFromSpot)
+          .slice(0, 36);
+
+        for (const item of sortedOptions) {
+          const inst = item.inst;
           if (!universeMap.has(inst.token)) {
             const sym = inst.symbol;
             const isCall = sym.endsWith("CE");
             const isPut = sym.endsWith("PE");
             const contractType: ContractType = isCall ? "CE" : isPut ? "PE" : "FUT";
-            const rawStrike = parseFloat(inst.strike);
-            const strike = isNaN(rawStrike) ? undefined : rawStrike > 100000 ? rawStrike / 100 : rawStrike;
 
             universeMap.set(inst.token, {
               symbol: inst.symbol,
               token: inst.token,
               exchange: "NFO",
-              name: `${inst.name} ${strike || ""} ${contractType}`,
+              name: `${inst.name} ${item.strike || ""} ${contractType}`,
               segment: "FNO",
               contractType,
-              strike,
+              strike: item.strike,
               expiry: inst.expiry,
               lotSize: parseInt(inst.lotsize) || (await getInstrumentLotSize(sym, 1)),
               underlying: inst.name,

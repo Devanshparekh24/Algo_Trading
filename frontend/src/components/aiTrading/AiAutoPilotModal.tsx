@@ -100,6 +100,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
 
   const [localConfig, setLocalConfig] = useState<AutoPilotConfig>({
     ...config,
+    riskTolerance: config.riskTolerance || 'AGGRESSIVE',
     strategy: config.strategy || 'GREEK_SNIPER',
     profitTargetPct: config.profitTargetPct || 25,
     stopLossPct: config.stopLossPct || 12,
@@ -149,6 +150,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
   useEffect(() => {
     setLocalConfig({
       ...config,
+      riskTolerance: config.riskTolerance || 'AGGRESSIVE',
       strategy: config.strategy || 'GREEK_SNIPER',
       profitTargetPct: config.profitTargetPct || 25,
       stopLossPct: config.stopLossPct || 12,
@@ -252,6 +254,77 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               </button>
             </div>
           )}
+
+          {/* Risk Appetite & Execution Agility */}
+          <div className="space-y-2.5 bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-rose-500/10 dark:from-orange-950/30 dark:via-amber-950/30 dark:to-rose-950/30 p-3.5 border border-orange-300 dark:border-orange-500/40 rounded-xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-1.5 font-bold text-gray-900 dark:text-white">
+                <Flame className="w-4 h-4 text-orange-500 animate-pulse" />
+                <span>AI Risk Appetite &amp; Execution Agility:</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                (localConfig.riskTolerance || 'AGGRESSIVE') === 'AGGRESSIVE'
+                  ? 'bg-orange-500 text-white'
+                  : (localConfig.riskTolerance === 'BALANCED'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-emerald-600 text-white')
+              }`}>
+                {localConfig.riskTolerance || 'AGGRESSIVE'} RISK
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+              {[
+                {
+                  id: 'AGGRESSIVE' as const,
+                  label: '🔥 Aggressive',
+                  badge: 'User Mandate',
+                  desc: 'Relaxes Greek filters (Δ 0.15–0.88), accepts expiry theta, Gemini hurdle 48%. Never rejects trades defensively.',
+                  ringColor: 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-950 dark:text-orange-100 ring-1 ring-orange-500',
+                },
+                {
+                  id: 'BALANCED' as const,
+                  label: '⚖️ Balanced',
+                  badge: 'Standard',
+                  desc: 'Standard delta (0.25–0.65), moderate theta cutoff, Gemini conviction ≥ 65%. Balanced risk-reward.',
+                  ringColor: 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-950 dark:text-blue-100 ring-1 ring-blue-500',
+                },
+                {
+                  id: 'CONSERVATIVE' as const,
+                  label: '🛡️ Conservative',
+                  badge: 'Defensive',
+                  desc: 'Strict ATM only (Δ 0.35–0.50), low theta, high volume confirmation, Gemini conviction ≥ 75%.',
+                  ringColor: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 ring-1 ring-emerald-500',
+                },
+              ].map((tier) => {
+                const isSelected = (localConfig.riskTolerance || 'AGGRESSIVE') === tier.id;
+                return (
+                  <button
+                    key={tier.id}
+                    type="button"
+                    onClick={() => setLocalConfig((p) => ({ ...p, riskTolerance: tier.id }))}
+                    className={`p-2 rounded-xl text-left border transition-all ${
+                      isSelected
+                        ? tier.ringColor
+                        : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-bold text-xs">{tier.label}</span>
+                      <span className="text-[9px] px-1 py-0.2 rounded font-medium bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                        {tier.badge}
+                      </span>
+                    </div>
+                    <p className="text-[10px] leading-tight opacity-90">{tier.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-[10px] text-gray-500 dark:text-gray-400">
+              💡 <em>Active Risk Mode:</em> Aggressive mode overrides cautious halts, allowing Auto-Pilot to actively capture intraday setups.
+            </p>
+          </div>
 
           {/* Strategy Selection */}
           <div>
@@ -808,6 +881,7 @@ export const AiAutoPilotModal: React.FC<AiAutoPilotModalProps> = ({
               }
               onSave({
                 ...localConfig,
+                riskTolerance: localConfig.riskTolerance || 'AGGRESSIVE',
                 maxBudgetPerTrade: pricingMode === 'DYNAMIC' ? 0 : localConfig.maxBudgetPerTrade || 5000,
               });
               onClose();

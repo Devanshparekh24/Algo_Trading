@@ -102,12 +102,14 @@ export type AutoPilotStrategy =
   | "ORB_15M"
   | "PCR_REVERSAL"
   | "STANDARD"
-  | "EMA_9_21";
+  | "EMA_9_21"
+  | "DYNAMIC_SCHEDULE";
 
 export interface AutoPilotConfig {
   enabled: boolean;
   mode: "PAPER" | "LIVE";
   strategy: AutoPilotStrategy;
+  riskTolerance?: "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE" | undefined;
   enforceGoldenHours?: boolean | undefined;
   profitTargetPct: number;
   stopLossPct: number;
@@ -142,6 +144,7 @@ export interface ActiveAiPosition {
   targetPrice: number;
   stopLossPrice: number;
   enteredAt: number;
+  slabAmount?: number | undefined;
   holdingMinutes: number;
   timeoutMinutes: number;
   mode: "PAPER" | "LIVE";
@@ -156,6 +159,9 @@ export interface ActiveAiPosition {
   isExitPending?: boolean | undefined;
   charges?: number | undefined;
   netPnl?: number | undefined;
+  isBreakevenLocked?: boolean | undefined;
+  trailingStep?: number | undefined;
+  maxRiskRupees?: number | undefined;
 }
 
 export interface AiTradeLogItem {
@@ -170,6 +176,7 @@ export interface AiTradeLogItem {
   contractType?: string | undefined;
   strike?: number | undefined;
   expiry?: string | undefined;
+  slabAmount?: number | undefined;
   lotSize: number;
   lots: number;
   quantity: number;
@@ -234,6 +241,7 @@ export interface FnoCandidate extends ScripCandidate {
   contractType: "CE" | "PE" | "FUT";
   strike?: number | undefined;
   expiry?: string | undefined;
+  slabAmount?: number | undefined;
   lotSize: number;
   underlying: string;
 }

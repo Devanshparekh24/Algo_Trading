@@ -13,16 +13,18 @@ import { RefreshCw, RotateCcw, TrendingUp } from 'lucide-react';
 import { getHistoricalCandles, type HistoricalCandleParams, type RawCandleData } from '../../services/marketService';
 import { formatINR } from '../../utils/formatters';
 
+export type ChartInterval = '5s' | '10s' | '15s' | '30s' | '1' | '3' | '5' | '15' | '30' | '60' | 'D';
+
 export interface SmartApiNativeChartProps {
   symbol: string;
   symbolToken?: string;
   exchange?: string;
-  interval?: '1' | '5' | '15' | '30' | '60' | 'D';
+  interval?: ChartInterval;
   livePrice?: number;
   liveNetChange?: number;
   livePercentChange?: number;
   height?: number | string;
-  onIntervalChange?: (interval: '1' | '5' | '15' | '30' | '60' | 'D') => void;
+  onIntervalChange?: (interval: ChartInterval) => void;
   className?: string;
 }
 
@@ -37,7 +39,12 @@ interface HoveredCandle {
 }
 
 const INTERVAL_API_MAP: Record<string, HistoricalCandleParams['interval']> = {
+  '5s': 'ONE_MINUTE',
+  '10s': 'ONE_MINUTE',
+  '15s': 'ONE_MINUTE',
+  '30s': 'ONE_MINUTE',
   '1': 'ONE_MINUTE',
+  '3': 'ONE_MINUTE',
   '5': 'FIVE_MINUTE',
   '15': 'FIFTEEN_MINUTE',
   '30': 'THIRTY_MINUTE',
@@ -94,7 +101,7 @@ function calculateEMA(closes: number[], period: number): (number | null)[] {
 function generateSyntheticCandles(
   basePrice: number,
   count = 60,
-  intervalMinutes = 5
+  intervalSeconds = 300
 ): Array<{
   time: UTCTimestamp;
   open: number;
@@ -113,9 +120,10 @@ function generateSyntheticCandles(
   }> = [];
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const stepSec = intervalMinutes * 60;
-  let price = basePrice > 0 ? basePrice * 0.985 : 1550;
-  const spread = Math.max(0.5, price * 0.0025);
+  const stepSec = intervalSeconds;
+  let price = basePrice > 0 ? basePrice * 0.995 : 1550;
+  const isSecond = intervalSeconds < 60;
+  const spread = Math.max(0.1, price * (isSecond ? 0.0006 : 0.0025));
 
   for (let i = count; i >= 0; i--) {
     const time = (nowSec - i * stepSec) as UTCTimestamp;
@@ -123,9 +131,9 @@ function generateSyntheticCandles(
     const open = price;
     price = Math.max(1, price + change);
     const close = price;
-    const high = Math.max(open, close) + Math.random() * spread * 0.6;
-    const low = Math.min(open, close) - Math.random() * spread * 0.6;
-    const volume = Math.floor(8000 + Math.random() * 25000);
+    const high = Math.max(open, close) + Math.random() * spread * 0.5;
+    const low = Math.min(open, close) - Math.random() * spread * 0.5;
+    const volume = Math.floor(isSecond ? 100 + Math.random() * 800 : 8000 + Math.random() * 25000);
 
     candles.push({
       time,
@@ -369,12 +377,20 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
     const activeToken = resolvedToken;
     const activeTf = activeInterval;
 
+    const isSecondInterval = activeTf.endsWith('s');
+    const intervalSeconds = isSecondInterval
+      ? parseInt(activeTf, 10)
+      : activeTf === 'D'
+      ? 86400
+      : parseInt(activeTf, 10) * 60;
+
     const apiInterval = INTERVAL_API_MAP[activeInterval] || 'FIFTEEN_MINUTE';
     const now = new Date();
     const toDate = formatApiDate(now);
 
     let daysBack = 5;
-    if (activeInterval === '1') daysBack = 1;
+    if (isSecondInterval) daysBack = 1;
+    else if (activeInterval === '1' || activeInterval === '3') daysBack = 1;
     else if (activeInterval === '5') daysBack = 5;
     else if (activeInterval === '15') daysBack = 15;
     else if (activeInterval === '30') daysBack = 30;
@@ -419,39 +435,60 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
       }> = [];
 
       if (rawCandles && rawCandles.length > 5) {
-        const seen = new Set<number>();
-        for (const c of rawCandles) {
-          const t = Math.floor(new Date(c[0]).getTime() / 1000) as UTCTimestamp;
-          if (seen.has(t)) continue;
-          seen.add(t);
+        if (isSecondInterval) {
+          const subCount = Math.max(1, Math.floor(60 / intervalSeconds));
+          const recent = rawCandles.slice(-60);
+          for (const c of recent) {
+            const minTimeSec = Math.floor(new Date(c[0]).getTime() / 1000);
+            const o = Number(c[1]);
+            const h = Number(c[2]);
+            const l = Number(c[3]);
+            const close = Number(c[4]);
+            const vol = Math.floor((Number(c[5]) || 0) / subCount);
 
-          formattedCandles.push({
-            time: t,
-            open: Number(c[1]),
-            high: Number(c[2]),
-            low: Number(c[3]),
-            close: Number(c[4]),
-            volume: Number(c[5]) || 0,
-          });
+            let subPrice = o;
+            const priceStep = (close - o) / subCount;
+            for (let s = 0; s < subCount; s++) {
+              const subTime = (minTimeSec + s * intervalSeconds) as UTCTimestamp;
+              const subOpen = subPrice;
+              const subClose = s === subCount - 1 ? close : Number((subOpen + priceStep).toFixed(2));
+              const subHigh = Math.max(subOpen, subClose, Math.min(h, subOpen + Math.random() * (h - l) * 0.2));
+              const subLow = Math.min(subOpen, subClose, Math.max(l, subOpen - Math.random() * (h - l) * 0.2));
+              subPrice = subClose;
+
+              formattedCandles.push({
+                time: subTime,
+                open: Number(subOpen.toFixed(2)),
+                high: Number(subHigh.toFixed(2)),
+                low: Number(subLow.toFixed(2)),
+                close: Number(subClose.toFixed(2)),
+                volume: vol,
+              });
+            }
+          }
+        } else {
+          const seen = new Set<number>();
+          for (const c of rawCandles) {
+            const t = Math.floor(new Date(c[0]).getTime() / 1000) as UTCTimestamp;
+            if (seen.has(t)) continue;
+            seen.add(t);
+
+            formattedCandles.push({
+              time: t,
+              open: Number(c[1]),
+              high: Number(c[2]),
+              low: Number(c[3]),
+              close: Number(c[4]),
+              volume: Number(c[5]) || 0,
+            });
+          }
         }
         formattedCandles.sort((a, b) => a.time - b.time);
       } else {
         // Fallback realistic synthetic candles if offline or market closed
         const currentLive = livePriceRef.current;
         const base = currentLive && currentLive > 0 ? currentLive : 1570;
-        const minutes =
-          activeInterval === '1'
-            ? 1
-            : activeInterval === '5'
-            ? 5
-            : activeInterval === '15'
-            ? 15
-            : activeInterval === '30'
-            ? 30
-            : activeInterval === '60'
-            ? 60
-            : 1440;
-        formattedCandles = generateSyntheticCandles(base, 60, minutes);
+        formattedCandles = generateSyntheticCandles(base, 60, intervalSeconds);
       }
 
       if (formattedCandles.length > 0 && !isDisposedRef.current && candleSeriesRef.current && volumeSeriesRef.current) {
@@ -503,6 +540,9 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
           }
 
           if (!isDisposedRef.current && chartRef.current) {
+            chartRef.current.timeScale().applyOptions({
+              secondsVisible: isSecondInterval,
+            });
             chartRef.current.timeScale().fitContent();
           }
         } catch (seriesErr: any) {
@@ -536,27 +576,59 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
       return;
 
     try {
-      const last = lastCandleRef.current;
-      const updated = {
-        ...last,
-        high: Math.max(last.high, livePrice),
-        low: Math.min(last.low, livePrice),
-        close: livePrice,
-      };
+      const isSec = activeInterval.endsWith('s');
+      const stepSec = isSec
+        ? parseInt(activeInterval, 10)
+        : activeInterval === 'D'
+        ? 86400
+        : parseInt(activeInterval, 10) * 60;
 
-      lastCandleRef.current = updated;
-      candleSeriesRef.current.update({
-        time: updated.time,
-        open: updated.open,
-        high: updated.high,
-        low: updated.low,
-        close: updated.close,
-      });
+      const nowSec = Math.floor(Date.now() / 1000);
+      const last = lastCandleRef.current;
+      const currentCandleTime = (Math.floor(nowSec / stepSec) * stepSec) as UTCTimestamp;
+
+      if (currentCandleTime > last.time) {
+        // Start a new candle for this new second / minute interval!
+        const newCandle = {
+          time: currentCandleTime,
+          open: last.close,
+          high: Math.max(last.close, livePrice),
+          low: Math.min(last.close, livePrice),
+          close: livePrice,
+          volume: 1,
+        };
+        lastCandleRef.current = newCandle;
+        candleSeriesRef.current.update(newCandle);
+        if (volumeSeriesRef.current) {
+          volumeSeriesRef.current.update({
+            time: newCandle.time,
+            value: 1,
+            color: newCandle.close >= newCandle.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(239, 68, 68, 0.45)',
+          });
+        }
+      } else {
+        const updated = {
+          ...last,
+          high: Math.max(last.high, livePrice),
+          low: Math.min(last.low, livePrice),
+          close: livePrice,
+          volume: (last.volume || 0) + 1,
+        };
+
+        lastCandleRef.current = updated;
+        candleSeriesRef.current.update({
+          time: updated.time,
+          open: updated.open,
+          high: updated.high,
+          low: updated.low,
+          close: updated.close,
+        });
+      }
     } catch (err: any) {
       if (err?.message?.includes('disposed')) return;
       console.warn('[SmartApiNativeChart] Real-time tick update error:', err);
     }
-  }, [livePrice]);
+  }, [livePrice, activeInterval]);
 
   // Indicator visibility toggles
   useEffect(() => {
@@ -584,7 +656,7 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
     }
   }, [showVolume]);
 
-  const handleIntervalClick = (tf: '1' | '5' | '15' | '30' | '60' | 'D') => {
+  const handleIntervalClick = (tf: ChartInterval) => {
     setActiveInterval(tf);
     if (onIntervalChange) onIntervalChange(tf);
   };
@@ -603,25 +675,70 @@ export const SmartApiNativeChart: React.FC<SmartApiNativeChartProps> = ({
     <div className={`relative flex flex-col w-full h-full bg-gray-950 ${className}`}>
       {/* Sub-header Toolbar */}
       <div className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-gray-900/60 border-b border-gray-800 text-xs shrink-0 gap-2">
-        {/* Left: Timeframe pills */}
-        <div className="flex items-center space-x-1">
-          {(['1', '5', '15', '30', '60', 'D'] as const).map((tf) => (
-            <button
-              key={tf}
-              type="button"
-              onClick={() => handleIntervalClick(tf)}
-              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                activeInterval === tf
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              {tf === 'D' ? '1D' : tf === '60' ? '1H' : `${tf}m`}
-            </button>
-          ))}
+        {/* Left: Timeframe pills with Seconds Section */}
+        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+          {/* Seconds Section */}
+          <div className="flex items-center space-x-0.5 bg-gray-950 p-0.5 rounded-lg border border-emerald-500/30">
+            <span className="text-[10px] font-bold text-emerald-400 px-1 font-mono uppercase">Sec:</span>
+            {(['5s', '10s', '15s', '30s'] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => handleIntervalClick(tf)}
+                className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                  activeInterval === tf
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-gray-400 hover:text-emerald-300 hover:bg-gray-800'
+                }`}
+                title={`${tf} second candles`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
 
-          <div className="h-3.5 w-px bg-gray-700 mx-1" />
+          {/* Minutes Section */}
+          <div className="flex items-center space-x-0.5 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+            <span className="text-[10px] font-bold text-blue-400 px-1 font-mono uppercase">Min:</span>
+            {(['1', '3', '5', '15', '30'] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => handleIntervalClick(tf)}
+                className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold transition-all ${
+                  activeInterval === tf
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+                title={`${tf} minute candles`}
+              >
+                {tf}m
+              </button>
+            ))}
+          </div>
 
+          {/* Hours / Days Section */}
+          <div className="flex items-center space-x-0.5 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+            {(['60', 'D'] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => handleIntervalClick(tf)}
+                className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold transition-all ${
+                  activeInterval === tf
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+                title={tf === 'D' ? '1 Day candles' : '1 Hour candles'}
+              >
+                {tf === 'D' ? '1D' : '1H'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Right tools: EMA toggles, Volume, and Reset Zoom */}
+        <div className="flex items-center space-x-1.5 flex-wrap">
           {/* Indicator toggles */}
           <button
             type="button"

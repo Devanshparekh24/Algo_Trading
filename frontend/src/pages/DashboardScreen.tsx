@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowRight,
   ChevronRight,
   User,
   Zap,

@@ -11,13 +11,15 @@ import {
   Wallet,
   Activity,
   Sliders,
+  BarChart2,
 } from 'lucide-react';
 import {
   fetchAiSignals,
-  analyzeScrip,
   lookupOptionStrike,
   executeSignalOrder,
   fetchOrderHistory,
+  fetchActivePositions,
+  closeActivePosition,
   fetchAutoPilotConfig,
   updateAutoPilotConfig,
   resetAutoPilotKillSwitch,
@@ -29,7 +31,9 @@ import {
   fetchBudgetAdvice,
   fetchStrategySchedule,
   logStrategySchedule,
+  fetchLiveMarketNews,
   type TradeSignal,
+  type ActiveAiPosition,
   type AutoPilotConfig,
   type AutoPilotStrategy,
   type OrderBookItem,
@@ -50,8 +54,7 @@ import { AiTradingNavTabs, type AiTradingTab } from '../components/aiTrading/AiT
 import { AiSignalsTab } from '../components/aiTrading/AiSignalsTab';
 import { AiBudgetAllocatorTab } from '../components/aiTrading/AiBudgetAllocatorTab';
 import { AiOptionChainScannerTab } from '../components/aiTrading/AiOptionChainScannerTab';
-import { AiTradingChartTab } from '../components/aiTrading/AiTradingChartTab';
-import { AiScripAnalyzerTab, POPULAR_SCRIPS } from '../components/aiTrading/AiScripAnalyzerTab';
+import TradingViewChart from '../components/tradingview/TradingViewChart';
 import { AiOrderBookTab } from '../components/aiTrading/AiOrderBookTab';
 import { AiOrderExecutionModal } from '../components/aiTrading/AiOrderExecutionModal';
 import { AiAutoPilotModal } from '../components/aiTrading/AiAutoPilotModal';
@@ -61,12 +64,12 @@ import { useAppStore } from '../store';
 
 export const AiTradingScreen: React.FC = () => {
   const showValidationModal = useAppStore((state) => state.showValidationModal);
+  const theme = useAppStore((state) => state.theme);
   const { data: marketStatus } = useMarketStatus();
 
   // Navigation / View Tabs
   const [activeTab, setActiveTab] = useState<AiTradingTab>('signals');
   const [filterAction, setFilterAction] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
-  const [layoutMode, setLayoutMode] = useState<'STUDIO' | 'TABS'>('STUDIO');
 
   // Segment State: EQUITY (Cash) vs FNO (Futures & Options)
   const [selectedSegment, setSelectedSegment] = useState<MarketSegment>('EQUITY');
@@ -127,9 +130,8 @@ export const AiTradingScreen: React.FC = () => {
   const [fnoOptionType, setFnoOptionType] = useState<'CE' | 'PE'>('PE');
   const [isLookingUpOption, setIsLookingUpOption] = useState<boolean>(false);
 
-  // Chart Integration State
-  const [selectedChartSymbol, setSelectedChartSymbol] = useState<string>('NSE:NIFTYBEES');
-  const [chartInterval, setChartInterval] = useState<'1' | '5' | '15' | '60' | 'D'>('5');
+  // Chart Modal State
+  const [chartModalSymbol, setChartModalSymbol] = useState<string | null>(null);
 
   // Signals State
   const [signals, setSignals] = useState<TradeSignal[]>([]);
@@ -157,6 +159,8 @@ export const AiTradingScreen: React.FC = () => {
   });
   const [hudSlab, setHudSlab] = useState<number>(15000);
   const [isAutoPilotModalOpen, setIsAutoPilotModalOpen] = useState(false);
+  const [geminiDecision, setGeminiDecision] = useState<any>(null);
+  const [marketNews, setMarketNews] = useState<any[]>([]);
 
   // Live Strategy Schedule & IST Timetable State
   const [strategySuggestion, setStrategySuggestion] = useState<LiveStrategySuggestion | null>(null);
@@ -174,12 +178,7 @@ export const AiTradingScreen: React.FC = () => {
   const [isSearchingUniverse, setIsSearchingUniverse] = useState(false);
   const [universeFilter, setUniverseFilter] = useState<'ALL' | 'CUSTOM' | 'HOLDING' | 'MARKET_MOVER' | 'CORE'>('ALL');
 
-  // Deep Analyzer State
-  const [selectedScrip, setSelectedScrip] = useState(POPULAR_SCRIPS[0]);
-  const [customSymbol, setCustomSymbol] = useState('');
-  const [customToken, setCustomToken] = useState('');
-  const [analyzedSignal, setAnalyzedSignal] = useState<TradeSignal | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
 
   // 1-Click Order Execution Modal State
   const [executingSignal, setExecutingSignal] = useState<TradeSignal | null>(null);
@@ -198,6 +197,9 @@ export const AiTradingScreen: React.FC = () => {
   // Order Book State
   const [orders, setOrders] = useState<OrderBookItem[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+
+  // Active Sniper Taken Positions State
+  const [activePositions, setActivePositions] = useState<ActiveAiPosition[]>([]);
 
   // WebSocket Live Connection
   const [isLiveConnected, setIsLiveConnected] = useState(false);
@@ -238,6 +240,32 @@ export const AiTradingScreen: React.FC = () => {
       setIsLoadingOrders(false);
     }
   }, []);
+
+  const loadActivePositions = useCallback(async () => {
+    try {
+      const res = await fetchActivePositions();
+      setActivePositions(res || []);
+    } catch (err) {
+      console.warn('Could not load active sniper positions:', err);
+    }
+  }, []);
+
+  const handleCloseActivePosition = useCallback(async (posId: string) => {
+    try {
+      await closeActivePosition(posId);
+      setExecutionToast({
+        type: 'info',
+        message: 'Active sniper position closed successfully',
+      });
+      await loadActivePositions();
+      loadOrders();
+    } catch (err: any) {
+      setExecutionToast({
+        type: 'error',
+        message: err?.message || 'Failed to close position',
+      });
+    }
+  }, [loadActivePositions, loadOrders]);
 
   const loadUniverse = useCallback(async () => {
     setIsLoadingUniverse(true);
@@ -454,34 +482,45 @@ export const AiTradingScreen: React.FC = () => {
     loadSignals(false);
     loadAutoPilot();
     loadOrders();
+    loadActivePositions();
     loadUniverse();
     loadBrokerFunds();
     loadStrategySchedule();
 
+    fetchLiveMarketNews()
+      .then((data) => {
+        if (data && data.items) setMarketNews(data.items);
+      })
+      .catch((e) => console.warn('Could not load live market news:', e));
+
     const timer = setInterval(() => {
       loadStrategySchedule();
+      fetchLiveMarketNews()
+        .then((data) => {
+          if (data && data.items) setMarketNews(data.items);
+        })
+        .catch(() => {});
     }, 60000);
     return () => clearInterval(timer);
-  }, [loadSignals, loadAutoPilot, loadOrders, loadUniverse, loadBrokerFunds, loadStrategySchedule]);
+  }, [loadSignals, loadAutoPilot, loadOrders, loadActivePositions, loadUniverse, loadBrokerFunds, loadStrategySchedule]);
 
-  // Request WebSocket price update when chart symbol changes
+  // Request WebSocket price update when chart modal symbol changes
   useEffect(() => {
-    if (!selectedChartSymbol) return;
-    const clean = selectedChartSymbol
+    if (!chartModalSymbol) return;
+    const clean = chartModalSymbol
       .replace(/^NSE:/, '')
       .replace(/^BSE:/, '')
       .replace(/^NFO:/, '')
       .toUpperCase();
     const match =
       signals.find((s) => s.symbol.toUpperCase() === clean) ||
-      universe.find((u) => u.symbol.toUpperCase() === clean) ||
-      POPULAR_SCRIPS.find((p) => p.symbol.toUpperCase().startsWith(clean));
+      universe.find((u) => u.symbol.toUpperCase() === clean);
     if (match?.token) {
       requestAiPricesRefresh([
         { token: match.token, exchange: match.exchange || 'NSE' },
       ]);
     }
-  }, [selectedChartSymbol, signals, universe]);
+  }, [chartModalSymbol, signals, universe]);
 
   // Socket.IO event listeners for live prices, signals & auto-pilot executions
   useEffect(() => {
@@ -541,22 +580,6 @@ export const AiTradingScreen: React.FC = () => {
         })
       );
 
-      // Dynamically update deep analyzed signal if matching
-      setAnalyzedSignal((prev) => {
-        if (!prev) return prev;
-        const match =
-          prev.token === token ||
-          prev.symbol.toUpperCase() === sym.toUpperCase() ||
-          prev.symbol.replace(/-EQ$/, '').toUpperCase() === cleanSym;
-        if (!match) return prev;
-        return {
-          ...prev,
-          currentPrice: tick.ltp,
-          netChange: tick.change ?? prev.netChange,
-          percentChange: tick.percentChange ?? prev.percentChange,
-        };
-      });
-
       // Dynamically update budget analysis recommendations
       setBudgetAnalysis((prev) => {
         if (!prev) return prev;
@@ -599,6 +622,8 @@ export const AiTradingScreen: React.FC = () => {
         message: `[${payload.mode || 'PAPER'}] Executed ${act} ${sym}${cost} (${payload.strategy || 'AUTO'})`,
       });
       loadOrders();
+      loadActivePositions();
+
     };
 
     const handleAutoPilotStatusChanged = (payload: any) => {
@@ -614,6 +639,7 @@ export const AiTradingScreen: React.FC = () => {
         message: `Auto-Pilot: ${payload.enabled ? 'ARMED (ON)' : 'PAUSED (OFF)'} [${payload.mode} Mode] • ${payload.strategy} • ${payload.slabInfo}`,
       });
       loadOrders();
+      loadActivePositions();
     };
 
     const handleScannerActivity = (payload: any) => {
@@ -632,10 +658,18 @@ export const AiTradingScreen: React.FC = () => {
         message: `Auto-Exit [${payload.reason}]: ${payload.position?.symbol} closed (${(payload.pnl || 0) >= 0 ? '+' : ''}₹${payload.pnl || 0})`,
       });
       loadOrders();
+      loadActivePositions();
+    };
+
+    const handlePositionsUpdate = (posList: ActiveAiPosition[]) => {
+      if (Array.isArray(posList)) {
+        setActivePositions(posList);
+      }
     };
 
     const handleSignalExecuted = () => {
       loadOrders();
+      loadActivePositions();
     };
 
     const handleAutoPilotConfigUpdate = (newConfig: AutoPilotConfig) => {
@@ -671,9 +705,15 @@ export const AiTradingScreen: React.FC = () => {
       });
     };
 
+    const handleGeminiDecision = (data: any) => {
+      setGeminiDecision(data);
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('ai_signals_update', handleAiSignalsUpdate);
+    socket.on('ai_positions_update', handlePositionsUpdate);
+    socket.on('ai_position_opened', loadActivePositions);
     socket.on('ai_auto_trade_executed', handleAiAutoTradeExecuted);
     socket.on('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
     socket.on('ai_autopilot_config_update', handleAutoPilotConfigUpdate);
@@ -682,6 +722,7 @@ export const AiTradingScreen: React.FC = () => {
     socket.on('ai_scanner_activity', handleScannerActivity);
     socket.on('ai_auto_exit_executed', handleAiAutoExitExecuted);
     socket.on('ai_signal_executed', handleSignalExecuted);
+    socket.on('ai_gemini_decision', handleGeminiDecision);
     socket.on('ai_price_tick', handlePriceTick);
     socket.on('market_tick', handlePriceTick);
     socket.on('holding_tick', handlePriceTick);
@@ -695,6 +736,8 @@ export const AiTradingScreen: React.FC = () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('ai_signals_update', handleAiSignalsUpdate);
+      socket.off('ai_positions_update', handlePositionsUpdate);
+      socket.off('ai_position_opened', loadActivePositions);
       socket.off('ai_auto_trade_executed', handleAiAutoTradeExecuted);
       socket.off('ai_autopilot_status_changed', handleAutoPilotStatusChanged);
       socket.off('ai_autopilot_config_update', handleAutoPilotConfigUpdate);
@@ -703,27 +746,12 @@ export const AiTradingScreen: React.FC = () => {
       socket.off('ai_scanner_activity', handleScannerActivity);
       socket.off('ai_auto_exit_executed', handleAiAutoExitExecuted);
       socket.off('ai_signal_executed', handleSignalExecuted);
+      socket.off('ai_gemini_decision', handleGeminiDecision);
       socket.off('ai_price_tick', handlePriceTick);
       socket.off('market_tick', handlePriceTick);
       socket.off('holding_tick', handlePriceTick);
     };
-  }, [loadOrders, triggerFlash]);
-
-  // Run On-Demand Analysis
-  const handleAnalyzeScrip = async (symbol: string, token: string, exchange = 'NSE') => {
-    setIsAnalyzing(true);
-    try {
-      const res = await analyzeScrip(symbol, token, exchange);
-      setAnalyzedSignal(res);
-    } catch (err: any) {
-      setExecutionToast({
-        type: 'error',
-        message: err?.message || 'Analysis failed',
-      });
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  }, [loadOrders, loadActivePositions, triggerFlash]);
 
   // Run Option Strike Lookup & AI Analysis
   const handleLookupOption = async (
@@ -735,7 +763,6 @@ export const AiTradingScreen: React.FC = () => {
     try {
       const res = await lookupOptionStrike({ underlying, strike, optionType });
       setSignals((prev) => [res, ...prev.filter((s) => s.id !== res.id)]);
-      setAnalyzedSignal(res);
       setExecutionToast({
         type: 'success',
         message: `AI Analysis ready: ${res.symbol} (${res.action} @ ₹${res.currentPrice})`,
@@ -815,9 +842,6 @@ export const AiTradingScreen: React.FC = () => {
       setSignals((prev) =>
         prev.map((s) => (s.id === executingSignal.id ? { ...s, status: 'EXECUTED' } : s))
       );
-      if (analyzedSignal?.id === executingSignal.id) {
-        setAnalyzedSignal((prev) => (prev ? { ...prev, status: 'EXECUTED' } : null));
-      }
 
       setExecutingSignal(null);
       loadOrders();
@@ -998,26 +1022,26 @@ export const AiTradingScreen: React.FC = () => {
       {/* Toast Notification */}
       {executionToast && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 rounded-xl shadow-2xl border text-sm transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${
+          className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 rounded-2xl shadow-xl border text-sm transition-all duration-300 animate-in fade-in slide-in-from-top-4 backdrop-blur-md ${
             executionToast.type === 'success'
-              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50 backdrop-blur-md'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-200 dark:border-emerald-500/50'
               : executionToast.type === 'info'
-              ? 'bg-blue-950/90 text-blue-200 border-blue-500/50 backdrop-blur-md'
-              : 'bg-rose-950/90 text-rose-200 border-rose-500/50 backdrop-blur-md'
+              ? 'bg-blue-50 text-blue-900 border-blue-300 dark:bg-blue-950/90 dark:text-blue-200 dark:border-blue-500/50'
+              : 'bg-rose-50 text-rose-900 border-rose-300 dark:bg-rose-950/90 dark:text-rose-200 dark:border-rose-500/50'
           }`}
         >
           {executionToast.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           ) : executionToast.type === 'info' ? (
-            <Zap className="w-5 h-5 text-blue-400 shrink-0" />
+            <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
           ) : (
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
           )}
-          <span>{executionToast.message}</span>
+          <span className="font-medium">{executionToast.message}</span>
           <button
             type="button"
             onClick={() => setExecutionToast(null)}
-            className="text-gray-400 hover:text-white ml-2 transition-colors"
+            className="text-gray-400 hover:text-gray-700 dark:hover:text-white ml-2 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1034,6 +1058,7 @@ export const AiTradingScreen: React.FC = () => {
         isScanning={isScanning}
         onRefreshLivePrices={() => requestAiPricesRefresh()}
         onChangeAutoPilotMode={(mode) => handleSaveAutoPilot({ mode })}
+        onChangeRiskTolerance={(risk) => handleSaveAutoPilot({ riskTolerance: risk }, true)}
         onResetKillSwitch={async () => {
           try {
             const updated = await resetAutoPilotKillSwitch();
@@ -1057,75 +1082,75 @@ export const AiTradingScreen: React.FC = () => {
         onScanMarket={() => loadSignals(true)}
         onPauseAutoPilot={() => handleSaveAutoPilot({ enabled: false })}
         marketStatus={marketStatus}
-        layoutMode={layoutMode}
-        onToggleLayoutMode={setLayoutMode}
         activeStrategyName={strategySuggestion?.strategyName}
+        geminiDecision={geminiDecision}
+        newsHeadlines={marketNews}
       />
 
       {/* Hero AI Strategy Intelligence HUD */}
       {strategySuggestion && (
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/90 to-blue-950/40 border border-amber-500/30 p-4 sm:p-5 shadow-xl shadow-amber-500/5 transition-all">
-          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-52 h-52 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-50/90 via-orange-50/40 to-yellow-50/60 dark:from-gray-900 dark:via-gray-900/90 dark:to-blue-950/40 border border-amber-300/80 dark:border-amber-500/30 p-4 sm:p-5 shadow-md dark:shadow-xl shadow-amber-500/5 transition-all">
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-52 h-52 bg-gradient-to-br from-amber-400/20 via-orange-400/10 to-transparent dark:from-amber-500/15 dark:via-orange-500/10 rounded-full blur-3xl pointer-events-none" />
 
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
             {/* Strategy Meta & Explanation */}
             <div className="space-y-2 flex-1">
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  <Sparkles className="w-3 h-3 mr-1 fill-amber-300 text-amber-300" />
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
+                  <Sparkles className="w-3 h-3 mr-1 fill-current" />
                   Live AI Strategy Suggestion
                 </span>
 
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                     strategySuggestion.activeNow
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse'
-                      : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 animate-pulse'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300 border border-blue-300 dark:border-blue-500/30'
                   }`}
                 >
                   <Clock className="w-2.5 h-2.5 mr-1" />
                   {strategySuggestion.activeNow ? '🟢 ACTIVE NOW' : '⏳ UPCOMING'} • {strategySuggestion.timeWindowLabel}
                 </span>
 
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-gray-800 text-amber-300 border border-amber-500/30">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white dark:bg-gray-800 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-500/30 shadow-xs">
                   {strategySuggestion.expiryIndexToday}
                 </span>
 
-                <span className="text-[11px] text-gray-400 font-mono">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
                   IST: {strategySuggestion.dateTime}
                 </span>
               </div>
 
-              <div className="flex items-baseline space-x-2 flex-wrap">
-                <h3 className="text-base sm:text-xl font-black text-white flex items-center gap-2">
+              <div className="flex items-baseline space-x-2 flex-wrap gap-y-1">
+                <h3 className="text-base sm:text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
                   <span>{strategySuggestion.strategyName}</span>
-                  <span className="text-xs px-2.5 py-0.5 rounded-md bg-gray-800/90 text-amber-400 font-bold border border-gray-700">
+                  <span className="text-xs px-2.5 py-0.5 rounded-md bg-white dark:bg-gray-800/90 text-amber-800 dark:text-amber-400 font-bold border border-amber-200 dark:border-gray-700 shadow-xs">
                     {strategySuggestion.badge}
                   </span>
                 </h3>
               </div>
 
-              <p className="text-xs text-gray-300 leading-relaxed max-w-4xl">
+              <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed max-w-4xl">
                 {strategySuggestion.reason}
               </p>
 
               {/* Strategy Telemetry Chips */}
-              <div className="flex items-center space-x-3 sm:space-x-5 text-xs pt-1 flex-wrap gap-y-1.5">
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
-                  <span className="text-gray-400">Trade Sizing:</span>
-                  <span className="font-mono font-bold text-emerald-400">
+              <div className="flex items-center space-x-2 sm:space-x-4 text-xs pt-1 flex-wrap gap-y-1.5">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 shadow-xs">
+                  <span className="text-gray-500 dark:text-gray-400">Trade Sizing:</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                     {hudSlab > 0 ? `₹${hudSlab.toLocaleString('en-IN')} Slab` : 'Dynamic Lots (No Cap)'}
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
-                  <span className="text-gray-400">Target Profit:</span>
-                  <span className="font-mono font-bold text-emerald-400">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 shadow-xs">
+                  <span className="text-gray-500 dark:text-gray-400">Target Profit:</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                     +{strategySuggestion.targetProfitPct}%
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gray-950/70 border border-gray-800">
-                  <span className="text-gray-400">Stop-Loss:</span>
-                  <span className="font-mono font-bold text-rose-400">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-950/70 border border-gray-200 dark:border-gray-800 shadow-xs">
+                  <span className="text-gray-500 dark:text-gray-400">Stop-Loss:</span>
+                  <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
                     -{strategySuggestion.stopLossPct}%
                   </span>
                 </div>
@@ -1133,7 +1158,7 @@ export const AiTradingScreen: React.FC = () => {
 
               {/* Quick Investment Slab Selector Pills & Manual Input */}
               <div className="flex items-center gap-1.5 flex-wrap pt-1.5">
-                <span className="text-[11px] text-gray-400 font-semibold mr-1">Investment Slab:</span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold mr-1">Investment Slab:</span>
                 {[
                   { label: 'Dynamic Lots', val: 0 },
                   { label: '₹5,000', val: 5000 },
@@ -1147,15 +1172,15 @@ export const AiTradingScreen: React.FC = () => {
                     className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all border ${
                       hudSlab === s.val
                         ? 'bg-amber-500 text-gray-950 border-amber-400 shadow-sm'
-                        : 'bg-gray-900/90 text-gray-300 border-gray-700 hover:border-amber-400'
+                        : 'bg-white dark:bg-gray-900/90 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-amber-400 shadow-2xs'
                     }`}
                   >
                     {s.label}
                   </button>
                 ))}
 
-                <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-0.5">
-                  <span className="text-gray-400 text-[11px] font-mono mr-1">₹</span>
+                <div className="flex items-center bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-0.5 shadow-2xs">
+                  <span className="text-gray-500 dark:text-gray-400 text-[11px] font-mono mr-1">₹</span>
                   <input
                     type="number"
                     min="500"
@@ -1166,7 +1191,7 @@ export const AiTradingScreen: React.FC = () => {
                       setHudSlab(isNaN(v) ? 0 : Math.max(0, v));
                     }}
                     placeholder="Custom Slab"
-                    className="w-20 bg-transparent text-[11px] font-mono text-white focus:outline-none"
+                    className="w-20 bg-transparent text-[11px] font-mono text-gray-900 dark:text-white focus:outline-none"
                     title="Type any manual investment amount"
                   />
                 </div>
@@ -1174,7 +1199,7 @@ export const AiTradingScreen: React.FC = () => {
             </div>
 
             {/* Strategy Action Buttons */}
-            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 pt-2 lg:pt-0 flex-wrap gap-y-2">
+            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 pt-2 lg:pt-0 flex-wrap gap-y-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() =>
@@ -1185,7 +1210,7 @@ export const AiTradingScreen: React.FC = () => {
                     strategySuggestion.stopLossPct
                   )
                 }
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/25 flex items-center space-x-1.5 transition-all transform active:scale-95"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-gray-950 font-black text-xs shadow-md dark:shadow-lg shadow-amber-500/25 flex items-center justify-center space-x-1.5 transition-all transform active:scale-95"
               >
                 <Zap className="w-4 h-4 fill-current" />
                 <span>Arm Strategy ({hudSlab > 0 ? `₹${hudSlab.toLocaleString('en-IN')} Slab` : 'Dynamic Lots'})</span>
@@ -1202,20 +1227,20 @@ export const AiTradingScreen: React.FC = () => {
                   }));
                   setIsAutoPilotModalOpen(true);
                 }}
-                className="px-3.5 py-2.5 rounded-xl bg-gray-800/90 hover:bg-gray-700/90 text-gray-200 border border-gray-700 font-bold text-xs flex items-center space-x-1 transition-colors"
+                className="flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl bg-white dark:bg-gray-800/90 hover:bg-gray-100 dark:hover:bg-gray-700/90 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 font-bold text-xs flex items-center justify-center space-x-1 transition-colors shadow-2xs"
                 title="Customize lots, target %, or set optional budget cap"
               >
-                <Sliders className="w-3.5 h-3.5 text-gray-400" />
+                <Sliders className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                 <span>Customize</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsScheduleModalOpen(true)}
-                className="px-3.5 py-2.5 rounded-xl bg-gray-800/90 hover:bg-gray-700/90 text-gray-200 border border-gray-700 font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                className="flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl bg-white dark:bg-gray-800/90 hover:bg-gray-100 dark:hover:bg-gray-700/90 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors shadow-2xs"
                 title="View full strategy schedule timetable, active days & database logs"
               >
-                <Calendar className="w-4 h-4 text-blue-400" />
+                <Calendar className="w-4 h-4 text-blue-500 dark:text-blue-400" />
                 <span>Timetable & DB Logs</span>
               </button>
             </div>
@@ -1226,95 +1251,104 @@ export const AiTradingScreen: React.FC = () => {
       {/* 4-Card Quick KPI Telemetry Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         {/* KPI 1: AI Signal Flow */}
-        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-gray-400">
+        <div className="p-4 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800/80 shadow-xs dark:shadow-lg space-y-2 hover:border-gray-300 dark:hover:border-gray-700 transition-all">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold uppercase tracking-wider text-[11px]">AI Signal Flow</span>
-            <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
               <Activity className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
-            <span className="text-xl sm:text-2xl font-black text-white font-mono">
+            <span className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white font-mono">
               {signals.length}
             </span>
-            <span className="text-xs text-gray-400">Signals Detected</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Signals Detected</span>
           </div>
           <div className="flex items-center space-x-2 text-xs font-mono font-bold pt-0.5">
-            <span className="text-emerald-400">{buyCount} Longs</span>
-            <span className="text-gray-600">•</span>
-            <span className="text-rose-400">{sellCount} Shorts</span>
-            <span className="text-gray-600">•</span>
-            <span className="text-amber-400">{holdCount} Neutral</span>
+            <span className="text-emerald-600 dark:text-emerald-400">{buyCount} Longs</span>
+            <span className="text-gray-300 dark:text-gray-600">•</span>
+            <span className="text-rose-600 dark:text-rose-400">{sellCount} Shorts</span>
+            <span className="text-gray-300 dark:text-gray-600">•</span>
+            <span className="text-amber-600 dark:text-amber-400">{holdCount} Neutral</span>
           </div>
         </div>
 
         {/* KPI 2: Autonomous Engine Status */}
-        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-gray-400">
+        <div className="p-4 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800/80 shadow-xs dark:shadow-lg space-y-2 hover:border-gray-300 dark:hover:border-gray-700 transition-all">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold uppercase tracking-wider text-[11px]">Auto-Pilot Engine</span>
-            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
               <Bot className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
-            <span className={`text-xl sm:text-2xl font-black font-mono ${autoPilot.enabled ? 'text-emerald-400' : 'text-gray-400'}`}>
+            <span className={`text-xl sm:text-2xl font-black font-mono ${autoPilot.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'}`}>
               {autoPilot.enabled ? 'ACTIVE' : 'IDLE'}
             </span>
-            <span className="text-xs px-2 py-0.5 rounded-md bg-gray-800 text-gray-300 font-semibold text-[11px]">
+            <span className="text-xs px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold text-[11px] border border-gray-200 dark:border-transparent">
               {autoPilot.mode}
             </span>
           </div>
-          <div className="text-xs text-gray-400 truncate">
+          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
             {autoPilot.strategy.replace('_', ' ')} • {autoPilot.executedToday || 0}/{autoPilot.maxDailyTrades || 5} Fills Today
           </div>
         </div>
 
-        {/* KPI 3: Available Margin & Sizing */}
-        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-gray-400">
-            <span className="font-semibold uppercase tracking-wider text-[11px]">Broker Margin Cash</span>
-            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+        {/* KPI 3: Active Scanning Slab & Sizing */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800/80 shadow-xs dark:shadow-lg space-y-2 hover:border-gray-300 dark:hover:border-gray-700 transition-all">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-[11px]">Active Scanning Slab</span>
+            <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
               <Wallet className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
-            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">
-              ₹{brokerFunds ? brokerFunds.available.toLocaleString('en-IN') : '10,000'}
+            <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+              {autoPilot.maxBudgetPerTrade && autoPilot.maxBudgetPerTrade > 0
+                ? `₹${autoPilot.maxBudgetPerTrade.toLocaleString('en-IN')}`
+                : 'Dynamic (No Cap)'}
             </span>
           </div>
-          <div className="flex items-center justify-between text-xs text-gray-400 pt-0.5">
-            <span>Sizing: Dynamic Lots</span>
-            {brokerFunds && brokerFunds.available > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+            {[
+              { label: 'Dynamic', val: 0 },
+              { label: '₹5k', val: 5000 },
+              { label: '₹10k', val: 10000 },
+              { label: '₹15k', val: 15000 },
+              { label: '₹25k', val: 25000 },
+            ].map((s) => (
               <button
+                key={s.val}
                 type="button"
-                onClick={() => {
-                  setBudgetInput('5000');
-                  handleRunBudgetAnalysis(5000);
-                  setActiveTab('budget');
-                }}
-                className="text-[11px] font-bold text-blue-400 hover:text-blue-300 underline"
+                onClick={() => handleSaveAutoPilot({ maxBudgetPerTrade: s.val }, true)}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all border ${
+                  (autoPilot.maxBudgetPerTrade || 0) === s.val
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-emerald-500'
+                }`}
+                title={`Set scanning slab to ${s.label}`}
               >
-                Allocate ₹5k
+                {s.label}
               </button>
-            )}
+            ))}
           </div>
         </div>
 
         {/* KPI 4: Market Session & Expiry */}
-        <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-800/80 shadow-lg space-y-2 hover:border-gray-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-gray-400">
+        <div className="p-4 rounded-2xl bg-white dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800/80 shadow-xs dark:shadow-lg space-y-2 hover:border-gray-300 dark:hover:border-gray-700 transition-all">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold uppercase tracking-wider text-[11px]">Market Timing & Expiry</span>
-            <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <div className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
               <Clock className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
-            <span className="text-xl sm:text-2xl font-black text-purple-300 font-mono truncate">
+            <span className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-300 font-mono truncate">
               {strategySuggestion?.expiryIndexToday || 'NIFTY 50'}
             </span>
           </div>
-          <div className="text-xs text-gray-400 flex items-center space-x-1.5 truncate">
-            <span className={`w-1.5 h-1.5 rounded-full ${marketStatus?.isOpen ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center space-x-1.5 truncate">
+            <span className={`w-1.5 h-1.5 rounded-full ${marketStatus?.isOpen ? 'bg-emerald-500' : 'bg-rose-500'}`} />
             <span>{marketStatus?.isOpen ? 'Regular Trading Session' : (marketStatus?.subStatus || 'Closed')}</span>
           </div>
         </div>
@@ -1331,6 +1365,7 @@ export const AiTradingScreen: React.FC = () => {
         }}
         signalsCount={signals.length}
         ordersCount={orders.length}
+        activeSniperCount={activePositions.length}
         buyCount={buyCount}
         sellCount={sellCount}
         holdCount={holdCount}
@@ -1353,77 +1388,55 @@ export const AiTradingScreen: React.FC = () => {
           setBudgetInput(String(amount));
           handleRunBudgetAnalysis(amount);
         }}
-        layoutMode={layoutMode}
-        onToggleLayoutMode={setLayoutMode}
       />
 
-      {/* Main Content Workspace */}
-      {/* 1. Studio Split Deck (Signals on Left, Chart on Right) */}
-      {layoutMode === 'STUDIO' && activeTab === 'signals' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-in fade-in duration-200">
-          {/* Left Column: AI Signals Matrix */}
-          <div className="lg:col-span-7 xl:col-span-7 space-y-4">
-            <AiSignalsTab
-              signals={signals}
-              filteredSignals={filteredSignals}
-              selectedSegment={selectedSegment}
-              onSelectSegment={(seg) => {
-                setSelectedSegment(seg);
-                loadSignals(false, seg);
-              }}
-              filterAction={filterAction}
-              onFilterChange={setFilterAction}
-              buyCount={buyCount}
-              sellCount={sellCount}
-              lastScanTime={lastScanTime}
-              isScanning={isScanning}
-              scanError={scanError}
-              onRetryScan={() => loadSignals(true)}
-              fnoUnderlying={fnoUnderlying}
-              setFnoUnderlying={setFnoUnderlying}
-              fnoStrike={fnoStrike}
-              setFnoStrike={setFnoStrike}
-              fnoOptionType={fnoOptionType}
-              setFnoOptionType={setFnoOptionType}
-              isLookingUpOption={isLookingUpOption}
-              onLookupOption={handleLookupOption}
-              priceFlashes={priceFlashes}
-              getLiveQuote={getLiveQuote}
-              autoPilotMode={autoPilot.mode}
-              onOpenChart={(sym) => {
-                setSelectedChartSymbol(sym);
-              }}
-              onExecuteSignal={handleOpenExecuteModal}
-              onOpenBudgetAdvisor={() => {
-                setActiveTab('budget');
-                if (!budgetAnalysis && !isAnalyzingBudget) {
-                  handleRunBudgetAnalysis();
-                }
-              }}
-            />
-          </div>
-
-          {/* Right Column: Live Chart Studio & Telemetry */}
-          <div className="lg:col-span-5 xl:col-span-5 lg:sticky lg:top-4 space-y-4">
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/90 shadow-xl overflow-hidden p-1">
-              <AiTradingChartTab
-                selectedChartSymbol={selectedChartSymbol}
-                onSelectChartSymbol={setSelectedChartSymbol}
-                chartInterval={chartInterval}
-                onChangeChartInterval={setChartInterval}
-                signals={signals}
-                priceFlashes={priceFlashes}
-                getLiveQuote={getLiveQuote}
-                onExecuteSignal={handleOpenExecuteModal}
-              />
+      {/* Main Content Workspace (Tabs View Only) */}
+      <div className="animate-in fade-in duration-200">
+        {/* Tab 1: AI Signals Matrix */}
+        {activeTab === 'signals' && (
+          <div className="space-y-3">
+            {/* Active Scanning Slab Indicator & Switcher Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 border border-emerald-500/30 text-xs shadow-xs backdrop-blur-md transition-colors">
+              <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
+                <div className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center space-x-1.5 shadow-sm">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>
+                    {autoPilot.maxBudgetPerTrade && autoPilot.maxBudgetPerTrade > 0
+                      ? `Active Scanning Slab: ₹${autoPilot.maxBudgetPerTrade.toLocaleString('en-IN')}`
+                      : 'Active Scanning Slab: Dynamic Lots (No Cap)'}
+                  </span>
+                </div>
+                <span className="text-gray-600 dark:text-gray-300 text-[11px]">
+                  {autoPilot.maxBudgetPerTrade && autoPilot.maxBudgetPerTrade > 0
+                    ? `Auto-Pilot & Scanner actively sizing and filtering F&O strikes where 1 lot ≤ ₹${autoPilot.maxBudgetPerTrade.toLocaleString('en-IN')}`
+                    : 'Auto-Pilot & Scanner evaluating all ATM and OTM momentum strikes at standard market lots'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">Switch Slab:</span>
+                {[
+                  { label: 'Dynamic', val: 0 },
+                  { label: '₹5k', val: 5000 },
+                  { label: '₹10k', val: 10000 },
+                  { label: '₹15k', val: 15000 },
+                  { label: '₹25k', val: 25000 },
+                ].map((s) => (
+                  <button
+                    key={s.val}
+                    type="button"
+                    onClick={() => handleSaveAutoPilot({ maxBudgetPerTrade: s.val }, true)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold transition-all border ${
+                      (autoPilot.maxBudgetPerTrade || 0) === s.val
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                        : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-emerald-500 shadow-2xs'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
-      ) : (
-        /* 2. Full Width Dedicated Views */
-        <div className="animate-in fade-in duration-200">
-          {/* Tab 1: AI Signals Matrix (Full Width) */}
-          {activeTab === 'signals' && (
+
             <AiSignalsTab
               signals={signals}
               filteredSignals={filteredSignals}
@@ -1452,8 +1465,7 @@ export const AiTradingScreen: React.FC = () => {
               getLiveQuote={getLiveQuote}
               autoPilotMode={autoPilot.mode}
               onOpenChart={(sym) => {
-                setSelectedChartSymbol(sym);
-                setActiveTab('chart');
+                setChartModalSymbol(sym);
               }}
               onExecuteSignal={handleOpenExecuteModal}
               onOpenBudgetAdvisor={() => {
@@ -1463,7 +1475,8 @@ export const AiTradingScreen: React.FC = () => {
                 }
               }}
             />
-          )}
+          </div>
+        )}
 
           {/* Tab 2: AI Budget Trade Advisor & Capital Allocator */}
           {activeTab === 'budget' && (
@@ -1489,8 +1502,7 @@ export const AiTradingScreen: React.FC = () => {
               volatileRadarTab={volatileRadarTab}
               setVolatileRadarTab={setVolatileRadarTab}
               onOpenChart={(sym) => {
-                setSelectedChartSymbol(sym);
-                setActiveTab('chart');
+                setChartModalSymbol(sym);
               }}
               onOpenExecuteModal={handleOpenExecuteModal}
               onOpenAutoPilotModal={(customBudget) => {
@@ -1509,48 +1521,21 @@ export const AiTradingScreen: React.FC = () => {
             />
           )}
 
-          {/* Tab 4: Interactive TradingView Chart (Full Width) */}
-          {activeTab === 'chart' && (
-            <AiTradingChartTab
-              selectedChartSymbol={selectedChartSymbol}
-              onSelectChartSymbol={setSelectedChartSymbol}
-              chartInterval={chartInterval}
-              onChangeChartInterval={setChartInterval}
-              signals={signals}
-              priceFlashes={priceFlashes}
-              getLiveQuote={getLiveQuote}
-              onExecuteSignal={handleOpenExecuteModal}
-            />
-          )}
-
-          {/* Tab 4: Deep Scrip Analyzer */}
-          {activeTab === 'analyzer' && (
-            <AiScripAnalyzerTab
-              selectedScrip={selectedScrip}
-              onSelectScrip={setSelectedScrip}
-              customSymbol={customSymbol}
-              setCustomSymbol={setCustomSymbol}
-              customToken={customToken}
-              setCustomToken={setCustomToken}
-              analyzedSignal={analyzedSignal}
-              isAnalyzing={isAnalyzing}
-              onAnalyzeScrip={handleAnalyzeScrip}
-              priceFlashes={priceFlashes}
-              getLiveQuote={getLiveQuote}
-              onOpenExecuteModal={handleOpenExecuteModal}
-            />
-          )}
-
-          {/* Tab 5: Order Execution Book */}
+          {/* Tab 4: Order Execution Book */}
           {activeTab === 'orders' && (
             <AiOrderBookTab
               orders={orders}
               isLoadingOrders={isLoadingOrders}
               onRefreshOrders={loadOrders}
+              activePositions={activePositions}
+              onClosePosition={handleCloseActivePosition}
+              onRefreshPositions={loadActivePositions}
+              onOpenChart={(sym) => {
+                setChartModalSymbol(sym);
+              }}
             />
           )}
         </div>
-      )}
 
       {/* 1-Click Order Execution Modal */}
       <AiOrderExecutionModal
@@ -1608,6 +1593,39 @@ export const AiTradingScreen: React.FC = () => {
         onArmStrategy={handleArmStrategy}
         isLoading={isLoadingSchedule}
       />
+
+      {/* Interactive TradingView Chart Modal Popup */}
+      {chartModalSymbol && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl w-full max-w-6xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shrink-0 bg-gray-50/80 dark:bg-gray-950/60">
+              <div className="flex items-center space-x-2">
+                <BarChart2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="font-bold text-gray-900 dark:text-white text-base font-mono">
+                  {chartModalSymbol}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChartModalSymbol(null)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                title="Close Chart"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 p-2 bg-white dark:bg-gray-950">
+              <TradingViewChart
+                symbol={chartModalSymbol}
+                theme={theme}
+                height={620}
+                enableStudies={true}
+                showToolbar={true}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -108,6 +108,7 @@ export interface AutoPilotConfig {
   enabled: boolean;
   mode: "PAPER" | "LIVE" | "BOTH";
   strategy: AutoPilotStrategy;
+  riskTolerance?: "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE" | undefined;
   enforceGoldenHours?: boolean | undefined;
   profitTargetPct: number;
   stopLossPct: number;
@@ -139,6 +140,7 @@ export interface ActiveAiPosition {
   targetPrice: number;
   stopLossPrice: number;
   enteredAt: number;
+  slabAmount?: number | undefined;
   holdingMinutes: number;
   timeoutMinutes: number;
   mode: "PAPER" | "LIVE";
@@ -153,6 +155,9 @@ export interface ActiveAiPosition {
   isExitPending?: boolean | undefined;
   charges?: number | undefined;
   netPnl?: number | undefined;
+  isBreakevenLocked?: boolean | undefined;
+  trailingStep?: number | undefined;
+  maxRiskRupees?: number | undefined;
 }
 
 export interface AiTradeLogItem {
