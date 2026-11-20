@@ -201,8 +201,12 @@ export async function analyzeInstrument(
   }
 
   const isFnoOption = resolvedExchange === "NFO" || symbol.endsWith("CE") || symbol.endsWith("PE");
-  const defaultFallbackPrice = isFnoOption ? 45 : 1000;
-  const currentPrice = liveQuote?.ltp && liveQuote.ltp > 0 ? liveQuote.ltp : defaultFallbackPrice;
+
+  // Never invent dummy fallback prices (e.g. ₹45 or ₹1000) when market quote is absent
+  const currentPrice = liveQuote?.ltp && liveQuote.ltp > 0 ? liveQuote.ltp : 0;
+  if (currentPrice <= 0) {
+    throw new Error(`Cannot analyze ${symbol} (${resolvedToken}): No live market quote available from exchange feed.`);
+  }
   const open = liveQuote?.open || currentPrice;
   const high = liveQuote?.high || currentPrice * 1.01;
   const low = liveQuote?.low || currentPrice * 0.99;

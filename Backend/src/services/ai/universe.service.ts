@@ -221,9 +221,12 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
     }
   } else {
     // Segment === "FNO"
-    // 2. Dynamically fetch Top OI Movers for F&O
+    // 2. Dynamically fetch Top OI Movers for F&O (non-blocking fallback)
     try {
-      const oiGainersRes = await getGainersLosersData({ datatype: "PercOIGainers", expirytype: "NEAR" });
+      const oiGainersRes = await getGainersLosersData({ datatype: "PercOIGainers", expirytype: "NEAR" }).catch((e) => {
+        console.warn(`[AI Dynamic Universe] FNO OI movers fetch notice:`, e?.message || e);
+        return null;
+      });
       if (oiGainersRes?.data) {
         for (const oiItem of oiGainersRes.data.slice(0, 4)) {
           const t = String(oiItem.symbolToken);
@@ -231,7 +234,9 @@ export async function getDynamicUniverse(segment: MarketSegment = "EQUITY"): Pro
             const sym = oiItem.tradingSymbol;
             const isCall = sym.endsWith("CE");
             const isPut = sym.endsWith("PE");
-            const contractType: ContractType = isCall ? "CE" : isPut ? "PE" : "FUT";
+            // Only include true options (CE / PE) for option strategies; skip stock/index futures
+            if (!isCall && !isPut) continue;
+            const contractType: ContractType = isCall ? "CE" : "PE";
             universeMap.set(t, {
               symbol: sym,
               token: t,

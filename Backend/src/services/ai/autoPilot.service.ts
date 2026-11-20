@@ -439,6 +439,22 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       continue;
     }
 
+    // Safety Gate: Skip signals with missing or non-positive live price
+    if (!sig.currentPrice || sig.currentPrice <= 0) {
+      console.warn(
+        `[AI Auto-Pilot Quality Gate] Skipping ${sig.symbol}: Invalid live price (₹${sig.currentPrice}).`
+      );
+      continue;
+    }
+
+    // Safety Gate: Option Buying Strategies (like GAMMA_BLAST, VWAP_TRAP, GREEK_SNIPER) must not trade Stock Futures (FUT)
+    if (isFno && sig.symbol.endsWith("FUT")) {
+      console.warn(
+        `[AI Auto-Pilot Quality Gate] Skipping ${sig.symbol}: Futures contracts are excluded from option buying strategies.`
+      );
+      continue;
+    }
+
     // Rule 3: Option Writing (SELL) Premium Sweet-Spot Filter (₹1.00 to ₹90.00)
     if (sig.action === "SELL" && isFno) {
       const maxSellPrem = isAggressive ? 90.00 : 35.00;
@@ -450,9 +466,9 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       }
     }
 
-    // Safety Gate: Refuse LIVE broker execution on synthetic/fallback data only if conservative
-    if (sig.isSynthetic && autoPilotConfig.mode === "LIVE" && !isAggressive) {
-      console.warn(`[AI Auto-Pilot Safety] Refusing LIVE broker execution on synthetic data for ${sig.symbol}`);
+    // Safety Gate: Refuse LIVE broker execution on synthetic/fallback data under all circumstances
+    if ((sig.isSynthetic || sig.dataSource === "SYNTHETIC_FALLBACK") && autoPilotConfig.mode === "LIVE") {
+      console.warn(`[AI Auto-Pilot Safety] Refusing LIVE broker execution on synthetic/simulated data for ${sig.symbol}`);
       continue;
     }
 

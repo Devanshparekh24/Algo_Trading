@@ -170,6 +170,14 @@ export async function executeSignalOrder(
       throw new Error("LIVE trading requires explicit confirmation before executing real orders with Angel One.");
     }
 
+    if (signal.action === "HOLD") {
+      throw new Error(`Cannot execute trade: Signal action for ${signal.symbol} is HOLD.`);
+    }
+
+    if (!signal.currentPrice || signal.currentPrice <= 0) {
+      throw new Error(`Cannot execute trade: Signal for ${signal.symbol} has invalid price (₹${signal.currentPrice}).`);
+    }
+
     const oType = options.orderType || "MARKET";
     const price = oType === "LIMIT" ? options.limitPrice || signal.currentPrice : 0;
 
@@ -177,7 +185,7 @@ export async function executeSignalOrder(
       variety: "NORMAL",
       tradingsymbol: signal.symbol,
       symboltoken: signal.token,
-      transactiontype: signal.action === "HOLD" ? "BUY" : signal.action,
+      transactiontype: signal.action,
       exchange: signal.exchange || (isFno ? "NFO" : "NSE"),
       ordertype: oType,
       producttype: pType,
@@ -195,7 +203,7 @@ export async function executeSignalOrder(
     const slPct = options.stopLossPct || 22;
 
     // Apply realistic simulated slippage on paper trade fills (0.15% adverse slippage)
-    const actionToUse = (signal.action === "HOLD" ? "BUY" : signal.action) as "BUY" | "SELL";
+    const actionToUse = signal.action;
     const fillPrice = isPaper ? getSlippageAdjustedPrice(signal.currentPrice, actionToUse) : signal.currentPrice;
 
     const targetPrice = signal.target1 > 0 ? signal.target1 : Number((fillPrice * (1 + targetPct / 100)).toFixed(2));
@@ -972,6 +980,18 @@ export async function checkActivePositionsForExit(config?: {
     const liveLtp = quote?.ltp ?? resolvedQuote?.ltp ?? pos.currentPrice;
 
     if (liveLtp > 0) {
+      // CIRCUIT BREAKER: Price Anomaly & Corrupt Feed Guard
+      // Protects against feed glitches or instrument mismatches (e.g. quote jumping > 800% or dropping > 95% from entry)
+      if (pos.entryPrice > 0) {
+        const priceRatio = liveLtp / pos.entryPrice;
+        if (priceRatio > 8.0 || priceRatio < 0.05) {
+          console.warn(
+            `[AI Price Anomaly Circuit Breaker] Suspect price feed spike on ${pos.symbol} (Entry: ₹${pos.entryPrice}, LiveLTP: ₹${liveLtp}, Ratio: ${priceRatio.toFixed(2)}x). Skipping exit evaluation for tick to protect capital.`
+          );
+          continue;
+        }
+      }
+
       pos.currentPrice = liveLtp;
       if (liveLtp > pos.highestPrice) {
         pos.highestPrice = liveLtp;

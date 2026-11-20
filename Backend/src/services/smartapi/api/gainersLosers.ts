@@ -27,14 +27,15 @@ export interface GainersLosersResponse {
   data: RawGainerLoserItem[];
 }
 
-// In-Memory Cache for Gainers / Losers (30s TTL to prevent rate limit spikes)
+// In-Memory Cache for Gainers / Losers (120s TTL to prevent rate limit spikes)
 interface CachedGainersLosers {
   data: GainersLosersResponse;
   timestamp: number;
 }
 const cache = new Map<string, CachedGainersLosers>();
 const inFlightRequests = new Map<string, Promise<GainersLosersResponse>>();
-const CACHE_TTL_MS = 30000;
+const CACHE_TTL_MS = 120000;
+const GAINERS_LOSERS_TIMEOUT_MS = 6000; // Fast-fail timeout (6s) so auto-pilot scan loop is not blocked
 
 export async function getGainersLosersData(
   request: GainersLosersRequest
@@ -65,7 +66,10 @@ export async function getGainersLosersData(
           const url = `${BASE_URL}/rest/secure/angelbroking/marketData/v1/gainersLosers`;
           const headers = buildHeaders(config.API_KEY, jwtToken);
 
-          const response = await axios.post<GainersLosersResponse>(url, request, { headers, timeout: DEFAULT_TIMEOUT_MS });
+          const response = await axios.post<GainersLosersResponse>(url, request, {
+            headers,
+            timeout: GAINERS_LOSERS_TIMEOUT_MS,
+          });
           const { status, message, errorcode } = response.data;
 
           if (!status) {
@@ -102,6 +106,36 @@ export async function getGainersLosersData(
           ) {
             throw error;
           }
+
+          // Handle network timeouts and connection resets gracefully without throwing fatal exceptions
+          const isTimeoutOrNetwork =
+            error?.code === "ECONNABORTED" ||
+            error?.code === "ETIMEDOUT" ||
+            error?.code === "ENOTFOUND" ||
+            error?.code === "ECONNRESET" ||
+            error?.message?.toLowerCase().includes("timeout") ||
+            error?.message?.toLowerCase().includes("network error");
+
+          if (isTimeoutOrNetwork) {
+            console.warn(
+              `[SmartAPI] Gainers/Losers notice (${cacheKey}): ${error.message}. Returning fallback data.`
+            );
+            const fallbackData: GainersLosersResponse = cached
+              ? cached.data
+              : {
+                  status: false,
+                  message: `Gainers/Losers non-critical timeout: ${error.message}`,
+                  errorcode: "NETWORK_TIMEOUT",
+                  data: [],
+                };
+            // Set 60-second cooldown so subsequent auto-pilot loops do not stall waiting on slow Angel One servers
+            cache.set(cacheKey, {
+              data: fallbackData,
+              timestamp: Date.now() - (CACHE_TTL_MS - 60000),
+            });
+            return fallbackData;
+          }
+
           handleApiError(error, "gainers/losers fetch");
         }
       }, `gainersLosers_${cacheKey}`);
