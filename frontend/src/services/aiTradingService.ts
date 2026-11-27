@@ -245,6 +245,7 @@ export interface ActiveAiPosition {
   entryPrice: number;
   currentPrice: number;
   highestPrice: number;
+  peakPrice?: number;
   quantity: number;
   lots: number;
   action: 'BUY' | 'SELL';
@@ -266,6 +267,7 @@ export interface ActiveAiPosition {
   isExitPending?: boolean;
   charges?: number;
   netPnl?: number;
+  indicators?: TechnicalIndicators;
 }
 
 export interface AiTradeLogItem {
@@ -286,6 +288,7 @@ export interface AiTradeLogItem {
   quantity: number;
   entryPrice: number;
   exitPrice?: number;
+  peakPrice?: number;
   targetPrice?: number;
   stopLossPrice?: number;
   mode: 'PAPER' | 'LIVE';
@@ -762,6 +765,7 @@ export interface TraderOrderMasterItem {
   quantity: number;
   entryPrice: number;
   exitPrice?: number;
+  peakPrice?: number;
   targetPrice?: number;
   stopLossPrice?: number;
   mode: 'PAPER' | 'LIVE';

@@ -316,10 +316,12 @@ export async function analyzeInstrument(
   const avgVol = calculateSMA(volumes, volumes.length) || 1;
   const volumeRatio = Number((lastVol / avgVol).toFixed(2));
 
-  // Support & Resistance (Classic Pivots)
+  // Support & Resistance (Classic Pivots R1, R2, S1, S2)
   const pivot = (high + low + close) / 3;
   const supportLevel = Number((2 * pivot - high).toFixed(2));
   const resistanceLevel = Number((2 * pivot - low).toFixed(2));
+  const r2Level = Number((pivot + (high - low)).toFixed(2));
+  const s2Level = Number((pivot - (high - low)).toFixed(2));
 
   // Determine RSI State
   let rsiSignal: TechnicalIndicators["rsiSignal"] = "NEUTRAL";
@@ -449,26 +451,58 @@ export async function analyzeInstrument(
     rationaleList.push("Mixed technical indicators; sideways consolidation favored over directional bias.");
   }
 
-  // Calculated Targets & Dynamic ATR Stop-Loss
+  // Calculated Targets & Dynamic ATR Stop-Loss derived from Market Analysis
   const dynamicRisk = Math.max(atr * 1.4, currentPrice * 0.012);
   let stopLoss = 0;
   let target1 = 0;
   let target2 = 0;
 
+  // Market Momentum Multiplier derived from technical indicators:
+  // - High volume breakout (volumeRatio > 1.4) + Strong EMA + Bullish RSI momentum -> higher reward multiple
+  // - Choppy/neutral indicators -> conservative multiple to lock in profit before reversal
+  let marketMomentumMultiplier = 1.8;
+  if (emaTrend === "STRONG_BULLISH" && rsiSignal === "BULLISH_MOMENTUM" && volumeRatio > 1.4) {
+    marketMomentumMultiplier = 2.6; // High-velocity market breakout
+  } else if (emaTrend === "BULLISH" || rsi > 55) {
+    marketMomentumMultiplier = 2.1; // Moderate trending market
+  } else if (volumeRatio < 0.9 || emaTrend === "NEUTRAL") {
+    marketMomentumMultiplier = 1.4; // Low-velocity consolidation
+  }
+
   if (action === "BUY") {
-    const rawSL = currentPrice - dynamicRisk;
+    // 1. Dynamic Stop-Loss based on Support / ATR
+    const rawSL = supportLevel > 0 && supportLevel < currentPrice && (currentPrice - supportLevel) <= dynamicRisk * 1.5
+      ? supportLevel
+      : currentPrice - dynamicRisk;
     stopLoss = rawSL <= 0 ? Number((currentPrice * 0.70).toFixed(2)) : Number(rawSL.toFixed(2));
     if (stopLoss <= 0) stopLoss = 0.05;
-    target1 = Number((currentPrice + dynamicRisk * 1.8).toFixed(2));
-    target2 = Number((currentPrice + dynamicRisk * 3.2).toFixed(2));
+
+    // 2. Primary Market Target (Target 1):
+    // If structural Pivot Resistance R1 is above current price, align Target 1 with R1,
+    // otherwise project via ATR dynamic momentum expansion.
+    const atrTarget1 = currentPrice + dynamicRisk * marketMomentumMultiplier;
+    if (resistanceLevel > currentPrice && (resistanceLevel - currentPrice) >= dynamicRisk * 1.2) {
+      target1 = Number(Math.min(resistanceLevel, atrTarget1 * 1.15).toFixed(2));
+    } else {
+      const bbTarget = bb.upper > currentPrice ? bb.upper : atrTarget1;
+      target1 = Number(Math.max(atrTarget1, bbTarget * 0.98).toFixed(2));
+    }
+
+    // 3. Secondary Runner Target (Target 2):
+    // Targets R2 breakout extension or extended ATR runner
+    const atrTarget2 = currentPrice + dynamicRisk * (marketMomentumMultiplier + 1.2);
+    if (r2Level > target1) {
+      target2 = Number(Math.max(r2Level, atrTarget2).toFixed(2));
+    } else {
+      target2 = Number(atrTarget2.toFixed(2));
+    }
   } else if (action === "SELL") {
     // For Option Selling (FNO PE/CE), cap adverse premium rise to prevent catastrophic drawdowns
-    // For an index lot (qty 65/30), an adverse move is capped to maintain a max ~₹150-₹200 risk per lot
     const isOptionWriting = exchange === "NFO" || symbol.endsWith("CE") || symbol.endsWith("PE");
     const cappedRisk = isOptionWriting ? Math.min(dynamicRisk, Math.max(1.2, currentPrice * 0.20)) : dynamicRisk;
     stopLoss = Number((currentPrice + cappedRisk).toFixed(2));
-    const rawT1 = currentPrice - cappedRisk * 1.5;
-    const rawT2 = currentPrice - cappedRisk * 2.5;
+    const rawT1 = supportLevel > 0 && supportLevel < currentPrice ? supportLevel : currentPrice - cappedRisk * 1.5;
+    const rawT2 = s2Level > 0 && s2Level < rawT1 ? s2Level : currentPrice - cappedRisk * 2.5;
     target1 = rawT1 <= 0 ? Number((currentPrice * 0.60).toFixed(2)) : Number(rawT1.toFixed(2));
     target2 = rawT2 <= 0 ? Number((currentPrice * 0.35).toFixed(2)) : Number(rawT2.toFixed(2));
     if (target1 <= 0) target1 = 0.05;

@@ -34,6 +34,24 @@ export function setQuoteResolver(fn: (token: string, symbol: string) => { ltp?: 
   quoteResolver = fn;
 }
 
+// 30-Minute Strike Cooldown Store to eliminate revenge re-entries on stopped-out strikes
+const strikeCooldownMap = new Map<string, number>();
+
+export function addStrikeCooldown(tokenOrSymbol: string, durationMs = 30 * 60 * 1000): void {
+  strikeCooldownMap.set(tokenOrSymbol, Date.now() + durationMs);
+  console.log(`[AI Strike Cooldown] Blacklisted ${tokenOrSymbol} from re-entry for ${(durationMs / 60000).toFixed(0)} minutes.`);
+}
+
+export function isStrikeInCooldown(tokenOrSymbol: string): boolean {
+  const expiry = strikeCooldownMap.get(tokenOrSymbol);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    strikeCooldownMap.delete(tokenOrSymbol);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Server Restart Recovery & Position Persistence:
  * Reloads all OPEN trades from PostgreSQL TradeOrderMaster into activeAiPositions map,
@@ -63,7 +81,8 @@ export async function loadPersistedOpenPositions(): Promise<number> {
         strategy: (log.strategy as AutoPilotStrategy) || (isFno ? "GREEK_SNIPER" : "STANDARD"),
         entryPrice: log.entryPrice,
         currentPrice: log.exitPrice || log.entryPrice,
-        highestPrice: log.entryPrice,
+        highestPrice: (log as any).peakPrice || log.entryPrice,
+        peakPrice: (log as any).peakPrice || log.entryPrice,
         quantity: log.quantity,
         lots: log.lots,
         action: (log.action === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
@@ -219,6 +238,7 @@ export async function executeSignalOrder(
       entryPrice: fillPrice,
       currentPrice: fillPrice,
       highestPrice: fillPrice,
+      peakPrice: fillPrice,
       quantity: finalQty,
       lots: isFno ? Math.max(1, Math.round(finalQty / lotSize)) : 1,
       action: actionToUse,
@@ -236,6 +256,7 @@ export async function executeSignalOrder(
       isBreakevenLocked: false,
       trailingStep: 0,
       maxRiskRupees: (isFno ? Math.max(1, Math.round(finalQty / lotSize)) : 1) * 180,
+      indicators: signal.indicators,
     };
 
     activeAiPositions.set(posId, position);
@@ -370,6 +391,7 @@ export async function logTradeEntryToDb(
         lots: position.lots,
         quantity: position.quantity,
         entryPrice: position.entryPrice,
+        peakPrice: position.peakPrice || position.highestPrice || position.entryPrice,
         targetPrice: position.targetPrice,
         stopLossPrice: position.stopLossPrice,
         mode: position.mode,
@@ -440,6 +462,9 @@ export async function logTradeExitToDb(
       where: { masterOrderId: position.orderId },
       data: {
         exitPrice: position.currentPrice,
+        peakPrice: position.peakPrice || position.highestPrice || position.currentPrice,
+        targetPrice: position.targetPrice,
+        stopLossPrice: position.stopLossPrice,
         status: "EXITED",
         exitReason: reason,
         pnl: position.pnl,
@@ -450,6 +475,14 @@ export async function logTradeExitToDb(
         exitedAt: new Date(),
       },
     });
+
+    // Strike Cooldown: On STOP_LOSS exit, add strike to 30-minute cooldown
+    if (reason === "STOP_LOSS") {
+      addStrikeCooldown(position.symbol);
+      if (position.token) {
+        addStrikeCooldown(position.token);
+      }
+    }
 
     // 2. Insert Exit Leg into TradeOrderDetail
     await prisma.tradeOrderDetail.create({
@@ -993,6 +1026,9 @@ export async function checkActivePositionsForExit(config?: {
       }
 
       pos.currentPrice = liveLtp;
+      if (!pos.peakPrice || liveLtp > pos.peakPrice) {
+        pos.peakPrice = liveLtp;
+      }
       if (liveLtp > pos.highestPrice) {
         pos.highestPrice = liveLtp;
       }
@@ -1074,6 +1110,60 @@ export async function checkActivePositionsForExit(config?: {
       console.log(
         `[AI Profit Lock] Trailed stop-loss to lock +20% for ${pos.symbol} @ ₹${pos.stopLossPrice} (Net gain: +${pos.pnlPercent}%)`
       );
+    }
+
+    // Peak Gain Metric
+    const currentPeak = pos.peakPrice || pos.highestPrice || pos.currentPrice;
+    const peakGainPct =
+      pos.entryPrice > 0 && currentPeak > 0
+        ? pos.action === "BUY"
+          ? ((currentPeak - pos.entryPrice) / pos.entryPrice) * 100
+          : ((pos.entryPrice - currentPeak) / pos.entryPrice) * 100
+        : 0;
+
+    // Dynamic Market-Based Target Updating:
+    // 1. Live Market Structure Target Adaptation:
+    // If the trade was targeting Pivot Resistance R1, and market price successfully breaks out above R1,
+    // dynamically elevate target to R2 / Breakout Extension to let the breakout run!
+    if (pos.action === "BUY" && pos.indicators?.resistanceLevel) {
+      const r1 = pos.indicators.resistanceLevel;
+      if (liveLtp >= r1 && pos.targetPrice <= r1) {
+        const r2Target = Number((r1 + Math.max(15, pos.entryPrice * 0.30)).toFixed(2));
+        if (r2Target > pos.targetPrice) {
+          pos.targetPrice = r2Target;
+          console.log(`[AI Dynamic Market Target] ${pos.symbol} broke Pivot Resistance ₹${r1}! Dynamically expanding target to R2 extension ₹${pos.targetPrice}`);
+        }
+      }
+    }
+
+    // 2. As market momentum pushes the option into runner territory, dynamically ratchet target upwards
+    if (pos.action === "BUY" && peakGainPct >= 20) {
+      const runnerTarget50 = Number((pos.entryPrice * 1.50).toFixed(2));
+      const runnerTarget75 = Number((pos.entryPrice * 1.75).toFixed(2));
+      const runnerTarget100 = Number((pos.entryPrice * 2.00).toFixed(2));
+
+      if (peakGainPct >= 50 && pos.targetPrice < runnerTarget100) {
+        pos.targetPrice = runnerTarget100;
+        console.log(`[AI Dynamic Target] Ratcheted target for ${pos.symbol} to +100% (₹${pos.targetPrice}) based on super-runner peak ₹${currentPeak} (+${peakGainPct.toFixed(1)}%)`);
+      } else if (peakGainPct >= 35 && pos.targetPrice < runnerTarget75) {
+        pos.targetPrice = runnerTarget75;
+        console.log(`[AI Dynamic Target] Ratcheted target for ${pos.symbol} to +75% (₹${pos.targetPrice}) based on runner peak ₹${currentPeak} (+${peakGainPct.toFixed(1)}%)`);
+      } else if (peakGainPct >= 20 && pos.targetPrice < runnerTarget50) {
+        pos.targetPrice = runnerTarget50;
+        console.log(`[AI Dynamic Target] Ratcheted target for ${pos.symbol} to +50% (₹${pos.targetPrice}) based on momentum peak ₹${currentPeak} (+${peakGainPct.toFixed(1)}%)`);
+      }
+    }
+
+    // Dynamic Chandelier Peak Reversal Protection:
+    // If trade reached >= +18% peak gain, but subsequently drops >= 10% from its peak price while net profit is still >= +8%,
+    // trigger immediate exit to lock in banked gains instead of letting profits bleed back to breakeven or stop-loss.
+    if (!shouldExit && pos.action === "BUY" && peakGainPct >= 18 && (pos.pnlPercent || 0) >= 8 && currentPeak > 0) {
+      const dropFromPeakPct = ((currentPeak - liveLtp) / currentPeak) * 100;
+      if (dropFromPeakPct >= 10) {
+        shouldExit = true;
+        reason = "TARGET";
+        exitMessage = `Dynamic Chandelier Peak Exit: Reached peak ₹${currentPeak} (+${peakGainPct.toFixed(1)}%), pulled back -${dropFromPeakPct.toFixed(1)}% to ₹${liveLtp}. Secured +${pos.pnlPercent}% net profit.`;
+      }
     }
 
     // Rule 2: Hard Rupee Loss Cap (Strictly max ₹150–₹180 risk per lot)

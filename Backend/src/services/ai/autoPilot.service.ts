@@ -15,6 +15,7 @@ import {
   logTradeEntryToDb,
   logAiErrorToDb,
   registerActiveAiPosition,
+  isStrikeInCooldown,
 } from "./execution.service.js";
 import { evaluateAutonomousTradeWithGemini } from "./gemini.service.js";
 import type {
@@ -341,6 +342,12 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       continue;
     }
 
+    // Strict Loop-Level Guard 4: Strike Cooldown (No revenge trading on stopped-out strikes for 30 mins)
+    if (isStrikeInCooldown(sig.token) || isStrikeInCooldown(sig.symbol)) {
+      console.log(`[AI Auto-Pilot Guard] Skipping ${sig.symbol}: Strike is in 30-min cooldown after stop-loss.`);
+      continue;
+    }
+
     // Expiry Guard: Never execute trades on expired derivative contracts
     if (isFno && isContractExpired(sig.expiry, sig.symbol)) {
       console.warn(`[AI Auto-Pilot Guard] Refusing trade on expired contract: ${sig.symbol} (${sig.expiry || "unknown"})`);
@@ -352,6 +359,36 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
       autoPilotConfig.strategy === "DYNAMIC_SCHEDULE"
         ? (getLiveStrategySuggestion().recommendedStrategy as AutoPilotStrategy)
         : autoPilotConfig.strategy;
+
+    // Performance Audit Guard 1: Restrict ORB_15M, VWAP_TRAP, and GAMMA_BLAST to BANKNIFTY
+    // (Historical data proves BANKNIFTY is +₹2,508.80 / 58.8% win rate, while NIFTY chops at 18.2% win rate)
+    if (
+      (effectiveStrategy === "VWAP_TRAP" || effectiveStrategy === "GAMMA_BLAST" || effectiveStrategy === "ORB_15M") &&
+      sigUnderlying === "NIFTY"
+    ) {
+      console.log(
+        `[AI Auto-Pilot Audit Guard] Skipping ${sig.symbol}: Strategy ${effectiveStrategy} is restricted to BANKNIFTY (NIFTY option buying exhibits negative expectancy).`
+      );
+      continue;
+    }
+
+    // Performance Audit Guard 2: Minimum ₹25 Floor on ORB_15M
+    // Eliminates penny option noise where ₹9-₹15 options trigger false 18% stop losses on minor tick spread
+    if (effectiveStrategy === "ORB_15M" && sig.currentPrice < 25) {
+      console.log(
+        `[AI Auto-Pilot Audit Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} is below the ₹25 minimum floor for ORB_15M.`
+      );
+      continue;
+    }
+
+    // Performance Audit Guard 3: Maximum ₹160 Ceiling on EMA_9_21
+    // Prevents buying deep-ITM options (> ₹160) which caused 57% of total portfolio losses
+    if (effectiveStrategy === "EMA_9_21" && sig.currentPrice > 160) {
+      console.log(
+        `[AI Auto-Pilot Audit Guard] Skipping ${sig.symbol}: Premium ₹${sig.currentPrice} exceeds the ₹160 ceiling for EMA_9_21.`
+      );
+      continue;
+    }
 
     // 1. GREEK_SNIPER Strategy Pipeline
     if (effectiveStrategy === "GREEK_SNIPER") {
@@ -643,6 +680,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         entryPrice: sig.currentPrice,
         currentPrice: sig.currentPrice,
         highestPrice: sig.currentPrice,
+        peakPrice: sig.currentPrice,
         quantity: finalQty,
         lots,
         action: sig.action === "SELL" ? "SELL" : "BUY",
@@ -661,6 +699,7 @@ export async function evaluateAutoPilotTriggers(signals: TradeSignal[]): Promise
         trailingStep: 0,
         slabAmount: autoPilotConfig.maxBudgetPerTrade || 0,
         maxRiskRupees: dynamicRiskCap,
+        indicators: sig.indicators,
       };
 
       registerActiveAiPosition(position);

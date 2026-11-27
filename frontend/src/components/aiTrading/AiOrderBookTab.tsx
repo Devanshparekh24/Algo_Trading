@@ -841,7 +841,7 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
                         <div className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800">
                           <span className="text-[10px] text-gray-500 block">Peak Price</span>
                           <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
-                            ₹{pos.highestPrice}
+                            ₹{(pos.peakPrice || pos.highestPrice || pos.currentPrice || 0).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1664,6 +1664,11 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
                             <div className="text-[10px] text-gray-500 dark:text-gray-400">
                               T: ₹{order.targetPrice?.toFixed(2) || '—'} • SL: ₹{order.stopLossPrice?.toFixed(2) || '—'}
                             </div>
+                            {order.peakPrice !== undefined && order.peakPrice > 0 && (
+                              <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                                Peak: ₹{order.peakPrice.toFixed(2)}
+                              </div>
+                            )}
                           </td>
 
                           <td className="px-4 py-3 text-center">
@@ -2315,6 +2320,9 @@ export const AiOrderBookTab: React.FC<AiOrderBookTabProps> = ({
                 <div className="flex items-center gap-2.5 flex-wrap font-mono text-[11px]">
                   <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
                     🎯 Target: <strong>₹{chartModalPos.targetPrice}</strong> {tgtDist && `(${tgtDist}% away)`}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
+                    🏔️ Peak: <strong>₹{(chartModalPos.peakPrice || chartModalPos.highestPrice || chartModalPos.entryPrice || 0).toFixed(2)}</strong>
                   </span>
                   <span className="px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-500/30">
                     🛡️ SL: <strong>₹{chartModalPos.stopLossPrice}</strong> {slDist && `(${slDist}% cushion)`}

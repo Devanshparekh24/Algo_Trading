@@ -138,6 +138,7 @@ export interface ActiveAiPosition {
   entryPrice: number;
   currentPrice: number;
   highestPrice: number;
+  peakPrice?: number | undefined;
   quantity: number;
   lots: number;
   action: "BUY" | "SELL";
@@ -162,6 +163,7 @@ export interface ActiveAiPosition {
   isBreakevenLocked?: boolean | undefined;
   trailingStep?: number | undefined;
   maxRiskRupees?: number | undefined;
+  indicators?: TechnicalIndicators | undefined;
 }
 
 export interface AiTradeLogItem {
@@ -182,6 +184,7 @@ export interface AiTradeLogItem {
   quantity: number;
   entryPrice: number;
   exitPrice?: number | undefined;
+  peakPrice?: number | undefined;
   targetPrice?: number | undefined;
   stopLossPrice?: number | undefined;
   mode: "PAPER" | "LIVE";

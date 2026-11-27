@@ -48,6 +48,7 @@ model TradeOrderMaster {
   quantity        Int                @default(1)
   entryPrice      Float
   exitPrice       Float?
+  peakPrice       Float?             @default(0) // Peak price reached during active position
   targetPrice     Float?
   stopLossPrice   Float?
   mode            String             @default("PAPER") // PAPER, LIVE
